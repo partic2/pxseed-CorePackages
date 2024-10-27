@@ -1,0 +1,15 @@
+{
+  "loaders": [
+    {
+      "name": "typescript"
+    }
+  ],
+  "name": "partic2/JsNotebook",
+  "options":{
+    "partic2/packageManager/registry":{
+      "webui":{
+        "entry":"partic2/JsNotebook/index"
+      }
+    }
+  }
+}

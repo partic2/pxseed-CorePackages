@@ -1,0 +1,14 @@
+{
+  "loaders": [
+    {
+      "name": "typescript"
+    },
+    {
+      "name": "copyFiles",
+      "include": [
+        "./icons/**/*","./sound/**/*"
+      ]
+    }
+  ],
+  "name": "partic2/pxseedMedia1"
+}

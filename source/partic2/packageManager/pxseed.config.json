@@ -1,0 +1,12 @@
+{
+  "loaders": [
+    {
+      "name":"nodeNpm",
+      "install":["simple-git"]
+    },
+    {
+      "name": "typescript"
+    }
+  ],
+  "name": "partic2/packageManager"
+}
