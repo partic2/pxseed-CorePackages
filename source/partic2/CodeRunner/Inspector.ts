@@ -86,7 +86,12 @@ export function toSerializableObject(v:any,opt:typeof DefaultSerializingOption):
         }else if(v instanceof Date){
             return {[serializingEscapeMark]:'date',time:v.getTime()};
         }else if(v instanceof TypedArray){
-            return {[serializingEscapeMark]:v.constructor.name,
+            let typename=v.constructor.name
+            if(typename=='Buffer'){
+                //For node
+                typename='Uint8Array'
+            }
+            return {[serializingEscapeMark]:typename,
                 value:ArrayBufferToBase64(new Uint8Array(v.buffer,v.byteOffset,v.length*v.BYTES_PER_ELEMENT))
             }
         }else if(v instanceof ArrayBuffer){
@@ -334,11 +339,15 @@ export function fromSerializableObject(v:any,opt:{
                 };
                 case 'RemoteReference':{
                     let t1=opt.referenceGlobal;
-                    for(let k1 of v.accessPath as (string|number)[]){
-                        if(t1==undefined)break;
-                        t1=t1[k1];
+                    if(t1==undefined){
+                        return new RemoteReference(v.accessPath);
+                    }else{
+                        for(let k1 of v.accessPath as (string|number)[]){
+                            if(t1==undefined)break;
+                            t1=t1[k1];
+                        }
+                        return t1;
                     }
-                    return t1;
                 }
             }
         }else{

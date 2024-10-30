@@ -6,7 +6,7 @@ import { requirejs } from 'partic2/jsutils1/base';
 import * as jsutils1 from 'partic2/jsutils1/base'
 import { text2html } from 'partic2/pComponentUi/utils';
 import { installedRequirejsResourceProvider } from './JsEnviron';
-import { inspectCodeContextVariable, toSerializableObject, fromSerializableObject, IInteractiveCodeShell, CodeContextRemoteObjectFetcher} from './Inspector';
+import { inspectCodeContextVariable, toSerializableObject, fromSerializableObject, IInteractiveCodeShell, CodeContextRemoteObjectFetcher, RemoteReference} from './Inspector';
 
 acorn.defaultOptions.allowAwaitOutsideFunction=true;
 acorn.defaultOptions.ecmaVersion='latest';
@@ -522,9 +522,16 @@ export class CodeContextShell extends InteractiveCodeShellBase{
         let result=await this.codeContext.runCode(code,nextResult);
         if(result.err==null){
             try{
-                return await this.inspectObject([nextResult]);
+                let returnObject=await this.inspectObject([nextResult]);
+                if(returnObject instanceof RemoteReference){
+                    returnObject.accessPath=[nextResult]
+                    nextResult='';
+                }
+                return returnObject;
             }finally{
-                await this.codeContext.runCode(`delete _ENV.${nextResult}`)
+                if(nextResult!=''){
+                    await this.codeContext.runCode(`delete _ENV.${nextResult}`)
+                }
             }
         }else{
             throw new Error(result.err.message+'\n'+(result.err.stack??''));
