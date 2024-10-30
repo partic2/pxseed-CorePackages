@@ -2,6 +2,12 @@
   "loaders": [
     {
       "name": "typescript"
+    },{
+      "name":"rollup",
+      "entryModules":[
+        "acorn",
+        "acorn-walk"
+      ]
     }
   ],
   "name": "partic2/CodeRunner"

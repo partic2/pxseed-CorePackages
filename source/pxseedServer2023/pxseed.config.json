@@ -2,6 +2,11 @@
   "loaders": [
     {
       "name": "typescript"
+    },{
+      "name":"rollup",
+      "entryModules":[
+        "preact"
+      ]
     }
   ],
   "name": "pxseedServer2023"
