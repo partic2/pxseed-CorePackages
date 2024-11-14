@@ -386,6 +386,8 @@ export async function SavePersistentConfig(modname:string){
 }
 
 
+
+
 //WorkerThread feature require a custom AMD loader https://github.com/partic2/requirejs-extend
 const WorkerThreadMessageMark='__messageMark_WorkerThread'
 
@@ -444,7 +446,23 @@ class WebWorkerThread implements IWorkerThread{
             }
         });
         await this.waitReady.get();
-        await this.runScript(`this.__workerId='${this.workerId}'`)
+        await this.runScript(`this.__workerId='${this.workerId}'`);
+        lifecycle.addEventListener('pause',()=>{
+            this.runScript(`define('${__name__}',function(webutils){
+                webutils.lifecycle.dispatchEvent(new Event('pause'));
+            })`);
+        });
+        lifecycle.addEventListener('resume',()=>{
+            this.runScript(`define('${__name__}',function(webutils){
+                webutils.lifecycle.dispatchEvent(new Event('resume'));
+            })`);
+        });
+        lifecycle.addEventListener('exit',()=>{
+            this.runScript(`define('${__name__}',function(webutils){
+                webutils.lifecycle.dispatchEvent(new Event('exit'));
+            })`);
+        });
+        
     }
     onHostRunScript(script:string){
         (new Function('workerThread',script))(this);
@@ -560,4 +578,27 @@ export function useDeviceWidth(){
     headmeta.name='viewport';
     headmeta.content='width=device-width user-scalable=no';
     document.head.append(headmeta)
+}
+
+class _LifecycleEventHandler extends EventTarget{
+    addEventListener(type:'pause',callback:EventListenerOrEventListenerObject):void;
+    addEventListener(type:'resume',callback:EventListenerOrEventListenerObject):void;
+    addEventListener(type:'exit',callback:EventListenerOrEventListenerObject):void;
+    addEventListener(type: string, callback: EventListenerOrEventListenerObject | null, options?: boolean | AddEventListenerOptions | undefined): void {
+        super.addEventListener(type,callback,options);
+    }
+}
+export let lifecycle=new _LifecycleEventHandler();
+
+if('document' in globalThis){
+    globalThis.document.addEventListener('visibilitychange',(ev)=>{
+        if(document.hidden){
+            lifecycle.dispatchEvent(new Event('pause'));
+        }else{
+            lifecycle.dispatchEvent(new Event('resume'));
+        }
+    });
+    globalThis.addEventListener('beforeunload',()=>{
+        lifecycle.dispatchEvent(new Event('exit'));
+    });
 }

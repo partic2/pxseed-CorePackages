@@ -109,8 +109,26 @@ class CDomRootComponent extends DomComponentGroup{
 export var DomRootComponent=new CDomRootComponent();
 
 
+interface ReactInput{
+    value:any;
+    addEventListener(type:'change',cb:(ev:Event)=>void):void;
+    removeEventListener(type:'change',cb:(ev:Event)=>void):void;
+}
 
-export class ValueCheckedBox extends React.Component<{value?:boolean,style?:React.JSX.CSSProperties,className?:string},{}>{
+export abstract class ReactEventTarget<P={},S={}> extends React.Component<P,S> implements EventTarget{
+    eventTarget:EventTarget=new EventTarget();
+    addEventListener(type: string, callback: EventListenerOrEventListenerObject | null, options?: boolean | AddEventListenerOptions | undefined): void {
+        this.eventTarget.addEventListener(type,callback,options);
+    }
+    dispatchEvent(event: Event): boolean {
+        return this.eventTarget.dispatchEvent(event);
+    }
+    removeEventListener(type: string, callback: EventListenerOrEventListenerObject | null, options?: boolean | EventListenerOptions | undefined): void {
+        this.eventTarget.removeEventListener(type,callback,options);
+    }
+}
+
+export class ValueCheckBox extends ReactEventTarget<{value?:boolean,style?:React.JSX.CSSProperties,className?:string},{}>{
     protected cbref=React.createRef();
     public componentDidMount(){
         if(this.props.value!=undefined){
@@ -118,67 +136,77 @@ export class ValueCheckedBox extends React.Component<{value?:boolean,style?:Reac
         }
     }
     render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined; }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChild {
-        return <input ref={this.cbref} style={this.props.style} type="checkbox" className={this.props.className}/>
+        return <input ref={this.cbref} style={this.props.style} 
+                    onChange={()=>this.eventTarget.dispatchEvent(new Event('change'))}
+                    type="checkbox" className={this.props.className}/>
     }
-    public getValue(){
-        return this.cbref.current.checked;
+    get value(){
+        return this.cbref.current?.checked;
     }
-    public setValue(v:boolean){
-        this.cbref.current.checked=v;
+    set value(v:boolean){
+        if(this.cbref.current!=null){
+            this.cbref.current.checked=v;
+        }
     }
 }
 
-
-export class ReactInputValueCollection{
-    public inputRef={} as {[k:string]:React.RefObject<any>}
-    public getRefForInput(name:string){
+export class ReactInputValueCollection extends EventTarget{
+    inputRef={} as {[k:string]:ReactRefEx<ReactInput>}
+    _onInputValueChange=()=>{
+        this.dispatchEvent(new Event('change'));
+    }
+    getRefForInput(name:string):React.RefObject<any>{
         if(name in this.inputRef){
             return this.inputRef[name];
         }
-        let rref=React.createRef();
+        let rref=new ReactRefEx<ReactInput>();
+        rref.addEventListener('change',(ev:RefChangeEvent<ReactInput>)=>{
+            if(ev.data.prev!=null){
+                ev.data.prev.removeEventListener('change',this._onInputValueChange);
+            }
+            if(ev.data.curr!=null){
+                ev.data.curr.addEventListener('change',this._onInputValueChange);
+            }
+        });
         this.inputRef[name]=rref;
         return rref;
     }
-    public getValue(){
+    getValue(){
         let val={} as {[k:string]:any}
         for(var name in this.inputRef){
             let elem=this.inputRef[name].current;
             if(elem!=undefined){
-                if(typeof(elem.getValue)==='function'){
-                    val[name]=elem.getValue();
-                }else if(elem.value!==undefined){
-                    val[name]=elem.value;
-                }
+                val[name]=elem.value;
             }
         }
         return val;
     }
-    public setValue(val:{[k:string]:any}){
+    setValue(val:{[k:string]:any}){
         for(var name in this.inputRef){
             let elem=this.inputRef[name].current;
             if(elem!=undefined && val[name]!==undefined){
-                if(typeof(elem.setValue)==='function'){
-                    elem.setValue(val[name]);
-                }else if(elem.value!==undefined){
-                    elem.value=val[name]
-                }
+                elem.value=val[name];
             }
         }
     }
+    forwardChangeEvent(eventTarget:EventTarget){
+        this.addEventListener('change',()=>eventTarget.dispatchEvent(new Event('change')));
+        return this;
+    }
 }
 
-export class SimpleReactForm1<P={},S={}> extends React.Component<P&{},S>{
+export class SimpleReactForm1<P={},S={}> extends ReactEventTarget<P&{},S>{
     public render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined; }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChild {
         return this.props.children;
     }
-    protected valueCollection=new ReactInputValueCollection();
-    public getRefForInput(name:string){
+    protected valueCollection=new ReactInputValueCollection().forwardChangeEvent(this.eventTarget);
+    getRefForInput(name:string){
         return this.valueCollection.getRefForInput(name);
     }
-    public getValue(){
+    get value():any{
         return this.valueCollection.getValue();
     }
-    public setValue(val:{[k:string]:any}){
+    set value(val:any){
         this.valueCollection.setValue(val);
     }
 }

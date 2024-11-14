@@ -12,6 +12,7 @@ import {getWWWRoot, kvStore} from 'partic2/jsutils1/webutils'
 import {ArrayWrap2, GenerateRandomString, assert, logger} from 'partic2/jsutils1/base'
 import {copy,remove} from 'fs-extra'
 import { platform } from 'os';
+import { runCommand, writeJson } from 'pxseedBuildScript/util';
 
 let log=logger.getLogger(__name__);
 
@@ -78,7 +79,7 @@ async function fetchCorePackages(){
     let ok=false;
     for(let url of repoInfos.urls){
         try{
-            await fetchGitRepositoryFromUrl(url,gitcache);
+            await fetchGitPackageFromUrl(url,gitcache);
             ok=true;
             break
         }catch(e:any){
@@ -246,7 +247,7 @@ let RepositoriesRegistry={
     },
     getScopeRepo:async function(scopeName:string){
         let repoCfg=await this.ensureRepoCfg();
-        return await repoCfg.repositories!.scope![scopeName]
+        return await repoCfg.repositories?.scope?.[scopeName]
     },
     setScopeRepo:async function(scopeName:string,repos:string[]){
         let repoCfg=await this.ensureRepoCfg();
@@ -271,6 +272,7 @@ export async function installLocalPackage(path:string){
         if(pkgConfig.repositories !=undefined){
             for(let scopeName in pkgConfig.repositories){
                 let toMerge=pkgConfig.repositories![scopeName];
+                assert(toMerge instanceof Array);
                 let repos=new Set(await RepositoriesRegistry.getScopeRepo(scopeName));
                 for(let t1 of toMerge){
                     if(t1.charAt(0)=='!'){
@@ -307,7 +309,7 @@ export async function installLocalPackage(path:string){
     }
 }
 
-export async function fetchGitRepositoryFromUrl(url:string,fetchDir?:string){
+export async function fetchGitPackageFromUrl(url:string,fetchDir?:string){
     let {simpleGit}=await import('simple-git');
     let tempdir=fetchDir??pathJoin(__dirname,'__temp',GenerateRandomString());
     try{
@@ -323,7 +325,8 @@ export async function fetchGitRepositoryFromUrl(url:string,fetchDir?:string){
     return tempdir
 }
 
-export async function fetchRepositoryFromUrl(url:string){
+
+export async function fetchPackageFromUrl(url:string){
     if(url.startsWith('file://')){
         let filePath=url.substring(7);
         if(platform().includes('win32')){
@@ -331,8 +334,12 @@ export async function fetchRepositoryFromUrl(url:string){
         }
         return filePath;
     }else if(url.endsWith('.git')){
-        return await fetchGitRepositoryFromUrl(url);
+        return await fetchGitPackageFromUrl(url);
     }
+}
+
+export async function getUrlTemplateFromScopeName(scopeName:string){
+    return RepositoriesRegistry.getScopeRepo(scopeName);
 }
 
 export async function getRepoInfoFromPkgName(pkgFullName:string){
@@ -342,6 +349,9 @@ export async function getRepoInfoFromPkgName(pkgFullName:string){
     subname=subname??'';
     let repos=await RepositoriesRegistry.getScopeRepo(scope);
     function *iterUrl(){
+        if(repos==undefined){
+            return
+        }
         for(let t1 of repos){
             try{
                 let url:string=new Function('fullname','subname','scope','return `'+t1+'`')(pkgFullName,subname,scope);
@@ -355,21 +365,21 @@ export async function getRepoInfoFromPkgName(pkgFullName:string){
     }
 }
 
-export async function fetchRepository(name:string){
+export async function fetchPackage(name:string){
     let info=await getRepoInfoFromPkgName(name);
     for(let t1 of info.urls){
         try{
-            let repoLocalPath=await fetchRepositoryFromUrl(t1);
+            let repoLocalPath=await fetchPackageFromUrl(t1);
             if(repoLocalPath==undefined)continue;
             let path=info.path;
             return pathJoin(repoLocalPath,...path);
         }catch(e){
-            log.debug(`fetchRepository from ${t1} failed.`)
+            log.debug(`fetchPackage from ${t1} failed.`)
         }
     }
 }
 
-export async function removePackage(pkgname:string){
+export async function uninstallPackage(pkgname:string){
     remove(pathJoin(sourceDir,...pkgname.split('/')))
     let pkgdb=await kvStore(pkgdbName);
     await pkgdb.delete('pkg-'+pkgname);
@@ -378,7 +388,7 @@ export async function removePackage(pkgname:string){
 export async function upgradeGitPackage(localPath:string){
     let {simpleGit}=await import('simple-git');
     let git=simpleGit(localPath);
-    await git.pull(['--rebase']);
+    log.info(await git.pull(['--rebase']));
 }
 
 export async function upgradePackage(pkgname:string){
@@ -499,18 +509,87 @@ export async function listPackagesArray(filterString:string){
     return arr;
 }
 
+
 export async function installPackage(source:string){
-    let localPath=undefined as string|undefined;
+    let installProcessed=false;
     if(source.indexOf(':')>=0){
-        localPath=await fetchRepositoryFromUrl!(source)
+        if(source.startsWith('npm:')){
+            let packageJson=await readJson(pathJoin(dirname(sourceDir),'npmdeps','package.json')) as {
+                dependencies:{[pkg:string]:string}
+            };
+            //TODO: npm version check
+            let t1=source.substring(4);
+            let versionSep=t1.lastIndexOf('@');
+            if(versionSep<=0){
+                versionSep=t1.length;
+            }
+            let pkgName=t1.substring(0,versionSep);
+            if(packageJson.dependencies[pkgName]==undefined){
+                log.info('install npm package '+pkgName);
+                let returnCode=await runCommand(`npm i ${pkgName}`,{cwd:pathJoin(dirname(sourceDir),'npmdeps')})
+                if(returnCode!==0)log.error('install npm package failed.');
+                //Should we abort?
+            }
+            installProcessed=true;
+        }else{
+            let localPath=await fetchPackageFromUrl!(source);
+            if(localPath!=undefined){
+                await installLocalPackage!(localPath);
+                installProcessed=true;
+            }
+        }
     }else{
-        localPath=await fetchRepository!(source);
+        let existed=false;
+        try{
+            await access(pathJoin(sourceDir,source),fsConst.F_OK);
+            existed=true;
+        }catch(e){
+            mustNoSuchFileError(e);
+            existed=false;
+        }
+        if(existed){
+            await upgradePackage(source)
+            let localPath=pathJoin(sourceDir,source);
+            await installLocalPackage!(localPath); 
+            installProcessed=true;
+        }else{
+            let localPath=await fetchPackage(source);
+            if(localPath!=undefined){
+                await installLocalPackage!(localPath);
+                installProcessed=true;
+            }
+        }
     }
-    if(localPath==undefined){
+    if(!installProcessed){
         throw new Error(`Can not handle url:${source}`)
-    }else{
-        await installLocalPackage!(localPath);
     }
+}
+
+async function startDebugger(){
+    try{
+        (await import('inspector')).open(9229,'127.0.0.1',true)
+    }catch(e:any){}
+    debugger;
+}
+
+export async function createPackageTemplate1(pxseedConfig:PxseedConfig){
+    let pkgloc=pathJoin(sourceDir,pxseedConfig.name);
+    try{
+        await access(pkgloc,fsConst.F_OK);
+        throw new Error('package is existed.')
+    }catch(e:any){
+        mustNoSuchFileError(e)
+    }
+    await mkdir(pkgloc,{recursive:true});
+    await mkdir(pathJoin(pkgloc,'assets'));
+    await writeJson(pathJoin(pkgloc,'pxseed.config.json'),pxseedConfig);
+    await writeFile(pathJoin(pkgloc,'.gitignore'),
+`.*
+!.gitignore
+tsconfig.json
+`);
+    await installLocalPackage(pkgloc);
+    await initGitRepo(pkgloc);
 }
 
 export async function exportPackagesInstallation(){
@@ -536,7 +615,7 @@ export async function importPackagesInstallation(installationInfo:{repos:RepoCon
                 existed=true;
             }catch(e){}
             if(!existed){
-                let localPath=await fetchRepository(pkg);
+                let localPath=await fetchPackage(pkg);
                 assert(localPath!=null);
                 await installLocalPackage(localPath!);
             }

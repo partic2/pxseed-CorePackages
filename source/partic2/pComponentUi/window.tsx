@@ -1,7 +1,7 @@
 
 import * as React from 'preact'
-import { FloatLayerComponent, ReactRefEx, RefChangeEvent } from './domui';
-import { GenerateRandomString, GetCurrentTime } from 'partic2/jsutils1/base';
+import { css, DomRootComponent, FloatLayerComponent, ReactRefEx, ReactRender, RefChangeEvent } from './domui';
+import { future, GenerateRandomString, GetCurrentTime } from 'partic2/jsutils1/base';
 import { DynamicPageCSSManager } from 'partic2/jsutils1/webutils';
 import {css as cssBase} from './domui'
 import { PointTrace, TransformHelper } from './transform';
@@ -44,13 +44,40 @@ export class WindowComponent extends React.Component<WindowComponentProps,Window
         super(props,ctx);
         this.setState({activeTime:-1,folded:false,layout:{left:0,top:0}});
     }
-    makeCenter(){
-        let {width,height}=this.getCurrentSize();
+    async makeCenter(){
+        //wait for layout stoped?
+        //usually happen if image/icon load from internet
+        await (async()=>{
+            let width=0;
+            let height=0;
+            let stableCount=0;
+            for(let t1=0;t1<10;t1++){
+                await new Promise(resolve=>requestAnimationFrame(resolve));
+                let newWidth=this.rref.container.current?.scrollWidth??0;
+                let newHeight=this.rref.container.current?.scrollHeight??0;
+                if(width!=newWidth || height!=newHeight){
+                    width=newWidth;
+                    height=newHeight;
+                    stableCount=0;
+                }else{
+                    stableCount++;
+                }
+                if(stableCount>3)break;
+            }
+            
+        })();
+        let width=this.rref.container.current?.scrollWidth??0;
+        let height=this.rref.container.current?.scrollHeight??0;
         let wndWidth=window.innerWidth;
         let wndHeight=window.innerHeight;
-        let left=(wndWidth-width)/2;
-        let top=(wndHeight-height)/2;
-        this.setState({layout:{left:left,top:top,width:width,height:height}})
+        if(width>wndWidth-5)width=wndWidth-5;
+        if(height>wndHeight-5)height=wndHeight-5;
+        let left=(wndWidth-width)>>1;
+        let top=(wndHeight-height)>>1;
+        await new Promise((resolve)=>{
+            this.setState({layout:{left:left,top:top,width:width,height:height}},()=>resolve(null))
+        });
+        //check if scroll bar still appear?
     }
     renderIcon(url:string|null,onClick:()=>void){
         if(url==null){
@@ -99,9 +126,7 @@ export class WindowComponent extends React.Component<WindowComponentProps,Window
     active(){
         if(this.state.activeTime<0 && ['initial center','keep center'].indexOf(this.props.position!)>=0){
             this.setState({activeTime:GetCurrentTime().getTime()},()=>{
-                requestAnimationFrame(()=>{
-                    this.makeCenter();
-                })
+                this.makeCenter();
             });
         }else{
             this.setState({activeTime:GetCurrentTime().getTime()});
@@ -133,14 +158,6 @@ export class WindowComponent extends React.Component<WindowComponentProps,Window
         this.hide();
         this.props.onClose?.();
     }
-    getCurrentSize(){
-        if(this.rref.container.current){
-            let {width,height}=this.rref.container.current.getBoundingClientRect();
-            return {width,height}
-        }else{
-            return {width:0,height:0};
-        }
-    }
     doRelayout(){
         if(this.props.position==='keep center'){
             this.makeCenter();
@@ -162,6 +179,10 @@ export class WindowComponent extends React.Component<WindowComponentProps,Window
         if(this.state.layout.height!=undefined && !this.state.folded){
             windowDivStyle.height=this.state.layout.height+'px';
         }
+        let contentDivStyle:React.JSX.CSSProperties={};
+        if(this.state.folded){
+            contentDivStyle.display='none'
+        }
         return <div className={cssBase.flexColumn} style={windowDivStyle}
             ref={this.rref.container}
             onClick={()=>{
@@ -169,11 +190,11 @@ export class WindowComponent extends React.Component<WindowComponentProps,Window
                     this.setState({activeTime:GetCurrentTime().getTime()})
             }}>
                 {this.renderTitle()}
-                {this.state.folded?null:[
-                    <div style={{overflow:'auto'}}>
+                {[
+                    <div style={{overflow:'auto',...contentDivStyle}}>
                         {this.props.children}
                     </div>,
-                    <img src={getIconUrl('arrow-down-right.svg')} 
+                    this.state.folded?null:<img src={getIconUrl('arrow-down-right.svg')} 
                     style={{
                         position:'absolute',cursor:'nwse-resize',
                         right:'0px',bottom:'0px',
@@ -199,3 +220,66 @@ export class WindowComponent extends React.Component<WindowComponentProps,Window
         }
     }
 }
+
+let utilsWindowDiv:HTMLDivElement|null=null;
+function ensureUtilsWindowDiv(){
+    if(utilsWindowDiv==null){
+        utilsWindowDiv=document.createElement('div');
+        document.body.appendChild(utilsWindowDiv);
+    }
+    return utilsWindowDiv;
+}
+
+let i18n={
+    caution:'caution',
+    ok:'ok',
+    cancel:'cancel'
+}
+
+if(navigator.language==='zh-CN'){
+    i18n.caution='提醒'
+    i18n.ok='确认'
+    i18n.cancel='取消'
+}
+
+export async function alert(message:string,title?:string){
+    let wndRef=new ReactRefEx<WindowComponent>();
+    wndRef.addEventListener('change',(ev:RefChangeEvent<WindowComponent>)=>{
+        ev.data.curr?.active();
+    });
+    let result=new future<null>();
+    ReactRender(<WindowComponent ref={wndRef}
+        title={title??i18n.caution} onClose={()=>result.setResult(null)}>
+        <div style={{backgroundColor:'#FFF', minWidth:Math.min(window.innerWidth-10,300)}}>
+            {message}
+            <div className={css.flexRow}>
+                <input type='button' style={{flexGrow:'1'}} onClick={()=>result.setResult(null)} value={i18n.ok}/>
+            </div>
+        </div>
+    </WindowComponent>,ensureUtilsWindowDiv());
+    await result.get();
+    wndRef.current!.hide();
+}
+
+
+export async function confirm(message:string,title?:string){
+    let wndRef=new ReactRefEx<WindowComponent>();
+    wndRef.addEventListener('change',(ev:RefChangeEvent<WindowComponent>)=>{
+        ev.data.curr?.active();
+    });
+    let result=new future<'ok'|'cancel'>();
+    ReactRender(<WindowComponent ref={wndRef}
+        title={title??i18n.caution} onClose={()=>result.setResult('cancel')}>
+        <div style={{backgroundColor:'#FFF', minWidth:Math.min(window.innerWidth-10,300)}}>
+            {message}
+            <div className={css.flexRow}>
+                <input type='button' style={{flexGrow:'1'}} onClick={()=>result.setResult('ok')} value={i18n.ok}/>
+                <input type='button' style={{flexGrow:'1'}} onClick={()=>result.setResult('cancel')} value={i18n.cancel}/>
+            </div>
+        </div>
+    </WindowComponent>,ensureUtilsWindowDiv());
+    let r=await result.get();
+    wndRef.current!.hide();
+    return r;
+}
+

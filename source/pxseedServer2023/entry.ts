@@ -12,6 +12,7 @@ import KoaRouter from 'koa-router'
 import * as fs from 'fs/promises'
 import './workerInit'
 import koaFiles from 'koa-files'
+import { lifecycle } from 'partic2/jsutils1/webutils';
 
 
 
@@ -142,6 +143,23 @@ export let ensureInit=new future<number>();
     },pxseedFilesServer);
     
     ensureInit.setResult(0);
+    
+    console.info('type "exit" for safer exit.');
+    process.stdin.on('data',(data)=>{
+        let cmd=new TextDecoder().decode(data).trim();
+        if(cmd==='exit'){
+            console.info('exiting...');
+            lifecycle.dispatchEvent(new Event('pause'));
+            lifecycle.dispatchEvent(new Event('exit'));
+            setTimeout(()=>process.exit(),3000);
+        }
+    });
+    lifecycle.addEventListener('exit',()=>{
+        console.info('close http server');
+        httpServ.close((err)=>{
+            console.info('http server closed');
+        });
+    })
     Promise.all(config.initModule.map(mod=>requirejs.promiseRequire(mod)));
     
 })();

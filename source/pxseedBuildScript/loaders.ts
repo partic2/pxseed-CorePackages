@@ -67,30 +67,6 @@ export let pxseedBuiltinLoader={
         let returnCode=await runCommand(`node ${tscPath} -p ${dir}`)
         if(returnCode!==0)status.currentBuildError.push('tsc failed.');
     },
-    nodeNpm:async function(dir:string,config:{install:string[]},status:PxseedStatus){
-        let {mtime}=await fs.stat(pathJoin(dir,'pxseed.config.json'));
-        if(mtime.getTime()<=status.lastSuccessBuildTime)return;
-        let packageJson=await readJson(pathJoin(dirname(sourceDir),'npmdeps','package.json')) as {
-            dependencies:{[pkg:string]:string}
-        };
-        let missingPackage=[];
-        //TODO:version check
-        for(let t1 of config.install){
-            let versionSep=t1.lastIndexOf('@');
-            if(versionSep<=0){
-                versionSep=t1.length;
-            }
-            let pkgName=t1.substring(0,versionSep);
-            if(packageJson.dependencies[pkgName]==undefined){
-                missingPackage.push(pkgName);
-            }
-        }
-        if(missingPackage.length>0){
-            console.info('npm install',missingPackage);
-            let returnCode=await runCommand(`npm i ${missingPackage.join(' ')}`,{cwd:pathJoin(dirname(sourceDir),'npmdeps')})
-            if(returnCode!==0)status.currentBuildError.push('nodeNpm install failed.');
-        }
-    },
     rollup:async function(dir:string,config:{entryModules:string[]}){
         let rollup=(await import('rollup')).rollup;
         let nodeResolve =(await import('@rollup/plugin-node-resolve')).default;

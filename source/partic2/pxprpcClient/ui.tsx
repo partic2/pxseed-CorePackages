@@ -7,13 +7,13 @@ import { GenerateRandomString } from 'partic2/jsutils1/base';
 
 class AddCard extends SimpleReactForm1<{onAdd:(info:{url:string,name:string})=>void},{}>{
     setNewWebWorker(){
-        this.setValue({url:'webworker:'+GenerateRandomString()});
+        this.value={url:'webworker:'+GenerateRandomString()};
     }
     public render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined; }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChild {
         return <div class={css.simpleCard}>
             <input type="text" ref={this.getRefForInput("name")} placeholder='name'/><br/>
             <input type="text" ref={this.getRefForInput("url")} placeholder='url'/><br/>
-            <a href="javascript:;" onClick={()=>this.props.onAdd(this.getValue() as any)}>Add</a>&nbsp;
+            <a href="javascript:;" onClick={()=>this.props.onAdd(this.value as any)}>Add</a>&nbsp;
             <a href="javascript:;" onClick={()=>this.setNewWebWorker()}>NewWorker</a>
         </div>
     }

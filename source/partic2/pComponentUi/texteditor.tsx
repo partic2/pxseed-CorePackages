@@ -2,17 +2,17 @@
 import { partial } from 'partic2/jsutils1/base';
 import * as React from 'preact'
 import { docNode2text, docNodePositionFromTextOffset, text2html } from './utils';
+import { ReactEventTarget, ReactRefEx } from './domui';
 
-
-
-export class TextEditor extends React.Component<{
-        onFocus?:(target:TextEditor)=>void,onBlur?:(target:TextEditor)=>void
-        onInput?:(target:TextEditor,inputData:{char:string|null,text:string|null,type:string})=>void, 
-        divClass?:string[]
-        divStyle?:React.JSX.CSSProperties,
-        divAttr?:React.JSX.DOMAttributes<HTMLDivElement>
-    },{}>{
-    rref={div1:React.createRef<HTMLDivElement>()};
+export interface TextEditorProps{
+    onFocus?:(target:TextEditor)=>void,onBlur?:(target:TextEditor)=>void
+    onInput?:(target:TextEditor,inputData:{char:string|null,text:string|null,type:string})=>void, 
+    divClass?:string[]
+    divStyle?:React.JSX.CSSProperties,
+    divAttr?:React.JSX.DOMAttributes<HTMLDivElement>
+}
+export class TextEditor extends ReactEventTarget<TextEditorProps,{}>{
+    rref={div1:new ReactRefEx<HTMLDivElement>()};
 
     protected onInputHandler(ev: React.JSX.TargetedEvent<HTMLDivElement,InputEvent>){
         let ch=ev.data;
@@ -103,10 +103,11 @@ export class TextEditor extends React.Component<{
         }
     }
     getPlainText(){
+        if(this.rref.div1.current==null)return '';
         return docNode2text(this.rref.div1.current!).concat();
     }
     setPlainText(text:string){
-        this.rref.div1.current!.innerHTML=text2html(text)
+        this.setHtml(text2html(text))
     }
     getCaretPart(direction:'forward'|'backward'){
         let sel:typeof this.savedSelection;
@@ -126,5 +127,18 @@ export class TextEditor extends React.Component<{
     }
     scrollToBottom(){
         this.rref.div1.current!.scrollTop=this.rref.div1.current!.scrollHeight;
+    }
+}
+
+export class PlainTextEditorInput extends TextEditor{
+    get value(){
+        return this.getPlainText();
+    }
+    set value(v:string){
+        this.setPlainText(v);
+    }
+    protected onBlurHandler(ev: React.JSX.TargetedFocusEvent<HTMLDivElement>): void {
+        super.onBlurHandler(ev);
+        this.dispatchEvent(new Event('change'));
     }
 }
