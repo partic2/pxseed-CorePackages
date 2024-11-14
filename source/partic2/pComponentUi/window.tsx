@@ -45,8 +45,7 @@ export class WindowComponent extends React.Component<WindowComponentProps,Window
         this.setState({activeTime:-1,folded:false,layout:{left:0,top:0}});
     }
     async makeCenter(){
-        //wait for layout stoped?
-        //usually happen if image/icon load from internet
+        //wait for layout complete?     
         await (async()=>{
             let width=0;
             let height=0;
@@ -62,10 +61,10 @@ export class WindowComponent extends React.Component<WindowComponentProps,Window
                 }else{
                     stableCount++;
                 }
-                if(stableCount>3)break;
+                if(stableCount>=2)break;
             }
-            
         })();
+        
         let width=this.rref.container.current?.scrollWidth??0;
         let height=this.rref.container.current?.scrollHeight??0;
         let wndWidth=window.innerWidth;
@@ -248,7 +247,7 @@ export async function alert(message:string,title?:string){
         ev.data.curr?.active();
     });
     let result=new future<null>();
-    ReactRender(<WindowComponent ref={wndRef}
+    ReactRender(<WindowComponent ref={wndRef} key={GenerateRandomString()}
         title={title??i18n.caution} onClose={()=>result.setResult(null)}>
         <div style={{backgroundColor:'#FFF', minWidth:Math.min(window.innerWidth-10,300)}}>
             {message}
@@ -268,7 +267,7 @@ export async function confirm(message:string,title?:string){
         ev.data.curr?.active();
     });
     let result=new future<'ok'|'cancel'>();
-    ReactRender(<WindowComponent ref={wndRef}
+    ReactRender(<WindowComponent ref={wndRef}  key={GenerateRandomString()}
         title={title??i18n.caution} onClose={()=>result.setResult('cancel')}>
         <div style={{backgroundColor:'#FFF', minWidth:Math.min(window.innerWidth-10,300)}}>
             {message}
