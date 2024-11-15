@@ -554,6 +554,10 @@ export let path={
             }
         }
         return parts.join(this.sep);
+    },
+    dirname(PathLike:string){
+        let delim=PathLike.lastIndexOf(this.sep)
+        return PathLike.substring(0,delim);
     }
 }
 
@@ -578,6 +582,23 @@ export function useDeviceWidth(){
     headmeta.name='viewport';
     headmeta.content='width=device-width user-scalable=no';
     document.head.append(headmeta)
+}
+
+export function useCssFile(cssUrl:string){
+    let linkTag=document.createElement('link')
+    linkTag.rel='stylesheet';
+    linkTag.type='text/css';
+    linkTag.href=cssUrl;
+    document.head.appendChild(linkTag);
+}
+
+export function usePageIcon(iconUrl:string,iconType?:'image/x-icon'|'image/png'|'image/svg+xml'){
+    iconType=iconType??'image/x-icon';
+    let linkTag=document.createElement('link')
+    linkTag.rel='icon';
+    linkTag.type=iconType;
+    linkTag.href=iconUrl;
+    document.head.appendChild(linkTag);
 }
 
 class _LifecycleEventHandler extends EventTarget{

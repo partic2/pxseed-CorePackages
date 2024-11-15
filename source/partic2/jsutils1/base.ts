@@ -1,4 +1,10 @@
 
+//polyfill globalThis
+try{
+    let _=globalThis
+}catch(e){
+    new Function('this.globalThis=this')()
+}
 
 export class Task<T>{
     static currentTask:Task<any>|null=null;
@@ -335,13 +341,7 @@ export class mutex{
     }
 }
 
-//polyfill globalThis
 
-try{
-    let _=globalThis
-}catch(e){
-    new Function('this.globalThis=this')()
-}
 
 declare var require:any,define:any;
 export let amdContext={
@@ -426,16 +426,9 @@ export let requirejs = {
             amdContext.define.amd.scriptLoaders.unshift(new ResourceProviderLoader());
         }
         this.resourceProvider.unshift(provider)
-    },
-}
-
-if(amdContext==null){
-    //not amd, we use commonjs instead, Only for simple function use.
-    requirejs.require=(dependency: string[], call: any) =>{
-        let loaded=dependency.map(v=>require(v));
-        call(loaded)
     }
 }
+
 
 export function ArrayEquals<T>(obj1: Array<T>, obj2: Array<T>) {
     if (obj1.length != obj2.length) {
@@ -579,10 +572,6 @@ export class Ref2<CT>{
     }
 }
 
-export function DirName(PathLike:string){
-    let delim=PathLike.lastIndexOf('/')
-    return PathLike.substring(0,delim);
-}
 
 export var logger={
     debug:function(...msg:any[]){console.debug(...msg)},
@@ -726,7 +715,7 @@ export function partial<T>(o:T,fields:Generator<keyof T,keyof T>|(ReadonlyArray<
 }
 
 
-export type CommonMimeType='text/html'|'text/xml'|'text/javascript'|'application/xhtml+xml'|'text/plain'|'application/pdf'|'image/png'|'image/gif'|'image/jpeg'|'audio/basic'|'audio/midi'|'audio/x-midi'|'audio/x-pn-realaudio'|'video/mpeg'|'video/x-msvideo'|'application/x-gzip'|'application/x-tar'|'application/octet-stream'|'audio/ogg'|'audio/aac'|'image/svg+xml'
+export type CommonMimeType='text/html'|'text/xml'|'text/javascript'|'application/xhtml+xml'|'text/plain'|'application/pdf'|'image/png'|'image/gif'|'image/jpeg'|'audio/basic'|'audio/midi'|'audio/x-midi'|'audio/x-pn-realaudio'|'video/mpeg'|'video/x-msvideo'|'application/x-gzip'|'application/x-tar'|'application/octet-stream'|'audio/ogg'|'audio/aac'|'image/svg+xml'|'image/x-icon'
 
 export function ToDataUrl(data:string|ArrayBuffer,mediaType:CommonMimeType){
     if(typeof data==='string'){
