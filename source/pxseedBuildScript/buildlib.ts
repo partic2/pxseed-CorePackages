@@ -77,6 +77,9 @@ export async function processDirectory(dir:string){
         pstat.lastBuildError=pstat.currentBuildError;
         if(pstat.lastBuildError.length==0){
             pstat.lastSuccessBuildTime=pstat.lastBuildTime;
+        }else{
+            console.info('build failed.')
+            console.info(pstat.lastBuildError)
         }
         pstat.currentBuildError=[];
         await writeJson(pathJoin(dir,'.pxseed.status.json'),pstat);

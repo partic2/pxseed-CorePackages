@@ -546,3 +546,19 @@ export class CodeContextShell extends InteractiveCodeShellBase{
     }
 }
 
+export let registry={
+    contexts:{} as Record<string,RunCodeContext|null>,
+    set(name:string,context:RunCodeContext|null){
+        this.contexts[name]=context;
+    },
+    get(name:string){
+        return this.contexts[name]??null;
+    },
+    list():string[]{
+        let t1=[];
+        for(let t2 in this.contexts){
+            t1.push(t2);
+        }
+        return t1;
+    }
+}

@@ -569,10 +569,13 @@ export function getWWWRoot(){
     return requirejs.getConfig().baseUrl
 }
 
-export function getResourceManager(moduleName:string){
+export function getResourceManager(modNameOrLocalRequire:string|typeof require){
+    if(typeof modNameOrLocalRequire==='function'){
+        modNameOrLocalRequire=requirejs.getLocalRequireModule(modNameOrLocalRequire)
+    }
     return {
         getUrl(path2:string){
-            return path.join(getWWWRoot(),moduleName+'/..',path2);
+            return path.join(getWWWRoot(),(modNameOrLocalRequire as string)+'/..',path2);
         }
     }
 }

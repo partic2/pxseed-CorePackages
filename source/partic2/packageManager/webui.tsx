@@ -5,14 +5,13 @@ import {IInteractiveCodeShell} from 'partic2/CodeRunner/Inspector'
 import {InspectableShell, InspectableShellInspector} from 'partic2/CodeRunner/Component1'
 import { RemoteRunCodeContext } from 'partic2/CodeRunner/RemoteCodeContext'
 import {getRegistered,persistent,ServerHostRpcName,ServerHostWorker1RpcName} from 'partic2/pxprpcClient/registry'
-import { GetBlobArrayBufferContent, TextToJsString, assert } from 'partic2/jsutils1/base'
+import { GetBlobArrayBufferContent, TextToJsString, assert, requirejs } from 'partic2/jsutils1/base'
 import { BuildUrlFromJsEntryModule, GetJsEntry, RequestDownload, selectFile, useDeviceWidth } from 'partic2/jsutils1/webutils'
 import {JsonForm} from 'partic2/pComponentUi/input'
 import {alert, confirm, WindowComponent} from 'partic2/pComponentUi/window'
 var registryModuleName='partic2/packageManager/registry';
 
-export var __name__='partic2/packageManager/webui'
-
+export var __name__=requirejs.getLocalRequireModule(require);
 //remote code context
 
 import type * as registry from 'partic2/packageManager/registry'
@@ -113,7 +112,7 @@ class PackagePanel extends React.Component<{},{
     async refreshList(){
         let {registry}=await getServerCodeShell();
         this.setState({
-            packageList:await registry.listPackagesArray!('')
+            packageList:await registry.listPackagesArray!(this.rref.packageName.current?.value??'')
         });
     }
     async showCreatePackage(){
@@ -196,10 +195,10 @@ class PackagePanel extends React.Component<{},{
         return [
         <div className={css.flexColumn}>
                 <div className={css.flexRow}>
-                    <input placeholder="url or package name" ref={this.rref.packageName} style={{flexGrow:1}}></input>
-                    <SimpleButton onClick={()=>this.install()}>{i18n.install}</SimpleButton>
+                    <input placeholder="url or package name, refresh filter." ref={this.rref.packageName} style={{flexGrow:1}}></input>
                 </div>
                 <div>
+                    <SimpleButton onClick={()=>this.install()}>{i18n.install}</SimpleButton>
                     <SimpleButton onClick={()=>this.refreshList()}>{i18n.refresh}</SimpleButton>
                     <SimpleButton onClick={()=>this.showCreatePackage()}>{i18n.createPackage}</SimpleButton>
                     <SimpleButton onClick={()=>this.exportPackagesInstallation()} >{i18n.exportInstallation}</SimpleButton>
@@ -220,7 +219,7 @@ class PackagePanel extends React.Component<{},{
                             }});
                         }
                     }
-                    return <div className={css.flexRow} style={{alignItems:'center'}}>
+                    return <div className={css.flexRow} style={{alignItems:'center',borderBottom:'solid black 1px'}}>
                         <span style={{flexGrow:1}}>{pkg.name}</span>
                         <div style={{display:'inline-block',flexShrink:1}}>
                             {cmd.map(v=><SimpleButton onClick={v.click}>{v.label}</SimpleButton>)}

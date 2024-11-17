@@ -4,15 +4,14 @@ import {dirname,join as pathJoin} from 'path'
 import {readdir,readFile,writeFile,mkdir, access, copyFile,stat} from 'fs/promises'
 import {constants as fsConst} from 'fs'
 
-export let __name__='partic2/packageManager/registry';
-
-
 import {PxseedConfig, processDirectory} from 'pxseedBuildScript/buildlib'
 import {getWWWRoot, kvStore} from 'partic2/jsutils1/webutils'
-import {ArrayWrap2, GenerateRandomString, assert, logger} from 'partic2/jsutils1/base'
+import {ArrayWrap2, GenerateRandomString, assert, logger, requirejs} from 'partic2/jsutils1/base'
 import {copy,remove} from 'fs-extra'
 import { platform } from 'os';
 import { runCommand, writeJson } from 'pxseedBuildScript/util';
+
+export let __name__=requirejs.getLocalRequireModule(require);
 
 let log=logger.getLogger(__name__);
 
@@ -592,6 +591,14 @@ tsconfig.json
     await initGitRepo(pkgloc);
 }
 
+export async function unloadPackageModules(pkg:string){
+    for(let mid in requirejs.getDefined()){
+        if(mid.startsWith(pkg+'/')){
+            requirejs.undef(mid);
+        }
+    }
+}
+
 export async function exportPackagesInstallation(){
     let repos=await RepositoriesRegistry.ensureRepoCfg();   
     let pkgs=[];
@@ -600,6 +607,7 @@ export async function exportPackagesInstallation(){
     }
     return {repos,pkgs};
 }
+
 
 export async function importPackagesInstallation(installationInfo:{repos:RepoConfig,pkgs:string[]}){
     let {repos,pkgs}=installationInfo;

@@ -1,10 +1,6 @@
 {
   "loaders": [
     {
-      "name":"nodeNpm",
-      "install":["simple-git"]
-    },
-    {
       "name": "typescript"
     }
   ],

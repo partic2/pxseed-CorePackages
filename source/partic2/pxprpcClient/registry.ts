@@ -6,11 +6,13 @@ import { RpcExtendClient1, RpcExtendClientCallable, RpcExtendClientObject, RpcEx
 
 
 
-export var __name__='partic2/pxprpcClient/registry'
+export var __name__=requirejs.getLocalRequireModule(require);
 
 export let rpcWorkerInitModule=['partic2/pxprpcClient/rpcworker'];
 
 defaultFuncMap[__name__+'.loadModule']=new RpcExtendServerCallable((name:string)=>requirejs.promiseRequire(name)).typedecl('s->o');
+defaultFuncMap[__name__+'.unloadModule']=new RpcExtendServerCallable((name:string)=>requirejs.undef(name)).typedecl('s->o');
+defaultFuncMap[__name__+'.getDefined']=new RpcExtendServerCallable(()=>requirejs.getDefined()).typedecl('s->o');
 defaultFuncMap[__name__+'.getConnectionFromUrl']=new RpcExtendServerCallable(async (url:string)=>{
     return await getConnectionFromUrl(url)
 }).typedecl('s->o');

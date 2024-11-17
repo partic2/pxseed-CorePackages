@@ -1,7 +1,7 @@
 
 import * as React from 'preact'
 import { css, DomRootComponent, FloatLayerComponent, ReactRefEx, ReactRender, RefChangeEvent } from './domui';
-import { future, GenerateRandomString, GetCurrentTime } from 'partic2/jsutils1/base';
+import { ArrayWrap2, future, GenerateRandomString, GetCurrentTime } from 'partic2/jsutils1/base';
 import { DynamicPageCSSManager } from 'partic2/jsutils1/webutils';
 import {css as cssBase} from './domui'
 import { PointTrace, TransformHelper } from './transform';
@@ -220,13 +220,30 @@ export class WindowComponent extends React.Component<WindowComponentProps,Window
     }
 }
 
-let utilsWindowDiv:HTMLDivElement|null=null;
-function ensureUtilsWindowDiv(){
-    if(utilsWindowDiv==null){
-        utilsWindowDiv=document.createElement('div');
-        document.body.appendChild(utilsWindowDiv);
+
+
+
+let floatWindowContainer:HTMLDivElement|null=null;
+function ensureFloatWindowContainer(){
+    if(floatWindowContainer==null){
+        floatWindowContainer=document.createElement('div');
+        document.body.appendChild(floatWindowContainer);
     }
-    return utilsWindowDiv;
+    return floatWindowContainer;
+}
+let floatWindowVNodes:React.VNode[]=[];
+export function appendFloatWindow(window:React.VNode){
+    if(!('key' in window)){
+        console.warn('window should has "key" property as unique identity');
+    }
+    ensureFloatWindowContainer();
+    floatWindowVNodes.push(window);
+    ReactRender(floatWindowVNodes,floatWindowContainer!);
+}
+
+export function removeFloatWindow(window:React.VNode){
+    new ArrayWrap2(floatWindowVNodes).removeFirst(v=>v===window);
+    ReactRender(floatWindowVNodes,floatWindowContainer!);
 }
 
 let i18n={
@@ -247,17 +264,18 @@ export async function alert(message:string,title?:string){
         ev.data.curr?.active();
     });
     let result=new future<null>();
-    ReactRender(<WindowComponent ref={wndRef} key={GenerateRandomString()}
-        title={title??i18n.caution} onClose={()=>result.setResult(null)}>
-        <div style={{backgroundColor:'#FFF', minWidth:Math.min(window.innerWidth-10,300)}}>
-            {message}
-            <div className={css.flexRow}>
-                <input type='button' style={{flexGrow:'1'}} onClick={()=>result.setResult(null)} value={i18n.ok}/>
-            </div>
+    let floatWindow1=<WindowComponent ref={wndRef} key={GenerateRandomString()}
+    title={title??i18n.caution} onClose={()=>result.setResult(null)}>
+    <div style={{backgroundColor:'#FFF', minWidth:Math.min(window.innerWidth-10,300)}}>
+        {message}
+        <div className={css.flexRow}>
+            <input type='button' style={{flexGrow:'1'}} onClick={()=>result.setResult(null)} value={i18n.ok}/>
         </div>
-    </WindowComponent>,ensureUtilsWindowDiv());
+    </div>
+    </WindowComponent>
+    appendFloatWindow(floatWindow1);
     await result.get();
-    wndRef.current!.hide();
+    removeFloatWindow(floatWindow1);
 }
 
 
@@ -267,7 +285,7 @@ export async function confirm(message:string,title?:string){
         ev.data.curr?.active();
     });
     let result=new future<'ok'|'cancel'>();
-    ReactRender(<WindowComponent ref={wndRef}  key={GenerateRandomString()}
+    let floatWindow1=<WindowComponent ref={wndRef}  key={GenerateRandomString()}
         title={title??i18n.caution} onClose={()=>result.setResult('cancel')}>
         <div style={{backgroundColor:'#FFF', minWidth:Math.min(window.innerWidth-10,300)}}>
             {message}
@@ -276,9 +294,10 @@ export async function confirm(message:string,title?:string){
                 <input type='button' style={{flexGrow:'1'}} onClick={()=>result.setResult('cancel')} value={i18n.cancel}/>
             </div>
         </div>
-    </WindowComponent>,ensureUtilsWindowDiv());
+    </WindowComponent>;
+    appendFloatWindow(floatWindow1);
     let r=await result.get();
-    wndRef.current!.hide();
+    removeFloatWindow(floatWindow1);
     return r;
 }
 

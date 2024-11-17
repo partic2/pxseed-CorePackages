@@ -222,7 +222,9 @@
             dependencyIds.forEach(function (id) {
                 request(id, dependencyReadyCallback);
             });
-            setTimeout(dependencyReadyCallback);
+            globalThis.queueMicrotask ?
+                globalThis.queueMicrotask(dependencyReadyCallback) :
+                setTimeout(dependencyReadyCallback);
         };
         require.config = config;
         require.undef = function (moduleId) {
@@ -241,6 +243,7 @@
             }
             return r;
         };
+        require.localRequireModule = moduleId;
         return require;
     }
     function loadModule(id, src, callback) {
@@ -326,15 +329,15 @@
         for (var _i = 0; _i < arguments.length; _i++) {
             args[_i] = arguments[_i];
         }
-        var expectedModuleId = null;
-        for (var _a = 0, scriptLoaders_1 = scriptLoaders; _a < scriptLoaders_1.length; _a++) {
-            var t1 = scriptLoaders_1[_a];
-            expectedModuleId = t1.getDefiningModule();
-            if (expectedModuleId != null)
-                break;
-        }
         var dependencies = ["require", "exports", "module"];
         if (isAnonymousDefine(args)) {
+            var expectedModuleId = null;
+            for (var _a = 0, scriptLoaders_1 = scriptLoaders; _a < scriptLoaders_1.length; _a++) {
+                var t1 = scriptLoaders_1[_a];
+                expectedModuleId = t1.getDefiningModule();
+                if (expectedModuleId != null)
+                    break;
+            }
             if (!expectedModuleId) {
                 throw Error("#1");
             }
@@ -347,12 +350,6 @@
         }
         else {
             var id = args[0];
-            if (expectedModuleId && expectedModuleId != id) {
-                return resolveModule(id, {
-                    moduleState: 4 /* ModuleState.ERROR */,
-                    moduleError: Error("#2")
-                });
-            }
             if (isNamedDefineWithDependencies(args)) {
                 doDefine(id, args[1], args[2]);
             }

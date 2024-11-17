@@ -426,6 +426,9 @@ export let requirejs = {
             amdContext.define.amd.scriptLoaders.unshift(new ResourceProviderLoader());
         }
         this.resourceProvider.unshift(provider)
+    },
+    getLocalRequireModule(localRequire:typeof require){
+        return (localRequire as any).localRequireModule
     }
 }
 
