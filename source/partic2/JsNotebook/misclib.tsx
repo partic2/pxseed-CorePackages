@@ -1,6 +1,8 @@
 
 
 import * as React from 'preact'
+import { RpcExtendClient1 } from 'pxprpc/extend';
+import { listRegistered } from 'partic2/pxprpcClient/registry';
 
 
 export class DefaultActionBar extends React.Component<{action:{[name:string]:()=>Promise<void>}},{}>{
@@ -24,3 +26,14 @@ export class DefaultActionBar extends React.Component<{action:{[name:string]:()=
         return btn.map(v=>[<span>&nbsp;&nbsp;</span>,<a href="javascript:;" onClick={(ev)=>this.props.action[v.id]()}>{v.label}</a>,<span>&nbsp;&nbsp;</span>])
     }
 }
+
+export function findRpcClientInfoFromClient(client:RpcExtendClient1){
+    for(let t1 of listRegistered()){
+        if(t1[1].client===client){
+            return t1[1];
+        }
+    }
+    return null;
+}
+
+

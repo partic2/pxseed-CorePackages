@@ -1,5 +1,5 @@
 import * as React from 'preact'
-import { IInteractiveCodeShell, MiscObject, UnidentifiedObject } from './Inspector';
+import { MiscObject, UnidentifiedObject } from './Inspector';
 import { BytesToHex, GenerateRandomString } from 'partic2/jsutils1/base';
 import { ConsoleDataEvent } from './CodeContext';
 
@@ -103,68 +103,4 @@ export class ObjectViewer extends React.Component<
             </div>
         }
     }
-}
-
-export class InspectableShellInspector extends React.Component<{shell:InspectableShell}>{
-    componentDidMount(): void {
-        this.props.shell.onHistoryChange=()=>this.forceUpdate();
-    }
-    render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined; }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChild {
-        return <div>{
-                this.props.shell.historyRecord.map((record)=>
-                <div>
-                    {record}
-                </div>)
-        }</div>
-    }
-}
-
-export class InspectableShell implements IInteractiveCodeShell{
-    constructor(public wrapped:IInteractiveCodeShell){}
-    historyRecord:string[]=[];
-    maxHistoryCount=80;
-    onHistoryChange=()=>{};
-    pushHistory(record:string){
-        this.historyRecord.push(record);
-        let cleanCount=this.historyRecord.length-this.maxHistoryCount;
-        for(let t1=0;t1<cleanCount;t1++){
-            this.historyRecord.shift();
-        }
-        this.onHistoryChange();
-    }
-    setMaxHistoryCount(maxHistoryCount: number): void {
-        this.maxHistoryCount=maxHistoryCount;
-    }
-    async init(): Promise<void> {
-        this.wrapped.init();
-        this.wrapped.onConsoleData=(event)=>{
-            this.onConsoleData(event);
-            this.historyRecord.push(`[${event.data?.level}]:${event.data?.message}`);
-        }
-    }
-    async runCode(code: string): Promise<any> {
-        this.historyRecord.push(`input:${code}`);
-        try{
-            let result=this.wrapped.runCode(code);
-            this.historyRecord.push(`output:${JSON.stringify(code)}`)
-            return result;
-        }catch(e:any){
-            this.historyRecord.push(`error:${e.toString()}`)
-            throw e;
-        }
-
-    }
-    async inspectObject(accessPath: string[]): Promise<any> {
-        return this.wrapped.inspectObject(accessPath);
-    }
-    getRemoteFunction(functionName: string): (...argv: any[]) => Promise<any> {
-        return this.wrapped.getRemoteFunction(functionName);
-    }
-    async setVariable(variableName: string, value: any): Promise<void> {
-        return this.wrapped.setVariable(variableName,value);
-    }
-    close(): void {
-        this.wrapped.close();
-    }
-    onConsoleData: (event: ConsoleDataEvent) => void=()=>{};
 }

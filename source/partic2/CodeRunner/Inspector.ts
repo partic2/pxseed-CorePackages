@@ -368,16 +368,3 @@ export async function inspectCodeContextVariable(fetcher:RemoteObjectFetcher,
     t1.fetcher=fetcher;
     return await t1.identify(opt);
 }
-
-export interface IInteractiveCodeShell{
-    init():Promise<void>;
-    //return remoteObject parsed by fromSerializableObject 
-    runCode(code:string):Promise<any>;
-    inspectObject(accessPath:string[]):Promise<any>;
-    //convert object to js code to construct same object in code context
-    getRemoteFunction(functionName:string):(...argv:any[])=>Promise<any>;
-    setVariable(variableName:string,value:any):Promise<void>;
-    close():void;
-    onConsoleData:(event:ConsoleDataEvent)=>void;
-}
-

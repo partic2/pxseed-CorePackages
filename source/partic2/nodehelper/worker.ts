@@ -1,8 +1,9 @@
 import { GenerateRandomString, amdContext, future, requirejs } from "partic2/jsutils1/base";
-import { BasicMessagePort, IWorkerThread, setWorkerThreadImplementation } from "partic2/jsutils1/webutils";
+import { BasicMessagePort, IWorkerThread, lifecycle, setWorkerThreadImplementation } from "partic2/jsutils1/webutils";
 import { MessagePort} from "worker_threads";
 import {Worker} from 'worker_threads'
 
+import {__name__ as webutilsName} from 'partic2/jsutils1/webutils'
 const WorkerThreadMessageMark='__messageMark_WorkerThread'
 
 
@@ -84,7 +85,7 @@ class NodeWorkerThread implements IWorkerThread{
     waitReady=new future<number>();
     constructor(workerId?:string){
         this.workerId=workerId??GenerateRandomString();
-    };
+    }
     async start(){
         //Program started with noderun.js
         this.nodeWorker=new Worker(process.argv[1],{workerData:{entryModule:'partic2/nodehelper/workerentry'}});
@@ -110,7 +111,21 @@ class NodeWorkerThread implements IWorkerThread{
         });
         await this.waitReady.get();
         await this.runScript(`global.__workerId='${this.workerId}'`)
-        
+        lifecycle.addEventListener('pause',()=>{
+            this.runScript(`require(['${webutilsName}'],function(webutils){
+                webutils.lifecycle.dispatchEvent(new Event('pause'));
+            })`);
+        });
+        lifecycle.addEventListener('resume',()=>{
+            this.runScript(`require(['${webutilsName}'],function(webutils){
+                webutils.lifecycle.dispatchEvent(new Event('resume'));
+            })`);
+        });
+        lifecycle.addEventListener('exit',()=>{
+            this.runScript(`require(['${webutilsName}'],function(webutils){
+                webutils.lifecycle.dispatchEvent(new Event('exit'));
+            })`);
+        });
         this.port=new MessagePortForNodeWorker(this.nodeWorker!)
     }
     onHostRunScript(script:string){
@@ -141,6 +156,9 @@ class NodeWorkerThread implements IWorkerThread{
             delete this.processingScript[scriptId];
             fut.setException(new Error(reason));
         }
+    }
+    requestExit(): void {
+        this.runScript('globalThis.close()');
     }
 }
 

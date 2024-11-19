@@ -6,7 +6,7 @@ import { requirejs } from 'partic2/jsutils1/base';
 import * as jsutils1 from 'partic2/jsutils1/base'
 import { text2html } from 'partic2/pComponentUi/utils';
 import { installedRequirejsResourceProvider } from './JsEnviron';
-import { inspectCodeContextVariable, toSerializableObject, fromSerializableObject, IInteractiveCodeShell, CodeContextRemoteObjectFetcher, RemoteReference} from './Inspector';
+import { inspectCodeContextVariable, toSerializableObject, fromSerializableObject, CodeContextRemoteObjectFetcher, RemoteReference} from './Inspector';
 
 acorn.defaultOptions.allowAwaitOutsideFunction=true;
 acorn.defaultOptions.ecmaVersion='latest';
@@ -483,41 +483,14 @@ export var jsExecLib={
 
 
 
-
-export abstract class InteractiveCodeShellBase implements IInteractiveCodeShell{
-    abstract runCode(code: string): Promise<any>;
-    abstract inspectObject(accessPath: string[]): Promise<any>;
+export class CodeContextShell{
     onConsoleData: (event: ConsoleDataEvent) => void=()=>{};
-    async init(){
-    }
-    getRemoteFunction(functionName: string) {
-        return async (...argv:any[])=>{
-            let argvjs:string[]=[];
-            for(let t1 of argv){
-                argvjs.push('__priv_jsExecLib.fromSerializableObject('+
-                    JSON.stringify(toSerializableObject(t1,{maxDepth:30,maxKeyCount:10000,enumerateMode:'for in'}))+
-                ',{referenceGlobal:_ENV})');
-            }
-            return await this.runCode(`${functionName}(${argvjs.join(',')});`);
-        };
-    }
-    async setVariable(variableName:string,value:any){
-        let objJs='__priv_jsExecLib.fromSerializableObject('+
-            JSON.stringify(toSerializableObject(value,{maxDepth:50,maxKeyCount:10000,enumerateMode:'for in'}))+
-        ',{referenceGlobal:_ENV})'
-        await this.runCode(`var ${variableName}=${objJs};`);
-    }
-    close() {
-    }
-}
-
-
-
-export class CodeContextShell extends InteractiveCodeShellBase{
+    runCodeLog:(s:string)=>void=()=>{};
     constructor(public codeContext:RunCodeContext){
-        super();
     }
     async runCode(code:string):Promise<any>{
+        let ctx={code};
+        ({code}=ctx);
         let nextResult='__result_'+jsutils1.GenerateRandomString();
         let result=await this.codeContext.runCode(code,nextResult);
         if(result.err==null){
@@ -537,11 +510,54 @@ export class CodeContextShell extends InteractiveCodeShellBase{
             throw new Error(result.err.message+'\n'+(result.err.stack??''));
         }
     }
+    async importModule<T>(mod:string,asName:string){
+        let importResult=await this.codeContext.runCode(`import * as ${asName} from '${mod}' `);
+        if(importResult.err!=null){
+            throw new Error(importResult.err+'\n'+(importResult.err.stack??''))
+        }
+        let shell=this;
+        let r={
+            cached:{} as Partial<T>,
+            getFunc<K extends keyof T>(name:K):T[K]{
+                if(!(name in this.cached)){
+                    this.cached[name]=shell.getRemoteFunction(`${asName}.${name as string}`) as T[K]
+                }
+                return this.cached[name] as T[K];
+            },
+            toModuleProxy():T{
+                let that=this;
+                return new Proxy(this.cached,{
+                    get(target,p){
+                        if(!(p in target)){
+                            return that.getFunc(p as keyof T);
+                        }
+                    }
+                }) as T;
+            }
+        }
+        return r;
+    }
+    getRemoteFunction(functionName: string) {
+        return async (...argv:any[])=>{
+            let argvjs:string[]=[];
+            for(let t1 of argv){
+                argvjs.push('__priv_jsExecLib.fromSerializableObject('+
+                    JSON.stringify(toSerializableObject(t1,{maxDepth:30,maxKeyCount:10000,enumerateMode:'for in'}))+
+                ',{referenceGlobal:_ENV})');
+            }
+            return await this.runCode(`${functionName}(${argvjs.join(',')});`);
+        };
+    }
+    async setVariable(variableName:string,value:any){
+        let objJs='__priv_jsExecLib.fromSerializableObject('+
+            JSON.stringify(toSerializableObject(value,{maxDepth:50,maxKeyCount:10000,enumerateMode:'for in'}))+
+        ',{referenceGlobal:_ENV})'
+        await this.runCode(`var ${variableName}=${objJs};`);
+    }
     async inspectObject(accessPath: string[]): Promise<any> {
         return await inspectCodeContextVariable(new CodeContextRemoteObjectFetcher(this.codeContext),accessPath,{maxDepth:50,maxKeyCount:10000});
     }
     async init(): Promise<void> {
-        await super.init();
         this.codeContext.event.addEventListener(ConsoleDataEvent.EventType,this.onConsoleData);
     }
 }
@@ -549,7 +565,12 @@ export class CodeContextShell extends InteractiveCodeShellBase{
 export let registry={
     contexts:{} as Record<string,RunCodeContext|null>,
     set(name:string,context:RunCodeContext|null){
-        this.contexts[name]=context;
+        if(context==null){
+            delete this.contexts[name];
+        }else{
+            this.contexts[name]=context;
+        }
+        this.__change.setResult(null);
     },
     get(name:string){
         return this.contexts[name]??null;
@@ -560,5 +581,13 @@ export let registry={
             t1.push(t2);
         }
         return t1;
+    },
+    __change:new jsutils1.future<null>(),
+    async waitChange(){
+        let fut=this.__change;
+        await fut.get();
+        if(fut==this.__change){
+            this.__change=new jsutils1.future<null>();
+        }
     }
 }

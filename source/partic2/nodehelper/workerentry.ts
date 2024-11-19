@@ -15,6 +15,9 @@ import {MessagePortForNodeWorker,setupImpl} from './worker'
     (global as any).postMessage=compa.postMessage.bind(compa);
     (global as any).addEventListener=compa.addEventListener.bind(compa);
     (global as any).removeEventListener=compa.removeEventListener.bind(compa);
+    
+    //exit worker_thread
+    (global as any).close=()=>process.exit();
 
     globalThis.addEventListener('message',function(msg){
         if(typeof msg.data==='object' && msg.data[WorkerThreadMessageMark]){

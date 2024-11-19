@@ -1,18 +1,23 @@
-import { FloatLayerComponent, ReactRender, css } from 'partic2/pComponentUi/domui';
+import { FloatLayerComponent, ReactRefEx, ReactRender, css } from 'partic2/pComponentUi/domui';
 import * as React from 'preact';
 import {  DummyDirectoryHandler, FileBrowser } from './filebrowser';
 import { TabInfoBase, TabView } from 'partic2/pComponentUi/workspace';
 import { ClientInfo } from 'partic2/pxprpcClient/registry';
-import { IJSNBFileHandler } from './notebook';
+import { IJSNBFileHandler, RunCodeTab } from './notebook';
 import { FileTypeHandler, JsModuleHandler, ImageFileHandler, TextFileHandler } from './fileviewer';
 import { SimpleFileSystem ,LocalWindowSFS,TjsSfs} from 'partic2/CodeRunner/JsEnviron';
 import { RegistryUI } from 'partic2/pxprpcClient/ui';
-import { clone, GetCurrentTime, sleep } from 'partic2/jsutils1/base';
+import { clone, GetCurrentTime, sleep,assert, GenerateRandomString, future } from 'partic2/jsutils1/base';
 import { tjsFrom } from 'partic2/tjsonpxp/tjs';
 import { Invoker as jseioInvoker} from "partic2/pxprpcBinding/JseHelper__JseIo";
 import { StdioShellProfile1 } from './stdioshell';
 import {WindowComponent} from 'partic2/pComponentUi/window'
 import {PointTrace} from 'partic2/pComponentUi/transform'
+import { RemoteRunCodeContext } from 'partic2/CodeRunner/RemoteCodeContext';
+import { LocalRunCodeContext, RunCodeContext } from 'partic2/CodeRunner/CodeContext';
+import {appendFloatWindow,removeFloatWindow} from 'partic2/pComponentUi/window'
+import { findRpcClientInfoFromClient } from './misclib';
+import { path } from 'partic2/jsutils1/webutils'
 const __name__='partic2/JsNotebook/workspace'
 
 
@@ -47,38 +52,44 @@ class CreateFileTab extends TabInfoBase{
 
 let tabAttrSym=Symbol('tabAttrSym');
 
-export class Workspace extends React.Component<{rpc?:ClientInfo,fs?:SimpleFileSystem},{
-    fs:SimpleFileSystem,inited:boolean,initFileDir:string,panel12SplitX?:number}>{
+export class Workspace extends React.Component<{rpc?:ClientInfo,fs?:SimpleFileSystem,divClass?:string[],divStyle?:React.JSX.CSSProperties},{
+    fs:SimpleFileSystem,initFileDir:string,panel12SplitX?:number}>{
     rref={
         fb:React.createRef<FileBrowser>(),
-        tv:React.createRef<TabView>(),
+        tv:new ReactRefEx<TabView>(),
         panel1:React.createRef<HTMLDivElement>(),
         rpcRegistry:React.createRef<WindowComponent>()
     }
     fileTypeHandlers=clone(defaultFileTypeHandlers,1);
     fs?:SimpleFileSystem
+    inited=new future<boolean>();
     constructor(props:any,ctx:any){
         super(props,ctx);
         this.fileTypeHandlers.forEach(v=>v.setWorkspace(this));
-        this.setState({inited:false,initFileDir:''});
+        this.setState({initFileDir:''});
         this.init()
     }
     initOpenedFiles:string[]=[]
     async loadProfile(){
-        let profileFile=await this.fs!.dataDir()+'/www/'+__name__+'/serverProfile.json';
-        let profile={currPath:'',openedFiles:[]}
-        if(await this.fs?.filetype(profileFile)==='file'){
-            try{
-                let data1=await this.fs!.readAll(profileFile);
-                if(data1!=null && data1.length>0){
-                    profile={...profile,...JSON.parse(new TextDecoder().decode(data1))}
-                }
-            }catch(e){}
+        let moduleDataDir=(await this.fs!.dataDir())+'/www/'+__name__;
+        let profileFile=moduleDataDir+'/serverProfile.json';
+        let profile={currPath:moduleDataDir+'/workspace/1',openedFiles:[moduleDataDir+'/workspace/1/notebook.ijsnb']}
+        try{
+            assert(await this.fs?.filetype(profileFile)==='file');
+            let data1=await this.fs!.readAll(profileFile);
+            if(data1!=null && data1.length>0){
+                profile={...profile,...JSON.parse(new TextDecoder().decode(data1))}
+            }
+        }catch(e:any){
+            if(e.name==='AbortError')throw e;
+            await this.fs!.mkdir(profile.currPath);
+            await this.fs!.writeAll(profileFile,new TextEncoder().encode(JSON.stringify(profile)))
         }
         this.setState({initFileDir:profile.currPath})
         this.initOpenedFiles=profile.openedFiles;
     }
     async saveProfile(){
+        let moduleDataDir=(await this.fs!.dataDir())+'/www/'+__name__;
         let openedFiles=[]
         for(let tab of this.rref.tv.current!.getTabs()){
             if(tabAttrSym in tab){
@@ -89,14 +100,13 @@ export class Workspace extends React.Component<{rpc?:ClientInfo,fs?:SimpleFileSy
             currPath:this.rref.fb.current?.state.currPath,
             openedFiles
         }
-        let profileFile=await this.fs!.dataDir()+'/www/'+__name__+'/serverProfile.json';
+        let profileFile=moduleDataDir+'/serverProfile.json';
         await this.fs!.writeAll(profileFile,new TextEncoder().encode(JSON.stringify(profile)))
     }
     async autoSaveProfile(){
-        let profileFile=await this.fs!.dataDir()+'/www/'+__name__+'/serverProfile.json';
         while(true){
             await sleep(5000);
-            let profile={curPath:''}
+            await this.saveProfile();
         }
     }
     jseio?:jseioInvoker
@@ -133,14 +143,14 @@ export class Workspace extends React.Component<{rpc?:ClientInfo,fs?:SimpleFileSy
             this.setState({fs:this.props.fs!});
         }
         await this.loadProfile();
-        this.setState({inited:true},()=>this.afterViewInited());
-    }
-    async afterViewInited(){
+        this.inited.setResult(true);
+        this.forceUpdate();
         for(let t1 of this.initOpenedFiles){
             await this.doOpenFileRequest(t1);
         }
     }
     async doOpenFileRequest(path:string){
+        await this.inited.get();
         let lowercasePath=path.toLowerCase();
         for(let t1 of this.fileTypeHandlers){
             let matched=false;
@@ -157,9 +167,27 @@ export class Workspace extends React.Component<{rpc?:ClientInfo,fs?:SimpleFileSy
             if(matched){
                 let t2=await t1.open!(path);
                 (t2 as any)[tabAttrSym]={filePath:path};
-                this.rref.tv.current!.addTab(t2);
-                this.rref.tv.current!.openTab(t2.id);
+                (await this.rref.tv.waitValid()).addTab(t2);
+                (await this.rref.tv.waitValid()).openTab(t2.id);
                 break;
+            }
+        }
+    }
+    async openNotebookFor(supportedContext:'local window'|ClientInfo|RemoteRunCodeContext|LocalRunCodeContext,notebookFile?:string){
+        await this.inited.get();
+        let moduleDataDir=(await this.fs!.dataDir())+'/www/'+__name__;
+        if(notebookFile==undefined){
+            notebookFile=moduleDataDir+'/workspace/1/notebook.ijsnb';
+        }
+        if((await this.fs!.filetype(notebookFile))==='none'){
+            await this.fs!.mkdir(path.dirname(notebookFile));
+            await this.fs!.writeAll(notebookFile,new TextEncoder().encode('{}'));
+        }
+        await this.doOpenFileRequest(notebookFile);
+        for(let tab of  (await this.rref.tv.waitValid()).getTabs()){
+            if(tab instanceof RunCodeTab && tab.path===notebookFile){
+                await tab.inited.get();
+                await tab.useCodeContext(supportedContext);
             }
         }
     }
@@ -169,9 +197,10 @@ export class Workspace extends React.Component<{rpc?:ClientInfo,fs?:SimpleFileSy
         this.rref.fb.current!.setAction('rename')
     }
     async doCreateFileRequest(dir:string){
+        await this.inited.get();
         let t1=await new CreateFileTab().init({ws:this});
-        this.rref.tv.current!.addTab(t1);
-        this.rref.tv.current!.openTab(t1.id);
+        (await this.rref.tv.waitValid()).addTab(t1);
+        (await this.rref.tv.waitValid()).openTab(t1.id);
     }
     __panel12SpliterMove=new PointTrace({
         onMove:(curr,start)=>{
@@ -179,10 +208,11 @@ export class Workspace extends React.Component<{rpc?:ClientInfo,fs?:SimpleFileSy
         }
     });
     render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined; }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChild {
-        if(!this.state.inited){
+        if(!this.inited.done){
             return null;
         }
-        return <div className={css.flexRow} style={{width:'100%',height:'100%'}} >
+        return <div className={[css.flexRow,...(this.props.divClass??[])].join(' ')} 
+                    style={{width:'100%',height:'100%',...(this.props.divStyle??{})}} >
             <WindowComponent ref={this.rref.rpcRegistry} title='rpc registry'>
                 <RegistryUI />
             </WindowComponent>
@@ -191,7 +221,7 @@ export class Workspace extends React.Component<{rpc?:ClientInfo,fs?:SimpleFileSy
                 <a href="javascript:;" onClick={()=>this.rref.rpcRegistry.current?.active()}>RpcRegistry</a><span>&nbsp;&nbsp;</span>
                 <a href="javascript:;" onClick={()=>this.saveProfile()}>SaveWorkspace</a>
                 <div style={{flexGrow:1}}>
-                <FileBrowser ref={this.rref.fb} sfs={this.state.fs} initDir={this.state.initFileDir} 
+                <FileBrowser ref={this.rref.fb} sfs={this.state.fs} initDir={this.state.initFileDir} workspace={this}
             onOpenRequest={(path)=>this.doOpenFileRequest(path)} onCreateRequest={(dir)=>this.doCreateFileRequest(dir)}/>
                 </div>
             </div>
@@ -215,3 +245,22 @@ export class Workspace extends React.Component<{rpc?:ClientInfo,fs?:SimpleFileSy
     }
 }
 
+export async function openWorkspaceWindowFor(supportedContext:'local window'|ClientInfo|RemoteRunCodeContext|LocalRunCodeContext,title?:string){
+    let wsref=new ReactRefEx<Workspace>();
+    if(supportedContext=='local window' || (supportedContext instanceof LocalRunCodeContext)){
+        appendFloatWindow(<WindowComponent key={GenerateRandomString()} title={title}>
+            <Workspace ref={wsref} divStyle={{backgroundColor:'white'}}/>
+        </WindowComponent>)
+    }else if(supportedContext instanceof ClientInfo){
+        appendFloatWindow(<WindowComponent key={GenerateRandomString()} title={title}>
+            <Workspace ref={wsref} rpc={supportedContext} divStyle={{backgroundColor:'white'}}/>
+        </WindowComponent>)
+    }else if(supportedContext instanceof RemoteRunCodeContext){
+        let rpc=findRpcClientInfoFromClient(supportedContext.client1);
+        assert(rpc!=null);
+        appendFloatWindow(<WindowComponent key={GenerateRandomString()} title={title}>
+            <Workspace ref={wsref} rpc={rpc!} divStyle={{backgroundColor:'white'}}/>
+        </WindowComponent>)
+    }
+    (await wsref.waitValid()).openNotebookFor(supportedContext);
+}

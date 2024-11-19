@@ -70,7 +70,14 @@ export class TabView extends React.Component<{onTabActive?:(tabId:string)=>void}
             }
             this.state.tabs.splice(t1,1);
             if(toClose.id===this.state.currTab){
-                this.setState({currTab:''})
+                if(t1>=this.state.tabs.length){
+                    t1=this.state.tabs.length-1;
+                }
+                if(t1>=0){
+                    this.setState({currTab:this.state.tabs[t1].id});
+                }else{
+                    this.setState({currTab:''});
+                }
             }else{
                 this.forceUpdate();
             }

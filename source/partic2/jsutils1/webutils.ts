@@ -414,6 +414,7 @@ export interface IWorkerThread{
     workerId:string;
     start():Promise<void>
     runScript(script:string,getResult?:boolean):Promise<any>
+    requestExit():void
 }
 
 class WebWorkerThread implements IWorkerThread{
@@ -448,17 +449,17 @@ class WebWorkerThread implements IWorkerThread{
         await this.waitReady.get();
         await this.runScript(`this.__workerId='${this.workerId}'`);
         lifecycle.addEventListener('pause',()=>{
-            this.runScript(`define('${__name__}',function(webutils){
+            this.runScript(`require(['${__name__}'],function(webutils){
                 webutils.lifecycle.dispatchEvent(new Event('pause'));
             })`);
         });
         lifecycle.addEventListener('resume',()=>{
-            this.runScript(`define('${__name__}',function(webutils){
+            this.runScript(`require(['${__name__}'],function(webutils){
                 webutils.lifecycle.dispatchEvent(new Event('resume'));
             })`);
         });
         lifecycle.addEventListener('exit',()=>{
-            this.runScript(`define('${__name__}',function(webutils){
+            this.runScript(`require(['${__name__}'],function(webutils){
                 webutils.lifecycle.dispatchEvent(new Event('exit'));
             })`);
         });
@@ -491,7 +492,11 @@ class WebWorkerThread implements IWorkerThread{
             let fut=this.processingScript[scriptId];
             delete this.processingScript[scriptId];
             fut.setException(new Error(reason));
+            
         }
+    }
+    requestExit(){
+        this.runScript('globalThis.close()');
     }
 }
 

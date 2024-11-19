@@ -72,6 +72,7 @@ export class RemoteRunCodeContext implements RunCodeContext{
         this.remoteEventQueue=await this.remoteExecObj(`return lib.CreateEventQueue(arg.event,['console.data']);`,this.remoteContext)
         this.pullEventInterval();
         this.initDone.setResult(true)
+        new FinalizationRegistry(()=>this.close()).register(this,undefined);
     }
     protected async pullEventInterval(){
         while(!this.closed){

@@ -1,8 +1,6 @@
 
 import * as React from 'preact'
 import {DomRootComponent, ReactRender, css} from 'partic2/pComponentUi/domui'
-import {IInteractiveCodeShell} from 'partic2/CodeRunner/Inspector'
-import {InspectableShell, InspectableShellInspector} from 'partic2/CodeRunner/Component1'
 import { RemoteRunCodeContext } from 'partic2/CodeRunner/RemoteCodeContext'
 import {getRegistered,persistent,ServerHostRpcName,ServerHostWorker1RpcName} from 'partic2/pxprpcClient/registry'
 import { GetBlobArrayBufferContent, TextToJsString, assert, requirejs } from 'partic2/jsutils1/base'
@@ -14,12 +12,14 @@ var registryModuleName='partic2/packageManager/registry';
 export var __name__=requirejs.getLocalRequireModule(require);
 //remote code context
 
-import type * as registry from 'partic2/packageManager/registry'
+import * as registryModType from 'partic2/packageManager/registry'
 import type { PxseedConfig } from 'pxseedBuildScript/buildlib'
-import { CodeContextShell } from 'partic2/CodeRunner/CodeContext'
+import { CodeContextShell, registry } from 'partic2/CodeRunner/CodeContext'
+import {openWorkspaceWindowFor} from 'partic2/JsNotebook/workspace'
 
 
-let codeCellShell:IInteractiveCodeShell|null=null;
+let codeCellShell:CodeContextShell|null=null;
+
 
 let i18n={
     install:'install',
@@ -36,26 +36,15 @@ let i18n={
 async function getServerCodeShell(){
     if(codeCellShell==null){
         await persistent.load();
-        //let rpc=getRegistered(ServerHostWorker1RpcName);
-        let rpc=getRegistered(ServerHostRpcName);
+        let rpc=getRegistered(ServerHostWorker1RpcName);
         assert(rpc!=null);
-        let codeContext=new RemoteRunCodeContext(await rpc!.ensureConnected())
+        let codeContext=new RemoteRunCodeContext(await rpc!.ensureConnected());
+        registry.set(registryModuleName,codeContext);
         codeCellShell=new CodeContextShell(codeContext);
-        await codeCellShell.runCode(
-            `import * as registry from 'partic2/packageManager/registry'`
-        )
-    }
-    let registry1:Partial<typeof registry>={};
-    const exportNames=['installLocalPackage','fetchGitPackageFromUrl',
-        'fetchPackageFromUrl','getRepoInfoFromPkgName','fetchPackage','uninstallPackage','upgradeGitPackage',
-        'upgradePackage','publishPackage','initGitRepo','exportPackagesInstallation','importPackagesInstallation',
-        'listPackagesArray','installPackage','createPackageTemplate1','getUrlTemplateFromScopeName'] as const;
-    for(let t1 of exportNames){
-        registry1[t1]=codeCellShell.getRemoteFunction(`registry.${t1}`);
     }
     return {
         shell:codeCellShell,
-        registry:registry1
+        registry:(await codeCellShell.importModule<typeof registryModType>(registryModuleName,'registry')).toModuleProxy()
     };
 }
 
@@ -68,8 +57,7 @@ const SimpleButton=(props:React.RenderableProps<{
 class PackagePanel extends React.Component<{},{
     packageList:PxseedConfig[],
     errorMessage:string,
-    showConsole:boolean,
-    shellConsole:InspectableShell|null
+    showConsole:boolean
 }>{
     rref={
         packageName:React.createRef<HTMLInputElement>(),
@@ -78,7 +66,7 @@ class PackagePanel extends React.Component<{},{
     }
     constructor(props:any,context:any){
         super(props,context);
-        this.setState({packageList:[],errorMessage:'',showConsole:false,shellConsole:null});
+        this.setState({packageList:[],errorMessage:'',showConsole:false});
     }
     async install(){
         let source=this.rref.packageName.current!.value;
@@ -134,7 +122,7 @@ class PackagePanel extends React.Component<{},{
     async createPackageBtn(pkgInfoIn:any,subbtn?:string){
         let {registry}=await getServerCodeShell();
         if(subbtn==='create'){
-            let opt={} as registry.PackageManagerOption;
+            let opt={} as registryModType.PackageManagerOption;
             let webuiEntry=pkgInfoIn.webuiEntry as string;
             if(webuiEntry.startsWith('./')){
                 webuiEntry=pkgInfoIn.name+webuiEntry.substring(1);
@@ -191,6 +179,9 @@ class PackagePanel extends React.Component<{},{
             this.refreshList();
         }
     }
+    async openNotebook(){
+        await openWorkspaceWindowFor(codeCellShell!.codeContext as any,'packageManager/registry');
+    }
     render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChild {
         return [
         <div className={css.flexColumn}>
@@ -203,6 +194,8 @@ class PackagePanel extends React.Component<{},{
                     <SimpleButton onClick={()=>this.showCreatePackage()}>{i18n.createPackage}</SimpleButton>
                     <SimpleButton onClick={()=>this.exportPackagesInstallation()} >{i18n.exportInstallation}</SimpleButton>
                     <SimpleButton onClick={()=>this.importPackagesInstallation()} >{i18n.importInstallation}</SimpleButton>
+
+                    <SimpleButton onClick={()=>this.openNotebook()} >notebook</SimpleButton>
                     <div style={{display:'inline-block',color:'red'}}>{this.state.errorMessage}</div>
                 </div>
                 <div style={{flexGrow:1}}>{
@@ -212,7 +205,7 @@ class PackagePanel extends React.Component<{},{
                         this.uninstallPackage(pkg.name)
                     }})
                     if(pkg.options!=undefined && registryModuleName in pkg.options){
-                        let opt=pkg.options[registryModuleName] as registry.PackageManagerOption;
+                        let opt=pkg.options[registryModuleName] as registryModType.PackageManagerOption;
                         if(opt.webui!=undefined){
                             cmd.push({label:i18n.webEntry,click:()=>{
                                 window.open(BuildUrlFromJsEntryModule(opt.webui!.entry),'_blank')

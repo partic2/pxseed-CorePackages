@@ -3,11 +3,12 @@ import * as React from 'preact'
 var ReactDOM=React
 
 import {ArrayWrap2, GenerateRandomString, GetBlobArrayBufferContent, GetCurrentTime} from 'partic2/jsutils1/base'
-import {CKeyValueDb, DynamicPageCSSManager,selectFile} from 'partic2/jsutils1/webutils'
+import {CKeyValueDb, DynamicPageCSSManager,path,selectFile} from 'partic2/jsutils1/webutils'
 import { ReactRender, css } from 'partic2/pComponentUi/domui'
 import { SimpleFileSystem,FileEntry, LocalWindowSFS } from 'partic2/CodeRunner/JsEnviron'
 import { FileTypeHandler, FileTypeHandlerBase } from './fileviewer'
 import { TabInfo } from 'partic2/pComponentUi/workspace'
+import { Workspace } from './workspace'
 
 
 var __name__='partic2/JsNotebook/filebrowser'
@@ -73,8 +74,9 @@ interface FileBrowserState{
 
 export class FileBrowser extends React.Component<{
     sfs:SimpleFileSystem,initDir:string,
-    onCreateRequest:(dir:string)=>void
-    onOpenRequest:(path:string)=>void}
+    onCreateRequest:(dir:string)=>void,
+    onOpenRequest:(path:string)=>void,
+    workspace?:Workspace}
     ,FileBrowserState>{
     public constructor(props?: any | undefined, context?: any){
         super(props,context)
@@ -159,9 +161,10 @@ export class FileBrowser extends React.Component<{
         });
     }
     setAction(action:'main-menu'|'rename'){
-        let path=this.state.selectedFiles.values().next().value;
-        path=path!.substring(path!.lastIndexOf('/')+1)
         if(action==='rename'){
+            let path=this.state.selectedFiles.values().next().value;
+            if(path==undefined)return;
+            path=path.substring(path!.lastIndexOf('/')+1)
             this.setState({
                 action:'rename',textInput1:path
             })
@@ -200,6 +203,13 @@ export class FileBrowser extends React.Component<{
         }
         await this.reloadFileInfo();
     }
+    async DoSyncTab(){
+        let currTab=(await this.props.workspace!.rref.tv.waitValid()).getCurrentTab();
+        if(currTab==undefined)return;
+        if('path' in currTab && typeof currTab.path==='string'){
+            await this.doFileOpen(path.dirname(currTab.path as string));
+        }
+    }
     input1Ref=React.createRef<HTMLInputElement>();
     filterRef=React.createRef<HTMLInputElement>();
     public renderAction(){
@@ -208,7 +218,9 @@ export class FileBrowser extends React.Component<{
                 <a href="javascript:;" onClick={()=>this.props.onCreateRequest?.(this.state.currPath!)}>New</a>&emsp;
                 <a href="javascript:;" onClick={()=>this.setAction('rename')}>Rename</a>&emsp;
                 <a href="javascript:;" onClick={()=>this.DoDelete()}>Delete</a><br/>
-                <a href="javascript:;" onClick={()=>this.DoUpload()}>Upload</a>
+                <a href="javascript:;" onClick={()=>this.DoUpload()}>Upload</a>&emsp;
+                {this.props.workspace!=undefined?
+                    <a href="javascript:;" onClick={()=>this.DoSyncTab()}>SyncTab</a>:null}&emsp;
             </div>
         }else if(this.state.action=='rename'){
             return <div class={[css.simpleCard].join(' ')}>

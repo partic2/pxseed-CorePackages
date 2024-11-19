@@ -50,7 +50,7 @@ export class WindowComponent extends React.Component<WindowComponentProps,Window
             let width=0;
             let height=0;
             let stableCount=0;
-            for(let t1=0;t1<10;t1++){
+            for(let t1=0;t1<100;t1++){
                 await new Promise(resolve=>requestAnimationFrame(resolve));
                 let newWidth=this.rref.container.current?.scrollWidth??0;
                 let newHeight=this.rref.container.current?.scrollHeight??0;
@@ -61,7 +61,7 @@ export class WindowComponent extends React.Component<WindowComponentProps,Window
                 }else{
                     stableCount++;
                 }
-                if(stableCount>=2)break;
+                if(stableCount>=3)break;
             }
         })();
         
@@ -133,6 +133,12 @@ export class WindowComponent extends React.Component<WindowComponentProps,Window
     }
     hide(){
         this.setState({activeTime:-1})
+    }
+    isFolded(){
+        return this.state.folded;
+    }
+    setFolded(v:boolean){
+        this.setState({folded:v})
     }
     renderTitle(){
         return <div className={cssBase.flexRow} style={{borderBottom:'solid black 1px',alignItems:'center',backgroundColor:'#f88'}}>
@@ -232,13 +238,19 @@ function ensureFloatWindowContainer(){
     return floatWindowContainer;
 }
 let floatWindowVNodes:React.VNode[]=[];
-export function appendFloatWindow(window:React.VNode){
+export function appendFloatWindow(window:React.VNode,active?:boolean){
+    active=active??true;
+    let ref2=new ReactRefEx<WindowComponent>().forward([window.ref].filter(v=>v!=undefined) as React.Ref<any>[]);
+    window.ref=ref2;
     if(!('key' in window)){
         console.warn('window should has "key" property as unique identity');
     }
     ensureFloatWindowContainer();
     floatWindowVNodes.push(window);
     ReactRender(floatWindowVNodes,floatWindowContainer!);
+    if(active){
+        ref2.waitValid().then((v)=>v.active());
+    }
 }
 
 export function removeFloatWindow(window:React.VNode){
@@ -259,12 +271,8 @@ if(navigator.language==='zh-CN'){
 }
 
 export async function alert(message:string,title?:string){
-    let wndRef=new ReactRefEx<WindowComponent>();
-    wndRef.addEventListener('change',(ev:RefChangeEvent<WindowComponent>)=>{
-        ev.data.curr?.active();
-    });
     let result=new future<null>();
-    let floatWindow1=<WindowComponent ref={wndRef} key={GenerateRandomString()}
+    let floatWindow1=<WindowComponent key={GenerateRandomString()}
     title={title??i18n.caution} onClose={()=>result.setResult(null)}>
     <div style={{backgroundColor:'#FFF', minWidth:Math.min(window.innerWidth-10,300)}}>
         {message}
@@ -280,12 +288,8 @@ export async function alert(message:string,title?:string){
 
 
 export async function confirm(message:string,title?:string){
-    let wndRef=new ReactRefEx<WindowComponent>();
-    wndRef.addEventListener('change',(ev:RefChangeEvent<WindowComponent>)=>{
-        ev.data.curr?.active();
-    });
     let result=new future<'ok'|'cancel'>();
-    let floatWindow1=<WindowComponent ref={wndRef}  key={GenerateRandomString()}
+    let floatWindow1=<WindowComponent key={GenerateRandomString()}
         title={title??i18n.caution} onClose={()=>result.setResult('cancel')}>
         <div style={{backgroundColor:'#FFF', minWidth:Math.min(window.innerWidth-10,300)}}>
             {message}

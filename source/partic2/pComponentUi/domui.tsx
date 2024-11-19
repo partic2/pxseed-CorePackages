@@ -314,6 +314,40 @@ export class ReactRefEx<T> extends EventTarget implements React.RefObject<T>{
     addEventListener(type: string, callback: EventListenerOrEventListenerObject | null, options?: AddEventListenerOptions | boolean): void {
         super.addEventListener(type,callback,options);
     }
+    removeEventListener(type: 'change', callback: ((evt:RefChangeEvent<T>)=>void)|EventListenerOrEventListenerObject|null): void
+    removeEventListener(type: string, callback: EventListenerOrEventListenerObject | null, options?: EventListenerOptions | boolean): void {
+        super.removeEventListener(type,callback,options);
+    }
+    async waitValid(){
+        if(this.current!=null){
+            return this.current;
+        }else{
+            return new Promise<T>((resolve)=>{
+                const onRefChange=(ev:RefChangeEvent<T>)=>{
+                    if(ev.data.curr!=null){
+                        this.removeEventListener('change',onRefChange);
+                        resolve(ev.data.curr);
+                    }
+                }
+                this.addEventListener('change',onRefChange)
+            });
+        }
+        
+    }
+    async waitInvalid(){
+        if(this.current==null){
+            return
+        }
+        return new Promise<undefined>((resolve)=>{
+            const onRefChange=(ev:RefChangeEvent<T>)=>{
+                if(ev.data.curr==null){
+                    this.removeEventListener('change',onRefChange);
+                    resolve(undefined);
+                }
+            }
+            this.addEventListener('change',onRefChange)
+        });
+    }
 }
 
 //activeTime: The last actived layer (which activeTime is latest.) will be put to activeLayer as foreground layer, 
