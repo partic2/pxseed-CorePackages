@@ -499,11 +499,33 @@ export async function *listPackages():AsyncGenerator<PxseedConfig>{
 }
 
 export async function listPackagesArray(filterString:string){
-    let arr=[];
+    let arr:PxseedConfig[]=[];
+    let filterFunc:(name:string,config:PxseedConfig,pmopt:PackageManagerOption|undefined)=>boolean;
+    if(filterString.startsWith('javascript:')){
+        filterFunc=new Function('name','config','pmopt',filterString.substring('javascript:'.length+1)) as any;
+    }else{
+        filterFunc=(()=>{
+            let keywords=filterString.split(/\s+/);
+            return (name,config,pmopt)=>{
+                for(let kw of keywords){
+                    if(name.includes(kw)){
+                        return true;
+                    }
+                    if(config.description!=undefined && config.description.includes(kw)){
+                        return true;
+                    }
+                    if(pmopt!=undefined && kw in pmopt){
+                        return true;
+                    }
+                }
+                return false;
+            }
+        })()
+    }
     for await(let t1 of listPackages()){
-        if(filterString=='' || t1.name.indexOf(filterString)>=0){
+        if(filterFunc(t1.name,t1,t1.options?.[__name__])){
             arr.push(t1);
-        }
+        };
     }
     return arr;
 }

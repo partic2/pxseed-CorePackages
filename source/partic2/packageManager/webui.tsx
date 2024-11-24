@@ -1,12 +1,12 @@
 
 import * as React from 'preact'
-import {DomRootComponent, ReactRender, css} from 'partic2/pComponentUi/domui'
+import {DomRootComponent, ReactRefEx, ReactRender, css} from 'partic2/pComponentUi/domui'
 import { RemoteRunCodeContext } from 'partic2/CodeRunner/RemoteCodeContext'
 import {getRegistered,persistent,ServerHostRpcName,ServerHostWorker1RpcName} from 'partic2/pxprpcClient/registry'
-import { GetBlobArrayBufferContent, TextToJsString, assert, requirejs } from 'partic2/jsutils1/base'
+import { GenerateRandomString, GetBlobArrayBufferContent, TextToJsString, assert, future, requirejs } from 'partic2/jsutils1/base'
 import { BuildUrlFromJsEntryModule, GetJsEntry, RequestDownload, selectFile, useDeviceWidth } from 'partic2/jsutils1/webutils'
 import {JsonForm} from 'partic2/pComponentUi/input'
-import {alert, confirm, WindowComponent} from 'partic2/pComponentUi/window'
+import {alert, appendFloatWindow, confirm, prompt, WindowComponent} from 'partic2/pComponentUi/window'
 var registryModuleName='partic2/packageManager/registry';
 
 export var __name__=requirejs.getLocalRequireModule(require);
@@ -16,39 +16,59 @@ import * as registryModType from 'partic2/packageManager/registry'
 import type { PxseedConfig } from 'pxseedBuildScript/buildlib'
 import { CodeContextShell, registry } from 'partic2/CodeRunner/CodeContext'
 import {openWorkspaceWindowFor} from 'partic2/JsNotebook/workspace'
-
-
-let codeCellShell:CodeContextShell|null=null;
+import { TextEditor } from 'partic2/pComponentUi/texteditor'
 
 
 let i18n={
     install:'install',
-    refresh:'refresh',
+    list:'list',
+    filter:'filter',
+    urlOrPackageName:'url/package name',
     exportInstallation:'export installation',
     importInstallation:'import installation',
     createPackage:'create package',
-    webEntry:'web entry',
-    uninstall:'uninstall',
-    toggleConsole:'toggle console',
-    name:'name',
+    webui:'webui',
+    uninstall:'uninstall'
 }
 
-async function getServerCodeShell(){
-    if(codeCellShell==null){
-        await persistent.load();
-        let rpc=getRegistered(ServerHostWorker1RpcName);
-        assert(rpc!=null);
-        let codeContext=new RemoteRunCodeContext(await rpc!.ensureConnected());
-        registry.set(registryModuleName,codeContext);
-        codeCellShell=new CodeContextShell(codeContext);
+if(navigator.language.split('-').includes('zh')){
+    i18n.install='安装'
+    i18n.list='列出'
+    i18n.filter='过滤'
+    i18n.urlOrPackageName='url或包名'
+    i18n.exportInstallation='导出安装配置'
+    i18n.importInstallation='导入安装配置'
+    i18n.createPackage='创建包'
+    i18n.uninstall='卸载'
+}
+
+class singleton<T>{
+    constructor(public init:()=>Promise<T>){}
+    i:T|null=null;
+    async get(){
+        if(this.i===null){
+            this.i=await this.init()
+        }
+        return this.i;
     }
+}
+
+let codeCellShell=new singleton(async ()=>{
+    await persistent.load();
+    let rpc=getRegistered(ServerHostWorker1RpcName);
+    assert(rpc!=null);
+    let codeContext=new RemoteRunCodeContext(await rpc!.ensureConnected());
+    registry.set(registryModuleName,codeContext);
+    return new CodeContextShell(codeContext);
+});
+async function getServerCodeShell(){
+    let ccs=await codeCellShell.get();
+    let mod=await ccs.importModule<typeof registryModType>(registryModuleName,'registry');
     return {
         shell:codeCellShell,
-        registry:(await codeCellShell.importModule<typeof registryModType>(registryModuleName,'registry')).toModuleProxy()
+        registry:mod.toModuleProxy()
     };
 }
-
-
 
 const SimpleButton=(props:React.RenderableProps<{
     onClick: () => void;
@@ -56,25 +76,37 @@ const SimpleButton=(props:React.RenderableProps<{
 
 class PackagePanel extends React.Component<{},{
     packageList:PxseedConfig[],
-    errorMessage:string,
-    showConsole:boolean
+    errorMessage:string
 }>{
     rref={
-        packageName:React.createRef<HTMLInputElement>(),
         createPackageGuide:React.createRef<WindowComponent>(),
-        createPackageForm:React.createRef<JsonForm>()
+        createPackageForm:React.createRef<JsonForm>(),
+        installPackageName:new ReactRefEx<TextEditor>(),
+        listFilter:new ReactRefEx<TextEditor>()
     }
     constructor(props:any,context:any){
         super(props,context);
-        this.setState({packageList:[],errorMessage:'',showConsole:false});
+        this.setState({packageList:[],errorMessage:''});
     }
     async install(){
-        let source=this.rref.packageName.current!.value;
+        let dlg=await prompt(<div style={{backgroundColor:'white'}}>
+            {i18n.urlOrPackageName}:<TextEditor ref={this.rref.installPackageName} 
+                divClass={[css.simpleCard]}
+                divStyle={{width:Math.min(window.innerWidth-8,300)}}
+            />
+        </div>,i18n.install);
+        if((await dlg.answer.get())==='cancel'){
+            dlg.close();
+            return
+        }
+        let source=(await this.rref.installPackageName.waitValid()).getPlainText();
+        dlg.close();
         let {registry}=await getServerCodeShell();
         this.setState({errorMessage:'Installing...'})
         try{
             await registry.installPackage!(source);
-            this.setState({errorMessage:'done'})
+            this.setState({errorMessage:'done'});
+            this.refreshList();
         }catch(e:any){
             this.setState({errorMessage:'Failed:'+e.toString()})
         }
@@ -93,14 +125,28 @@ class PackagePanel extends React.Component<{},{
             )
         }
     }
-    
-    componentDidMount(): void {
-        this.refreshList();
+    filterString:string='webui'
+    async requestListPackage(){
+        let dlg=await prompt(<div style={{backgroundColor:'white'}}>
+            {i18n.filter}:<TextEditor ref={this.rref.listFilter}
+                divClass={[css.simpleCard]}
+                divStyle={{width:Math.min(window.innerWidth-8,300)}}/>
+        </div>,i18n.list);
+        (await this.rref.listFilter.waitValid()).setPlainText(this.filterString);
+        if((await dlg.answer.get())==='cancel'){
+            dlg.close();
+            return;
+        }else{
+            this.filterString=this.rref.listFilter.current!.getPlainText();
+            dlg.close();
+            await this.refreshList();
+        }
     }
     async refreshList(){
         let {registry}=await getServerCodeShell();
         this.setState({
-            packageList:await registry.listPackagesArray!(this.rref.packageName.current?.value??'')
+            packageList:await registry.listPackagesArray(this.filterString),
+            errorMessage:''
         });
     }
     async showCreatePackage(){
@@ -108,7 +154,7 @@ class PackagePanel extends React.Component<{},{
         this.rref.createPackageForm.current!.value={
             name:'partic2/createPkgDemo',
             loaders:`[
-{"name": "copyFiles","include": ["asset/**/*"]},
+{"name": "copyFiles","include": ["assets/**/*"]},
 {"name": "typescript"}
 ]`,
             webuiEntry:'./index',
@@ -180,21 +226,20 @@ class PackagePanel extends React.Component<{},{
         }
     }
     async openNotebook(){
-        await openWorkspaceWindowFor(codeCellShell!.codeContext as any,'packageManager/registry');
+        await openWorkspaceWindowFor((await codeCellShell.get()).codeContext as any,'packageManager/registry');
+    }
+    componentDidMount(): void {
+        this.refreshList();
     }
     render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChild {
         return [
         <div className={css.flexColumn}>
-                <div className={css.flexRow}>
-                    <input placeholder="url or package name, refresh filter." ref={this.rref.packageName} style={{flexGrow:1}}></input>
-                </div>
                 <div>
+                    <SimpleButton onClick={()=>this.requestListPackage()}>{i18n.list}</SimpleButton>
                     <SimpleButton onClick={()=>this.install()}>{i18n.install}</SimpleButton>
-                    <SimpleButton onClick={()=>this.refreshList()}>{i18n.refresh}</SimpleButton>
                     <SimpleButton onClick={()=>this.showCreatePackage()}>{i18n.createPackage}</SimpleButton>
                     <SimpleButton onClick={()=>this.exportPackagesInstallation()} >{i18n.exportInstallation}</SimpleButton>
                     <SimpleButton onClick={()=>this.importPackagesInstallation()} >{i18n.importInstallation}</SimpleButton>
-
                     <SimpleButton onClick={()=>this.openNotebook()} >notebook</SimpleButton>
                     <div style={{display:'inline-block',color:'red'}}>{this.state.errorMessage}</div>
                 </div>
@@ -207,7 +252,7 @@ class PackagePanel extends React.Component<{},{
                     if(pkg.options!=undefined && registryModuleName in pkg.options){
                         let opt=pkg.options[registryModuleName] as registryModType.PackageManagerOption;
                         if(opt.webui!=undefined){
-                            cmd.push({label:i18n.webEntry,click:()=>{
+                            cmd.push({label:i18n.webui,click:()=>{
                                 window.open(BuildUrlFromJsEntryModule(opt.webui!.entry),'_blank')
                             }});
                         }

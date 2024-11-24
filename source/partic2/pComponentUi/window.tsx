@@ -305,3 +305,20 @@ export async function confirm(message:string,title?:string){
     return r;
 }
 
+export async function prompt(form:React.VNode,title?:string){
+    let result=new future<'ok'|'cancel'>();
+    let floatWindow1=<WindowComponent title={title??i18n.caution} onClose={()=>result.setResult('cancel')}>
+        <div className={css.flexColumn}>
+            {form}
+            <div className={css.flexRow}>
+                <input type='button' style={{flexGrow:'1'}} onClick={()=>result.setResult('ok')} value={i18n.ok}/>
+                <input type='button' style={{flexGrow:'1'}} onClick={()=>result.setResult('cancel')} value={i18n.cancel}/>
+            </div>
+        </div>
+    </WindowComponent>;
+    appendFloatWindow(floatWindow1);
+    return {
+        answer:result,
+        close:()=>removeFloatWindow(floatWindow1)
+    }
+}

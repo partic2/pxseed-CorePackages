@@ -24,7 +24,7 @@ class NodeScriptLoader{
     nodejsCached=new Set();
     async loadModuleAsync(moduleId,url){
         try{
-            let filename=await fs.realpath(path.join(__dirname,url));
+            let filename=url;
             if(this.nodejsCached.has(filename)){
                 delete require.cache[filename];
             }
@@ -66,7 +66,8 @@ class NodeScriptLoader{
         return this.currentDefiningModule
     }
 }
-;(async ()=>{
+
+exports.main=async (entry)=>{
     //require('inspector').open(9229,'127.0.0.1',true);
     
     let content=await fs.readFile(__dirname+'/require.js',{ encoding: 'utf8' })
@@ -74,7 +75,7 @@ class NodeScriptLoader{
     new Function(content+exportsScript)();
     requirejs.__nodeenv={require:nodeRequire}
     requirejs.config({
-        baseUrl:'',
+        baseUrl:__dirname,
         waitSeconds:30,
         nodeIdCompat:true  //remove suffix .js
     });
@@ -100,11 +101,13 @@ class NodeScriptLoader{
             return jsloader(module,filename);
         }
     }
-    
-        
-    if(workerThreads.isMainThread){
-        globalThis.require([process.argv[2]],(ent)=>{})
-    }else{
-        globalThis.require([workerThreads.workerData.entryModule],(ent)=>{});
+    globalThis.require([entry],(ent)=>{})
+};
+
+if(workerThreads.isMainThread){
+    if(require.main===module){
+        exports.main(process.argv[2]);
     }
-})();
+}else{
+    exports.main(workerThreads.workerData.entryModule);
+}

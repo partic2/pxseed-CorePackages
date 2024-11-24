@@ -1,8 +1,15 @@
 ## About pxseed
 
-"pxseed" is a package manager manage javascript/typescript code and assert for both browser and node(server) by using AMD loader.
+"pxseed" is a package manager manage javascript/typescript code and assets for both browser and node(server) by using AMD loader.
 
 ## Usage
+
+You can run all-in-one script
+```sh
+node script/buildAndRun.js
+```
+
+Or step by step
 
 1. Prepare environment
 ```sh

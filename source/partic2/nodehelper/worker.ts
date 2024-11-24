@@ -1,9 +1,10 @@
 import { GenerateRandomString, amdContext, future, requirejs } from "partic2/jsutils1/base";
-import { BasicMessagePort, IWorkerThread, lifecycle, setWorkerThreadImplementation } from "partic2/jsutils1/webutils";
+import { BasicMessagePort, IWorkerThread, getWWWRoot, lifecycle, setWorkerThreadImplementation } from "partic2/jsutils1/webutils";
 import { MessagePort} from "worker_threads";
 import {Worker} from 'worker_threads'
 
 import {__name__ as webutilsName} from 'partic2/jsutils1/webutils'
+import path from "path";
 const WorkerThreadMessageMark='__messageMark_WorkerThread'
 
 
@@ -88,7 +89,7 @@ class NodeWorkerThread implements IWorkerThread{
     }
     async start(){
         //Program started with noderun.js
-        this.nodeWorker=new Worker(process.argv[1],{workerData:{entryModule:'partic2/nodehelper/workerentry'}});
+        this.nodeWorker=new Worker(path.join(getWWWRoot(),'noderun.js'),{workerData:{entryModule:'partic2/nodehelper/workerentry'}});
         this.nodeWorker.on('message',(msgdata)=>{
             let msg={data:msgdata};
             if(typeof msg.data==='object' && msg.data[WorkerThreadMessageMark]){

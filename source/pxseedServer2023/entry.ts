@@ -4,16 +4,16 @@ import { ArrayBufferConcat, ArrayWrap2,assert,CanceledError,copy,future, require
 import {Io} from 'pxprpc/base'
 import {Duplex} from 'stream'
 import { IncomingMessage, Server } from 'http';
-import {dirname} from 'path'
-import { RpcExtendServer1 } from 'pxprpc/extend'
+import {dirname,join as pathJoin} from 'path'
+import { RpcExtendServer1,defaultFuncMap,RpcExtendServerCallable } from 'pxprpc/extend'
 import { Server as PxprpcBaseServer } from 'pxprpc/base'
 import Koa from 'koa'
 import KoaRouter from 'koa-router'
 import * as fs from 'fs/promises'
 import './workerInit'
 import koaFiles from 'koa-files'
-import { lifecycle } from 'partic2/jsutils1/webutils';
-
+import { getWWWRoot, lifecycle } from 'partic2/jsutils1/webutils';
+import { spawn } from 'child_process';
 
 
 export let __name__='pxseedServer2023/entry';
@@ -95,7 +95,7 @@ export let config={
 export let ensureInit=new future<number>();
 ;(async()=>{
     //(await import('inspector')).open(9229,'127.0.0.1',true);
-    
+    console.info('argv',process.argv);
     try{
         let configData=await fs.readFile(__dirname+'/config.json');
         console.log(`config file ${__dirname+'/config.json'} found. `);
@@ -117,9 +117,22 @@ export let ensureInit=new future<number>();
         serv.serve().catch(()=>{});
     }
     let lockFuture=[new future<string>()];
-    koaRouter.get(config.pxseedBase+'/helper/lock/:cmd',async (ctx,next)=>{
+    function doExit(){
+        console.info('exiting...');
+        lifecycle.dispatchEvent(new Event('pause'));
+        lifecycle.dispatchEvent(new Event('exit'));
+        setTimeout(()=>process.exit(),3000);
+    }
+    function doRestart(){
+        console.info('TODO: restart is not implemented');
+    }
+    koaRouter.get(config.pxseedBase+'/helper/:cmd',async (ctx,next)=>{
         let cmd=ctx.params.cmd as string;
-        if(cmd=='wait'){
+        if(cmd==='exit'){
+            doExit();
+        }else if(cmd==='restart'){
+            doRestart();
+        }if(cmd=='wait'){
             await lockFuture[0].get();
         }else if(cmd=='notify'){
             await lockFuture[0].setResult('');
@@ -132,6 +145,9 @@ export let ensureInit=new future<number>();
         ctx.path=`/www/${filepath}`;
         await next();
         ctx.path=savedPath
+        if(filepath==='pxseedInit.js'){
+            ctx.set('Cache-Control','no-cache');
+        }
     },pxseedFilesServer);
     //for sourcemap, optional.
     koaRouter.get(config.pxseedBase+'/source/:filepath(.+)',async (ctx,next)=>{
@@ -144,22 +160,21 @@ export let ensureInit=new future<number>();
     
     ensureInit.setResult(0);
     
-    console.info('type "exit" for safer exit.');
-    process.stdin.on('data',(data)=>{
-        let cmd=new TextDecoder().decode(data).trim();
-        if(cmd==='exit'){
-            console.info('exiting...');
-            lifecycle.dispatchEvent(new Event('pause'));
-            lifecycle.dispatchEvent(new Event('exit'));
-            setTimeout(()=>process.exit(),3000);
-        }
-    });
+    console.info(`package manager url:`)
+    console.info(`http://${config.listenOn.host}:${config.listenOn.port}${config.pxseedBase}/www/index.html?__jsentry=partic2%2fpackageManager%2fwebui`);
+
     lifecycle.addEventListener('exit',()=>{
         console.info('close http server');
         httpServ.close((err)=>{
             console.info('http server closed');
         });
     })
+    defaultFuncMap['pxseedServer2023.exit']=new RpcExtendServerCallable(async ()=>{
+        doExit();
+    }).typedecl('->');
+    defaultFuncMap['pxseedServer2023.restart']=new RpcExtendServerCallable(async ()=>{
+        doRestart();
+    }).typedecl('->');
     Promise.all(config.initModule.map(mod=>requirejs.promiseRequire(mod)));
     
 })();

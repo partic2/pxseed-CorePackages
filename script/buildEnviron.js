@@ -82,8 +82,7 @@ async function updateFileIfNewer(sdir,ddir){
         await fs.mkdir(path.join(path.dirname(__dirname),'www','node_modules'),{recursive:true});
         throw new Error('TODO: copy mode');
     }
-    
     let buildProj=path.join(path.dirname(__dirname),'source','pxseedBuildScript')
     let tscPath=path.join(path.dirname(__dirname),'www','node_modules','typescript','bin','tsc');
-    await runCommand(`node ${tscPath} -p ${buildProj}`)
+    await runCommand(`${process.execPath} "${tscPath}" -p "${buildProj}"`)
 })()
