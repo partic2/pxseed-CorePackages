@@ -7,6 +7,7 @@ import * as jsutils1 from 'partic2/jsutils1/base'
 import { text2html } from 'partic2/pComponentUi/utils';
 import { installedRequirejsResourceProvider } from './JsEnviron';
 import { inspectCodeContextVariable, toSerializableObject, fromSerializableObject, CodeContextRemoteObjectFetcher, RemoteReference} from './Inspector';
+import { getWWWRoot } from 'partic2/jsutils1/webutils';
 
 acorn.defaultOptions.allowAwaitOutsideFunction=true;
 acorn.defaultOptions.ecmaVersion='latest';
@@ -389,10 +390,9 @@ export class LocalRunCodeContext implements RunCodeContext{
             }
             //If in node environment
             if(globalThis.process!=undefined&&globalThis.process.versions!=undefined&&globalThis.process.versions.node!=undefined){
-                let baseUrl=requirejs.getConfig().baseUrl;
                 let fs=await import('fs/promises');
                 let path=await import('path');
-                let moduleDir=path.dirname(path.dirname(__dirname))+baseUrl;
+                let moduleDir=getWWWRoot();
                 let lastDirIndex=partialName.lastIndexOf('/');
                 let lastdir='';
                 if(lastDirIndex>=0){
@@ -419,19 +419,19 @@ export class LocalRunCodeContext implements RunCodeContext{
 
         const importCompletion=async ()=>{
             let behind=code.substring(0,caret);
-            let importExpr=behind.match(/import\s*\(\s*['"]([^'"]+)$/);
+            let importExpr=behind.match(/import\s*\(\s*(['"])([^'"]+)$/);
             if(importExpr!=null){
-                let replaceRange:[number,number]=[(importExpr.index??0)+importExpr[0].indexOf(importExpr[1]),0];
-                replaceRange[1]=replaceRange[0]+importExpr[1].length;
-                let importName=importExpr[1];
+                let replaceRange:[number,number]=[(importExpr.index??0)+importExpr[0].indexOf(importExpr[1])+1,0];
+                replaceRange[1]=replaceRange[0]+importExpr[2].length;
+                let importName=importExpr[2];
                 let t1=await importNameCompletion(importName);
                 completionItems.push(...t1.map(v=>({type:'literal',candidate:v,replaceRange})))
             }
-            importExpr=behind.match(/import\s.*from\s*['"]([^'"]+)$/);
+            importExpr=behind.match(/import\s.*from\s*(['"])([^'"]+)$/);
             if(importExpr!=null){
-                let replaceRange:[number,number]=[(importExpr.index??0)+importExpr[0].indexOf(importExpr[1]),0];
-                replaceRange[1]=replaceRange[0]+importExpr[1].length;
-                let importName=importExpr[1];
+                let replaceRange:[number,number]=[(importExpr.index??0)+importExpr[0].indexOf(importExpr[1])+1,0];
+                replaceRange[1]=replaceRange[0]+importExpr[2].length;
+                let importName=importExpr[2];
                 let t1=await importNameCompletion(importName);
                 completionItems.push(...t1.map(v=>({type:'literal',candidate:v,replaceRange})))
             }

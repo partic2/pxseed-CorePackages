@@ -108,7 +108,34 @@ export let ensureInit=new future<number>();
         WsServer.handle(req,socket,head)
     });
     httpServ.on('request',koaServ.callback());
-    httpServ.listen(config.listenOn.port,config.listenOn.host);
+    async function doListen(){
+        let p=new future<any>();
+        const cb=(err:any)=>{
+            if(!p.done){
+                httpServ.close(()=>p.setResult(err))
+            }
+        }
+        httpServ.once('error',cb);
+        httpServ.listen(config.listenOn.port,config.listenOn.host,8,()=>{
+            httpServ.off('error',cb);
+            p.setResult(null)
+        });
+        return p.get();
+    }
+    let listenSucc=false;
+    let maxListenPort=config.listenOn.port+4;
+    for(;config.listenOn.port<maxListenPort;config.listenOn.port++){
+        let t1=await doListen();
+        if(t1==null){
+            listenSucc=true;
+            break;
+        }
+        if(t1.code!=='EADDRINUSE'){
+            throw t1;
+        }
+    }
+    if(!listenSucc)throw new Error('No available listen port.');
+    
     koaServ.use(koaRouter.middleware())
     console.log(JSON.stringify(config,undefined,2));
     WsServer.router[config.pxseedBase+config.pxprpcPath]=(io)=>{

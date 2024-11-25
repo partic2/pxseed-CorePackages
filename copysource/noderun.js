@@ -20,25 +20,22 @@ process.on('uncaughtException', (error) => {
 let nodeRequire=require
 class NodeScriptLoader{
     currentDefiningModule=null
-    //save files cached by nodejs, to allow undef.
-    nodejsCached=new Set();
     async loadModuleAsync(moduleId,url){
         try{
-            let filename=url;
-            if(this.nodejsCached.has(filename)){
+            let filename=await fs.realpath(url);
+            await fs.access(filename,constants.R_OK);
+            if(filename in require.cache){
                 delete require.cache[filename];
             }
-            await fs.access(filename,constants.R_OK);
             this.currentDefiningModule=moduleId;
-            try{
-                nodeRequire(filename);
-                this.nodejsCached.add(filename);
-            }catch(e){
-                console.error(e);
-            }
+            nodeRequire(filename);
             this.currentDefiningModule=null;
             return null;
-        }catch(e){}
+        }catch(e){
+            if(e.code!=='ENOENT'){
+                throw e;
+            }
+        }
         try{
             let nodeImportName=moduleId;
             let mod;

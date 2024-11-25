@@ -6,7 +6,7 @@ import { ConsoleDataEvent } from './CodeContext';
 
 export class ObjectViewer extends React.Component<
     {name:string,object:any},
-    {folded:boolean,identified?:any}
+    {folded:boolean,identified?:any,object:any}
 >{
     constructor(props:any,ctx:any){
         super(props,ctx);
@@ -31,16 +31,17 @@ export class ObjectViewer extends React.Component<
             this.setState({folded:true});
         }
     }
-    componentWillReceiveProps?(nextProps: Readonly<{name:string,object:any}>, nextContext: any): void{
-        if(this.props.object!==nextProps.object){
+    beforeRender(): void{
+        if(this.props.object!==this.state.object){
             let folded=false;
-            if(nextProps.object instanceof UnidentifiedObject){
+            if(this.props.object instanceof UnidentifiedObject){
                 folded=true;
             }
-            this.setState({identified:null,folded});
+            this.setState({identified:null,folded,object:this.props.object});
         }
     }
     render(props?: React.RenderableProps<{ object: any; }, any> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChild {
+        this.beforeRender();
         let robj=this.state.identified??this.props.object
         let type1=typeof(robj);
         let TypedArray=Object.getPrototypeOf(Object.getPrototypeOf(new Uint8Array())).constructor;

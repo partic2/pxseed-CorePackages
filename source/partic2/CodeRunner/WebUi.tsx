@@ -211,7 +211,8 @@ export class CodeCellList extends React.Component<{codeContext:RunCodeContext},
         {
             list:{ref:React.RefObject<CodeCell>,key:string}[],
             consoleOutput:{[cellKey:string]:{content:string}},
-            error:string|null
+            error:string|null,
+            codeContext:RunCodeContext|null
         }>{
     priv__initCellValue:{input:string,output:[any,string|undefined]}[]|null=null;
     protected lastRunCellKey:string='';
@@ -219,8 +220,15 @@ export class CodeCellList extends React.Component<{codeContext:RunCodeContext},
         super(prop,ctx);
         this.resetState();
     }
-    getCodeContext(){
-        return this.props.codeContext;
+    __currentCodeContext:RunCodeContext|null=null;
+    beforeRender(){
+        if(this.props.codeContext!==this.state.codeContext){
+            if(this.state.codeContext!=null){
+                this.state.codeContext.event.removeEventListener('console.data',this.onConsoleData);
+            }
+            this.props.codeContext.event.addEventListener('console.data',this.onConsoleData);
+            this.setState({codeContext:this.props.codeContext});
+        }
     }
     async newCell(cellKey:string){
         let pos=this.state.list.findIndex(v=>v.key==cellKey);
@@ -258,15 +266,17 @@ export class CodeCellList extends React.Component<{codeContext:RunCodeContext},
         this.setState({
             list:[{ref:React.createRef(),key:GenerateRandomString()}],
             consoleOutput:{},
-            error:null
+            error:null,
+            codeContext:null
         });
         this.forceUpdate();
     }
     render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined; }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChild {
-        return this.state.error==null?<div style={{width:'100%',overflowX:'auto'}}>
+        this.beforeRender();
+        return (this.state.codeContext!=null && this.state.error==null)?<div style={{width:'100%',overflowX:'auto'}}>
             {FlattenArraySync(this.state.list.map(v=>{
                 let r=[<CodeCell ref={v.ref} key={v.key} 
-                codeContext={this.getCodeContext()} customBtns={[
+                codeContext={this.state.codeContext!} customBtns={[
                     {label:'New',cb:()=>this.newCell(v.key)},
                     {label:'Drop',cb:()=>this.dropCell(v.key)}
                 ]} onClearOutputs={()=>this.clearConsoleOutput(v.key)}
@@ -282,11 +292,11 @@ export class CodeCellList extends React.Component<{codeContext:RunCodeContext},
             </div>
     }
     componentDidUpdate(){
-        if(this.priv__initCellValue!==null){
+        if(this.priv__initCellValue!==null && this.state.codeContext!=null){
             this.priv__initCellValue.forEach((val,index)=>{
                 this.state.list[index].ref.current!.setCellInput(val.input);
                 val.output[0]=fromSerializableObject(
-                    val.output[0],{fetcher:new CodeContextRemoteObjectFetcher(this.props.codeContext),accessPath:[val.output[1]??'']});
+                    val.output[0],{fetcher:new CodeContextRemoteObjectFetcher(this.state.codeContext!),accessPath:[val.output[1]??'']});
                 this.state.list[index].ref.current!.setCellOutput(...val.output);
             })
             this.priv__initCellValue=null;
@@ -343,12 +353,5 @@ export class CodeCellList extends React.Component<{codeContext:RunCodeContext},
         }
         this.state.consoleOutput[cell.key].content+=`[${event.data?.level??''}]:${event.data?.message??''}\n`
         this.forceUpdate();
-    }
-    componentWillReceiveProps(nextProps: Readonly<{codeContext:RunCodeContext}>, nextContext: any){
-        if(this.props.codeContext!=undefined){
-            this.props.codeContext.event.removeEventListener('console.data',this.onConsoleData);
-        }
-        nextProps.codeContext?.event.addEventListener('console.data',this.onConsoleData);
-        super.componentWillReceiveProps?.(nextProps,nextContext);
     }
 }
