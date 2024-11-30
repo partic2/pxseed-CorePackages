@@ -481,7 +481,9 @@ export var jsExecLib={
     }
 }
 
-
+type OnlyAsyncFunctionProp<Mod>={
+    [P in keyof Mod]:Mod[P] extends (...args:any[])=>Promise<any>?Mod[P]:never
+}
 
 export class CodeContextShell{
     onConsoleData: (event: ConsoleDataEvent) => void=()=>{};
@@ -517,22 +519,24 @@ export class CodeContextShell{
         }
         let shell=this;
         let r={
-            cached:{} as Partial<T>,
-            getFunc<K extends keyof T>(name:K):T[K]{
+            cached:{} as Partial<OnlyAsyncFunctionProp<T>>,
+            getFunc(name:keyof OnlyAsyncFunctionProp<T>):T[typeof name]{
                 if(!(name in this.cached)){
-                    this.cached[name]=shell.getRemoteFunction(`${asName}.${name as string}`) as T[K]
+                    this.cached[name]=shell.getRemoteFunction(`${asName}.${name as string}`) as OnlyAsyncFunctionProp<T>[typeof name]
                 }
-                return this.cached[name] as T[K];
+                return this.cached[name]!;
             },
-            toModuleProxy():T{
+            toModuleProxy():OnlyAsyncFunctionProp<T>{
                 let that=this;
                 return new Proxy(this.cached,{
                     get(target,p){
                         if(!(p in target)){
                             return that.getFunc(p as keyof T);
+                        }else{
+                            return that.cached[p as keyof T];
                         }
                     }
-                }) as T;
+                }) as OnlyAsyncFunctionProp<T>;
             }
         }
         return r;

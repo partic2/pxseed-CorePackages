@@ -388,7 +388,7 @@ export async function SavePersistentConfig(modname:string){
 
 
 
-//WorkerThread feature require a custom AMD loader https://github.com/partic2/requirejs-extend
+//WorkerThread feature require a custom AMD loader https://github.com/partic2/partic2-iamdee
 const WorkerThreadMessageMark='__messageMark_WorkerThread'
 
 /*workerentry.js MUST put into the same origin to access storage api on web ,
@@ -628,6 +628,7 @@ if('document' in globalThis){
         }
     });
     globalThis.addEventListener('beforeunload',()=>{
+        lifecycle.dispatchEvent(new Event('pause'));
         lifecycle.dispatchEvent(new Event('exit'));
     });
 }

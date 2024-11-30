@@ -74,6 +74,11 @@ export class Task<T>{
     }
 }
 
+export function throwIfAbortError(e:Error){
+    if(e.name==='AbortError'){
+        throw e;
+    }
+}
 
 export function copy<T>(src: T, dst: any, depth: number) {
     if (depth == 0) {
@@ -341,8 +346,6 @@ export class mutex{
     }
 }
 
-
-
 declare var require:any,define:any;
 export let amdContext={
     require:null as any,
@@ -420,14 +423,15 @@ export let requirejs = {
     },
     resourceProvider:null as ((modName:string,url:string)=>Promise<string|Function|null>)[]|null,
     addResourceProvider(provider:(modName:string,url:string)=>Promise<string|Function|null>){
-        //iamdee feature
+        //partic2-iamdee feature
         if(this.resourceProvider===null){
             this.resourceProvider=[];
             amdContext.define.amd.scriptLoaders.unshift(new ResourceProviderLoader());
         }
         this.resourceProvider.unshift(provider)
     },
-    getLocalRequireModule(localRequire:typeof require){
+    getLocalRequireModule(localRequire:typeof require):string{
+        //partic2-iamdee feature
         return (localRequire as any).localRequireModule
     }
 }
@@ -605,7 +609,7 @@ export class AssertError extends Error{
     }
 }
 
-export function assert(cond:boolean,msg?:string){
+export function assert(cond:boolean,msg?:string):asserts cond{
     if(!cond)throw new AssertError().init(msg??'assert failed');
 }
 
