@@ -101,17 +101,17 @@ export class LocalRunCodeContext implements RunCodeContext{
         return requirejs.promiseRequire(source);
     };
     localScope:{[key:string]:any}={
-        __priv_update:function(updated:{[key:string]:any}){
-            for(let key in updated){
-                this[key]=updated[key];
-            }
-        },
+        //this CodeContext
         __priv_codeContext:undefined,
+        //import implemention
         __priv_import:async function(module:string){
             let imp=this.__priv_codeContext.importHandler(module);
             return imp;
         },
-        __priv_jsExecLib:jsExecLib
+        //some utils provide by codeContext
+        __priv_jsExecLib:jsExecLib,
+        //custom source processor for 'runCode' _ENV.__priv_processSource, run before built in processor.
+        __priv_processSource:null as null|((s:string)=>string)
     };
     localScopeProxy;
     event=new EventTarget();
@@ -251,6 +251,9 @@ export class LocalRunCodeContext implements RunCodeContext{
     }
     async runCode(source:string,resultVariable?:string){
         resultVariable=resultVariable??'_'
+        if(this.localScope.__priv_processSource!=null){
+            source=this.localScope.__priv_processSource(source)
+        }
         let proc1=this.processSource(source);
         try{
             let result=await this.runCodeInScope(proc1.modifiedSource);
@@ -487,13 +490,15 @@ type OnlyAsyncFunctionProp<Mod>={
 
 export class CodeContextShell{
     onConsoleData: (event: ConsoleDataEvent) => void=()=>{};
-    runCodeLog:(s:string)=>void=()=>{};
+    runCodeLogger:(s:string,resultVariable?:string)=>void=()=>{};
+    returnObjectLogger:(err:{message:string,stack?:string}|null,ret:any)=>void=()=>{};
     constructor(public codeContext:RunCodeContext){
     }
     async runCode(code:string):Promise<any>{
         let ctx={code};
         ({code}=ctx);
         let nextResult='__result_'+jsutils1.GenerateRandomString();
+        this.runCodeLogger(code,nextResult);
         let result=await this.codeContext.runCode(code,nextResult);
         if(result.err==null){
             try{
@@ -502,6 +507,7 @@ export class CodeContextShell{
                     returnObject.accessPath=[nextResult]
                     nextResult='';
                 }
+                this.returnObjectLogger(null,returnObject);
                 return returnObject;
             }finally{
                 if(nextResult!=''){
@@ -509,6 +515,7 @@ export class CodeContextShell{
                 }
             }
         }else{
+            this.returnObjectLogger(result.err,null);
             throw new Error(result.err.message+'\n'+(result.err.stack??''));
         }
     }
@@ -518,11 +525,12 @@ export class CodeContextShell{
             throw new Error(importResult.err+'\n'+(importResult.err.stack??''))
         }
         let shell=this;
+                  
         let r={
             cached:{} as Partial<OnlyAsyncFunctionProp<T>>,
-            getFunc(name:keyof OnlyAsyncFunctionProp<T>):T[typeof name]{
+            getFunc<N extends keyof OnlyAsyncFunctionProp<T>>(name:N):T[N]{
                 if(!(name in this.cached)){
-                    this.cached[name]=shell.getRemoteFunction(`${asName}.${name as string}`) as OnlyAsyncFunctionProp<T>[typeof name]
+                    this.cached[name]=shell.getRemoteFunction(`${asName}.${name as string}`) as OnlyAsyncFunctionProp<T>[N]
                 }
                 return this.cached[name]!;
             },
@@ -543,18 +551,14 @@ export class CodeContextShell{
     }
     getRemoteFunction(functionName: string) {
         return async (...argv:any[])=>{
-            let argvjs:string[]=[];
-            for(let t1 of argv){
-                argvjs.push('__priv_jsExecLib.fromSerializableObject('+
-                    JSON.stringify(toSerializableObject(t1,{maxDepth:30,maxKeyCount:10000,enumerateMode:'for in'}))+
-                ',{referenceGlobal:_ENV})');
-            }
-            return await this.runCode(`${functionName}(${argvjs.join(',')});`);
+            return await this.runCode(`${functionName}(...__priv_jsExecLib.fromSerializableObject(${
+                JSON.stringify(toSerializableObject(argv,{maxDepth:100,maxKeyCount:10000,enumerateMode:'for in'}))
+            },{referenceGlobal:_ENV}));`);
         };
     }
     async setVariable(variableName:string,value:any){
         let objJs='__priv_jsExecLib.fromSerializableObject('+
-            JSON.stringify(toSerializableObject(value,{maxDepth:50,maxKeyCount:10000,enumerateMode:'for in'}))+
+            JSON.stringify(toSerializableObject(value,{maxDepth:100,maxKeyCount:10000,enumerateMode:'for in'}))+
         ',{referenceGlobal:_ENV})'
         await this.runCode(`var ${variableName}=${objJs};`);
     }
