@@ -10,6 +10,8 @@ let process=require('process')
 let workerThreads=require('worker_threads')
 const { constants } = require('fs');
 
+//To avoid unnecessary fetch error. Maybe customize fetch is better
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0"
 
 //prevent unexpected exit
 process.on('uncaughtException', (error) => {

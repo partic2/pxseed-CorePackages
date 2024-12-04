@@ -100,8 +100,6 @@ export function toSerializableObject(v:any,opt:typeof DefaultSerializingOption):
             }
         }else if(v instanceof RemoteReference){
             return {[serializingEscapeMark]:'RemoteReference',accessPath:v.accessPath}
-        }else if(Symbol.iterator in v || Symbol.asyncIterator in v){
-            return {[serializingEscapeMark]:'unidentified',isArray:true,keyCount:-1};
         }else{
             let r={} as Record<string,any>;
             let keys=listProps(v);
@@ -128,10 +126,6 @@ interface RemoteObjectFetcher{
     fetch(accessPath:(string|number)[],opt:Partial<
         typeof DefaultSerializingOption
     >):Promise<any>;
-    iterator(accessPath:(string|number)[],iteratorName:string):Promise<void>;
-    iteratorFetch(iteratorName:string,count:number,opt: Partial<
-        typeof DefaultSerializingOption
-    >):Promise<any[]>;
     //free variable like iteratorName
     deleteName(name:string):Promise<void>;
 }
@@ -194,17 +188,7 @@ export class UnidentifiedObject{
     async identify(opt:Partial<typeof DefaultSerializingOption>){
         opt={...DefaultSerializingOption,...opt};
         let resp:any;
-        if(this.keyCount==-1){
-            let iterName='__result_'+GenerateRandomString();
-            await this.fetcher!.iterator(this.accessPath,iterName);
-            try{
-                resp=await this.fetcher!.iteratorFetch(iterName,0x7fffffff,{...opt,maxKeyCount:0x7fffffff});
-            }finally{
-                await this.fetcher?.deleteName(iterName);
-            }
-        }else{
-            resp=await this.fetcher?.fetch(this.accessPath,{...opt})
-        }
+        resp=await this.fetcher?.fetch(this.accessPath,{...opt})
         return fromSerializableObject(resp,{fetcher:this.fetcher,accessPath:this.accessPath});
     }
     toJSON(key?:string){
@@ -215,32 +199,6 @@ export class UnidentifiedObject{
 }
 export class UnidentifiedArray extends UnidentifiedObject{
     iterTimeout=600000;
-    [Symbol.asyncIterator](){
-        let that=this;
-        return (async function*(){
-            let iterName='__result_'+GenerateRandomString();
-            await that.fetcher!.iterator(that.accessPath,iterName);
-            let iterBuffer=[];
-            closed=false;
-            let expiredWatcher=new DelayOnceCall(async()=>{
-                if(!closed){
-                    closed=true;
-                    that.fetcher!.deleteName(iterName);
-                }
-                closed=true;
-            },that.iterTimeout);
-            while(closed){
-                expiredWatcher.call()
-                if(iterBuffer.length==0){
-                    iterBuffer.push(...await that.fetcher!.iteratorFetch(iterName,20,{}))
-                }
-                if(iterBuffer.length==0)break;
-                yield iterBuffer.shift();
-            }
-            closed=true;
-            await that.fetcher!.deleteName(iterName);
-        })()
-    }
     toJSON(key?:string){
         let objectJson=super.toJSON(key);
         objectJson.isArray=true;

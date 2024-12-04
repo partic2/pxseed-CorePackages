@@ -70,7 +70,7 @@ export class ObjectViewer extends React.Component<
         }else if(robj instanceof UnidentifiedObject){
             return <div>
                 <a href="javascript:;" onClick={()=>this.toggleFolding()}>
-                    {this.state.folded?'+':'-'} {this.props.name} ({robj.keyCount>=0?robj.keyCount:'iteratable'})
+                    {this.state.folded?'+':'-'} {this.props.name} ({robj.keyCount})
                 </a>
             </div>
         }else if(robj instanceof MiscObject){
