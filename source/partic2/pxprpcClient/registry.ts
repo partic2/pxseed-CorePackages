@@ -1,5 +1,5 @@
 import { ArrayBufferConcat, ArrayWrap2, GenerateRandomString, assert, copy, future, requirejs } from "partic2/jsutils1/base";
-import { GetPersistentConfig, SavePersistentConfig,BasicMessagePort,IWorkerThread, CreateWorkerThread } from "partic2/jsutils1/webutils";
+import { GetPersistentConfig, SavePersistentConfig,BasicMessagePort,IWorkerThread, CreateWorkerThread, lifecycle } from "partic2/jsutils1/webutils";
 import { WebMessage, WebSocketIo } from "pxprpc/backend";
 import { Client, Io } from "pxprpc/base";
 import { RpcExtendClient1, RpcExtendClientCallable, RpcExtendClientObject, RpcExtendError, RpcExtendServerCallable, defaultFuncMap } from "pxprpc/extend";
@@ -237,6 +237,10 @@ export async function addBuiltinClient(){
             addClient('iooverpxprpc:'+ServerHostRpcName+'/'+
             encodeURIComponent('webworker:'+__name__+'/worker/1'),ServerHostWorker1RpcName)
         }
+    }else{
+        if(getRegistered(ServerHostWorker1RpcName)==null){
+            addClient('webworker:'+__name__+'/worker/1',ServerHostWorker1RpcName)
+        }
     }
 }
 
@@ -248,13 +252,11 @@ export let persistent={
     },
     load:async function load() {
         let config=await GetPersistentConfig(__name__);
+        await addBuiltinClient();
         if('registered' in config){
             (config.registered as {name:string,url:string}[]).forEach(item=>{
                 addClient(item.url,item.name);
             })
-        }else{
-            await addBuiltinClient();
-            await this.save();
         }
     }
 }

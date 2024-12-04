@@ -2,8 +2,8 @@
 import {WebSocketServer,WebSocket } from 'ws'
 import { ArrayBufferConcat, ArrayWrap2,assert,CanceledError,copy,future, requirejs, sleep } from 'partic2/jsutils1/base';
 import {Io} from 'pxprpc/base'
-import {Duplex} from 'stream'
-import { IncomingMessage, Server } from 'http';
+import {Duplex, EventEmitter, Readable} from 'stream'
+import { IncomingMessage, Server, ServerResponse } from 'http';
 import {dirname,join as pathJoin} from 'path'
 import { RpcExtendServer1,defaultFuncMap,RpcExtendServerCallable } from 'pxprpc/extend'
 import { Server as PxprpcBaseServer } from 'pxprpc/base'
@@ -14,6 +14,9 @@ import './workerInit'
 import koaFiles from 'koa-files'
 import { getWWWRoot, lifecycle } from 'partic2/jsutils1/webutils';
 import { spawn } from 'child_process';
+import { Socket } from 'net';
+import { ClientInfo } from 'partic2/pxprpcClient/registry';
+import { wrapReadable } from 'partic2/nodehelper/nodeio';
 
 
 export let __name__='pxseedServer2023/entry';
@@ -94,116 +97,117 @@ export let config={
 
 export let ensureInit=new future<number>();
 ;(async()=>{
-    //(await import('inspector')).open(9229,'127.0.0.1',true);
-    console.info('argv',process.argv);
-    try{
-        let configData=await fs.readFile(__dirname+'/config.json');
-        console.log(`config file ${__dirname+'/config.json'} found. `);
-        copy(JSON.parse(new TextDecoder().decode(configData)),config,1);
-    }catch(e){
-        console.log(`config file not found, write to ${__dirname+'/config.json'}`)
-        await fs.writeFile(__dirname+'/config.json',new TextEncoder().encode(JSON.stringify(config)))
-    }
-    httpServ.on('upgrade',(req,socket,head)=>{
-        WsServer.handle(req,socket,head)
-    });
-    httpServ.on('request',koaServ.callback());
-    async function doListen(){
-        let p=new future<any>();
-        const cb=(err:any)=>{
-            if(!p.done){
-                httpServ.close(()=>p.setResult(err))
+    if(!('__workerId' in globalThis)){
+        //(await import('inspector')).open(9229,'127.0.0.1',true);
+        console.info('argv',process.argv);
+        try{
+            let configData=await fs.readFile(__dirname+'/config.json');
+            console.log(`config file ${__dirname+'/config.json'} found. `);
+            copy(JSON.parse(new TextDecoder().decode(configData)),config,1);
+        }catch(e){
+            console.log(`config file not found, write to ${__dirname+'/config.json'}`)
+            await fs.writeFile(__dirname+'/config.json',new TextEncoder().encode(JSON.stringify(config)))
+        }
+        httpServ.on('upgrade',(req,socket,head)=>{
+            WsServer.handle(req,socket,head)
+        });
+        httpServ.on('request',koaServ.callback());
+        async function doListen(){
+            let p=new future<any>();
+            const cb=(err:any)=>{
+                if(!p.done){
+                    httpServ.close(()=>p.setResult(err))
+                }
+            }
+            httpServ.once('error',cb);
+            httpServ.listen(config.listenOn.port,config.listenOn.host,8,()=>{
+                httpServ.off('error',cb);
+                p.setResult(null)
+            });
+            return p.get();
+        }
+        let listenSucc=false;
+        let maxListenPort=config.listenOn.port+4;
+        for(;config.listenOn.port<maxListenPort;config.listenOn.port++){
+            let t1=await doListen();
+            if(t1==null){
+                listenSucc=true;
+                break;
+            }
+            if(t1.code!=='EADDRINUSE'){
+                throw t1;
             }
         }
-        httpServ.once('error',cb);
-        httpServ.listen(config.listenOn.port,config.listenOn.host,8,()=>{
-            httpServ.off('error',cb);
-            p.setResult(null)
-        });
-        return p.get();
-    }
-    let listenSucc=false;
-    let maxListenPort=config.listenOn.port+4;
-    for(;config.listenOn.port<maxListenPort;config.listenOn.port++){
-        let t1=await doListen();
-        if(t1==null){
-            listenSucc=true;
-            break;
+        if(!listenSucc)throw new Error('No available listen port.');
+        
+        koaServ.use(koaRouter.middleware())
+        console.log(JSON.stringify(config,undefined,2));
+        WsServer.router[config.pxseedBase+config.pxprpcPath]=(io)=>{
+            let serv=new RpcExtendServer1(new PxprpcBaseServer(io));
+            //mute error
+            serv.serve().catch(()=>{});
         }
-        if(t1.code!=='EADDRINUSE'){
-            throw t1;
+        let lockFuture=[new future<string>()];
+        function doExit(){
+            console.info('exiting...');
+            lifecycle.dispatchEvent(new Event('pause'));
+            lifecycle.dispatchEvent(new Event('exit'));
+            setTimeout(()=>process.exit(),3000);
         }
-    }
-    if(!listenSucc)throw new Error('No available listen port.');
-    
-    koaServ.use(koaRouter.middleware())
-    console.log(JSON.stringify(config,undefined,2));
-    WsServer.router[config.pxseedBase+config.pxprpcPath]=(io)=>{
-        let serv=new RpcExtendServer1(new PxprpcBaseServer(io));
-        //mute error
-        serv.serve().catch(()=>{});
-    }
-    let lockFuture=[new future<string>()];
-    function doExit(){
-        console.info('exiting...');
-        lifecycle.dispatchEvent(new Event('pause'));
-        lifecycle.dispatchEvent(new Event('exit'));
-        setTimeout(()=>process.exit(),3000);
-    }
-    function doRestart(){
-        console.info('TODO: restart is not implemented');
-    }
-    koaRouter.get(config.pxseedBase+'/helper/:cmd',async (ctx,next)=>{
-        let cmd=ctx.params.cmd as string;
-        if(cmd==='exit'){
-            doExit();
-        }else if(cmd==='restart'){
-            doRestart();
-        }if(cmd=='wait'){
-            await lockFuture[0].get();
-        }else if(cmd=='notify'){
-            await lockFuture[0].setResult('');
-            lockFuture[0]=new future<string>();
+        function doRestart(){
+            console.info('TODO: restart is not implemented');
         }
-    })
-    koaRouter.get(config.pxseedBase+'/www/:filepath(.+)',async (ctx,next)=>{
-        let filepath=ctx.params.filepath as string;
-        let savedPath=ctx.path;
-        ctx.path=`/www/${filepath}`;
-        await next();
-        ctx.path=savedPath
-        if(filepath==='pxseedInit.js'){
-            ctx.set('Cache-Control','no-cache');
-        }
-    },pxseedFilesServer);
-    //for sourcemap, optional.
-    koaRouter.get(config.pxseedBase+'/source/:filepath(.+)',async (ctx,next)=>{
-        let filepath=ctx.params.filepath as string;
-        let savedPath=ctx.path;
-        ctx.path=`/source/${filepath}`;
-        await next();
-        ctx.path=savedPath
-    },pxseedFilesServer);
-    
-    ensureInit.setResult(0);
-    
-    console.info(`package manager url:`)
-    console.info(`http://${config.listenOn.host}:${config.listenOn.port}${config.pxseedBase}/www/index.html?__jsentry=partic2%2fpackageManager%2fwebui`);
+        koaRouter.get(config.pxseedBase+'/helper/:cmd',async (ctx,next)=>{
+            let cmd=ctx.params.cmd as string;
+            if(cmd==='exit'){
+                doExit();
+            }else if(cmd==='restart'){
+                doRestart();
+            }if(cmd=='wait'){
+                await lockFuture[0].get();
+            }else if(cmd=='notify'){
+                await lockFuture[0].setResult('');
+                lockFuture[0]=new future<string>();
+            }
+        })
+        koaRouter.get(config.pxseedBase+'/www/:filepath(.+)',async (ctx,next)=>{
+            let filepath=ctx.params.filepath as string;
+            let savedPath=ctx.path;
+            ctx.path=`/www/${filepath}`;
+            await next();
+            ctx.path=savedPath
+            if(filepath==='pxseedInit.js'){
+                ctx.set('Cache-Control','no-cache');
+            }
+        },pxseedFilesServer);
+        //for sourcemap, optional.
+        koaRouter.get(config.pxseedBase+'/source/:filepath(.+)',async (ctx,next)=>{
+            let filepath=ctx.params.filepath as string;
+            let savedPath=ctx.path;
+            ctx.path=`/source/${filepath}`;
+            await next();
+            ctx.path=savedPath
+        },pxseedFilesServer);
+        
+        ensureInit.setResult(0);
+        
+        console.info(`package manager url:`)
+        console.info(`http://${config.listenOn.host}:${config.listenOn.port}${config.pxseedBase}/www/index.html?__jsentry=partic2%2fpackageManager%2fwebui`);
 
-    lifecycle.addEventListener('exit',()=>{
-        console.info('close http server');
-        httpServ.close((err)=>{
-            console.info('http server closed');
-        });
-    })
-    defaultFuncMap['pxseedServer2023.exit']=new RpcExtendServerCallable(async ()=>{
-        doExit();
-    }).typedecl('->');
-    defaultFuncMap['pxseedServer2023.restart']=new RpcExtendServerCallable(async ()=>{
-        doRestart();
-    }).typedecl('->');
+        lifecycle.addEventListener('exit',()=>{
+            console.info('close http server');
+            httpServ.close((err)=>{
+                console.info('http server closed');
+            });
+        })
+        defaultFuncMap['pxseedServer2023.exit']=new RpcExtendServerCallable(async ()=>{
+            doExit();
+        }).typedecl('->');
+        defaultFuncMap['pxseedServer2023.restart']=new RpcExtendServerCallable(async ()=>{
+            doRestart();
+        }).typedecl('->');
+    }
     Promise.all(config.initModule.map(mod=>requirejs.promiseRequire(mod)));
-    
 })();
 
 
