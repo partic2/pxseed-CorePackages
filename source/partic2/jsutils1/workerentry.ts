@@ -1,6 +1,11 @@
 /*This file MUST get from the same origin to access storage api on web ,
 Due to same-origin-policy.  That mean, dataurl is unavailable. */
 
+declare var define:any
+declare var require:any
+
+declare var __pxseedInit:any
+
 (function(){
     const WorkerThreadMessageMark='__messageMark_WorkerThread';
     (self as any).globalThis=self;
@@ -11,13 +16,17 @@ Due to same-origin-policy.  That mean, dataurl is unavailable. */
             switch(type){
                 case 'run':
                     new Function('resolve','reject',msg.data.script)((result:any)=>{
-                        globalThis.postMessage({[WorkerThreadMessageMark]:true,type:'onScriptResolve',result,scriptId});
+                        (msg.source??globalThis).postMessage({[WorkerThreadMessageMark]:true,type:'onScriptResolve',result,scriptId});
                     },(reason:any)=>{
-                        globalThis.postMessage({[WorkerThreadMessageMark]:true,type:'onScriptRejecte',reason,scriptId});
+                        (msg.source??globalThis).postMessage({[WorkerThreadMessageMark]:true,type:'onScriptRejecte',reason,scriptId});
                     });
                     break;
             }
         }
     });
-    globalThis.postMessage({[WorkerThreadMessageMark]:true,type:'ready'});
+
+    if('postMessage' in globalThis){
+        globalThis.postMessage({[WorkerThreadMessageMark]:true,type:'ready'});
+    }
+    
 })()

@@ -379,9 +379,12 @@ class ResourceProviderLoader implements ScriptLoader{
             if(typeof res==='string'){
                 res=new Function(res);
             }
-            this.currentDefining=moduleId;
-            res();
-            this.currentDefining=null;
+            try{
+                this.currentDefining=moduleId;
+                res();
+            }finally{
+                this.currentDefining=null;
+            }
             return null;
         }
         return new Error('ResourceProviderLoader:Module not found');

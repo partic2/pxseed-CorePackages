@@ -13,9 +13,22 @@ let outputDir=pathJoin(dirname(dirname(__dirname)),'www')
 
 export let pxseedBuiltinLoader={
     copyFiles:async function(dir:string,config:{include:string[],outDir?:string}){
-        let outDir=config.outDir??dir.substring(sourceDir.length+1);
-        outDir=pathJoin(outputDir,outDir);
-        for(let subpath of await glob(config.include,{cwd:dir})){
+        let tplVar={
+            sourceRoot:sourceDir,outputRoot:outputDir,
+            packageSource:dir,packageOutput:outputDir+'/'+dir.substring(sourceDir.length+1)
+        }
+        function applyTemplate(source:string,tpl:Record<string,string>){
+            let vars=Object.keys(tpl);
+            let result=(new Function(...vars,'return `'+source+'`;'))(...vars.map(p=>tpl[p]))
+            return result;
+        }
+        let outDir=config.outDir??'${packageOutput}';
+        outDir=applyTemplate(outDir,tplVar);
+        let include:string[]=[]
+        for(let t1 of config.include){
+            include.push(applyTemplate(t1,tplVar));
+        }
+        for(let subpath of await glob(include,{cwd:dir})){
             let dest=pathJoin(outDir,subpath);
             let src=pathJoin(dir,subpath);
             let needCopy=false;
