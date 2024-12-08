@@ -182,6 +182,17 @@ export async function getConnectionFromUrl(url:string):Promise<Io|null>{
         }
         let remoteIo=await fn.getConnectionFromUrl(restRpcPath);
         return new IoOverPxprpc(remoteIo,fn);
+    }else if(url2.protocol=='serviceworker:'){
+        if(url2.pathname!=='1'){
+            throw new Error('Only support default service worker(serviceworker:1)')
+        }
+        let swu=await import('partic2/jsutils1/webutilssw');
+        let worker=await swu.ensureServiceWorkerInstalled();
+        WebMessage.bind(worker!.port!)
+        await worker!.runScript(`require([${rpcWorkerInitModule.map(v=>`'${v}'`).join(',')}],function(){
+            resolve('init');
+        },reject)`,true);
+        return await new WebMessage.Connection().connect(worker!.workerId,300);
     }
     return null;
 }
@@ -221,6 +232,7 @@ export async function dropClient(name:string){
 
 export const ServerHostRpcName='server host';
 export const ServerHostWorker1RpcName='server host worker 1';
+export const ServiceWorker='service worker 1';
 
 
 export async function addBuiltinClient(){
@@ -236,6 +248,9 @@ export async function addBuiltinClient(){
         if(getRegistered(ServerHostWorker1RpcName)==null){
             addClient('iooverpxprpc:'+ServerHostRpcName+'/'+
             encodeURIComponent('webworker:'+__name__+'/worker/1'),ServerHostWorker1RpcName)
+        }
+        if(getRegistered(ServiceWorker)==null){
+            addClient('serviceworker:1',ServiceWorker);
         }
     }else{
         if(getRegistered(ServerHostWorker1RpcName)==null){
