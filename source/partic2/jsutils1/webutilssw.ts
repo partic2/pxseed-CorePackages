@@ -162,12 +162,18 @@ const serviceworkerName='partic2/jsutils1/serviceworker';
 //service worker startup module may export asyncInit to do initialize asynchronously.
 //startup module can push/unshift interceptor to "onfetchHandlers" in './serviceworker'.
 export async function registerServiceWorkerStartupModule(s:string){
+    let worker=await ensureServiceWorkerInstalled();
     swconfig=await GetPersistentConfig(serviceworkerName);
     let startupModules=new Set(swconfig.startupModules??[]);
     startupModules.add(s);
     swconfig.startupModules=Array.from(startupModules);
     await SavePersistentConfig(serviceworkerName);
+    worker.runScript(`require(['${serviceworkerName}'],function(sw){
+        sw.loadServiceWorkerModule('${s}')
+    })`)
 }
+
+
 
 export async function unregisterServiceWorkerStartupModule(s:string){
     swconfig=await GetPersistentConfig(serviceworkerName);
@@ -175,6 +181,11 @@ export async function unregisterServiceWorkerStartupModule(s:string){
     startupModules.delete(s);
     swconfig.startupModules=Array.from(startupModules);
     await SavePersistentConfig(serviceworkerName);
+}
+
+export async function reloadServiceWorkerAndCache(){
+    //Maybe we should call function in service worker instead?
+    fetch(`${getWWWRoot()}/pxseedInit.js/reload`)
 }
 
 export async function getServiceWorkerStartupModule(){
