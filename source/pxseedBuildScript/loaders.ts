@@ -86,6 +86,7 @@ export let pxseedBuiltinLoader={
         let commonjs =(await import('@rollup/plugin-commonjs')).default;
         let json =(await import('@rollup/plugin-json')).default;
         let terser =(await import('@rollup/plugin-terser')).default;
+        let replacer=(await import('@rollup/plugin-replace')).default
         for(let mod of config.entryModules){
             let existed=false;
             try{
@@ -97,7 +98,16 @@ export let pxseedBuiltinLoader={
             if(!existed){
                 let task=await rollup({
                     input:[mod],
-                    plugins:[nodeResolve({modulePaths:[pathJoin(outputDir,'node_modules')],browser:true}),commonjs(),json(),terser()],
+                    plugins:[
+                        nodeResolve({modulePaths:[pathJoin(outputDir,'node_modules')],browser:true}),
+                        commonjs(),
+                        json(),
+                        terser(),
+                        //Slow the rollup, But "React" need this.
+                        replacer({
+                            'process.env.NODE_ENV': JSON.stringify('production')
+                        })
+                    ],
                 });
                 await task.write({
                     file:pathJoin(outputDir,mod+'.js'),

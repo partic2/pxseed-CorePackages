@@ -416,3 +416,36 @@ export async function SetComponentFullScreen(comp:DomComponent):Promise<{onExit:
     return ctl;
 }
 
+
+export function RequestPrintWindow(options:{
+    pageSize?:{w:string,h:string}|'portrait'|'landscape'|'auto',
+    pageOrientation?:'upright'|'rotate-left'|'rotate-right',
+    margin?:{top?:string,left?:string,bottom?:string,right?:string}|string
+}){
+    let rules:string[]=[];
+    if(options.pageSize!=undefined){
+          if(typeof options.pageSize!=='string'){
+                rules.push('size:'+options.pageSize.w+' '+options.pageSize.h);
+          }else{
+                rules.push('size:'+options.pageSize);
+          }
+    }
+    if(options.pageOrientation!=undefined){
+          rules.push('page-orientation:'+options.pageOrientation)
+    }
+    if(options.margin!=undefined){
+          if(typeof options.margin!=='string'){
+                for(let side in options.margin){
+                      let val=(options.margin as any)[side];
+                      if(typeof val==='string'){
+                            rules.push('margin-'+side+':'+val)
+                      }
+                }
+          }else{
+                rules.push('margin:'+options.margin)
+          }
+    }
+    DynamicPageCSSManager.PutCss('@page',rules)  
+    window.print();
+    DynamicPageCSSManager.RemoveCss('@page')  
+}
