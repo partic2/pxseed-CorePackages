@@ -167,29 +167,6 @@ export function sleep<T>(milliSeconds: number, arg?: T): Promise<T> {
     });
 }
 
-export function TextToJsString(text:string):string{
-    //https://github.com/joliss/js-string-escape/blob/master/index.js
-    return text.replace(/["'\\\n\r\u2028\u2029]/g, function (character) {
-        // Escape all characters not included in SingleStringCharacters and
-        // DoubleStringCharacters on
-        // http://www.ecma-international.org/ecma-262/5.1/#sec-7.8.4
-        switch (character) {
-          case '"':
-          case "'":
-          case '\\':
-            return '\\' + character
-          case '\n':
-            return '\\n'
-          case '\r':
-            return '\\r'
-          case '\u2028':
-            return '\\u2028'
-          case '\u2029':
-            return '\\u2029'
-        }
-        return character;
-      })
-}
 export class future<T>{
     public done: boolean = false;
     protected resolveCallback?:(value: T | PromiseLike<T>) => void;
@@ -519,32 +496,52 @@ export function FlattenArraySync<T>(source:RecursiveIteratable<T>){
     return parts;
 }
 
-export function DateAdd(org: Date, add: number, field: 'date' | 'month' | 'year' | 'hour' | 'minute' | 'secend') {
-    var d = new Date(org);
-    switch (field) {
-        case 'date':
-            d.setDate(d.getDate() + add);
-            break;
-        case 'month':
-            d.setMonth(d.getMonth() + add);
-            break;
-        case 'year':
-            d.setFullYear(d.getFullYear() + add);
-            break;
-        case 'hour':
-            d.setHours(d.getHours() + add);
-            break;
-        case 'minute':
-            d.setMinutes(d.getMinutes() + add);
-            break;
-        case 'secend':
-            d.setSeconds(d.getSeconds() + add);
-            break;
+
+export function DateAdd(org:Date, add:{
+    days?:number,
+    months?:number,
+    years?:number,
+    hours?:number,
+    minutes?:number,
+    seconds?:number
+}|number,field?:'date' | 'month' | 'year' | 'hour' | 'minute' | 'second'):Date{
+    if(typeof add==='number'){
+        assert(field!=undefined);
+        switch(field){
+            case 'date':
+                return DateAdd(org,{days:add});
+            case 'month':
+            case 'year':
+            case 'hour':
+            case 'minute':
+            case 'second':
+                return DateAdd(org,{[field+'s']:add});
+        }
+    }else{
+        var d = new Date(org);
+        if(add.days!=undefined){
+            d.setDate(d.getDate() + add.days);
+        }
+        if(add.months!=undefined){
+            d.setMonth(d.getMonth() + add.months);
+        }
+        if(add.years!=undefined){
+            d.setFullYear(d.getFullYear() + add.years);
+        }
+        if(add.hours!=undefined){
+            d.setHours(d.getHours() + add.hours);
+        }
+        if(add.minutes!=undefined){
+            d.setMinutes(d.getMinutes() + add.minutes);
+        }
+        if(add.seconds!=undefined){
+            d.setSeconds(d.getSeconds() + add.seconds);
+        }
+        return d;
     }
-    return d;
 }
 
-export function DateDiff(date1:Date, date2:Date, unit:'date' | 'hour' | 'minute' | 'secend'):number{
+export function DateDiff(date1:Date, date2:Date, unit:'date' | 'hour' | 'minute' | 'second'):number{
     let diffMs=date1.getTime()-date2.getTime();
     switch(unit){
         case 'date':
@@ -553,7 +550,7 @@ export function DateDiff(date1:Date, date2:Date, unit:'date' | 'hour' | 'minute'
             return diffMs/(1000*60*60);
         case 'minute':
             return diffMs/(1000*60);
-        case 'secend':
+        case 'second':
             return diffMs/1000;
     }
 }
@@ -696,7 +693,12 @@ export function BytesFromHex(hex:string){
     return bytes;
 }
 
-export function ArrayBufferConcat(bufs:ArrayBufferView[]){
+
+export function ArrayBufferConcat(bufs:Array<{
+    buffer: ArrayBuffer;
+    byteLength: number;
+    byteOffset: number;
+}>){
     let len=bufs.reduce((prev,curr)=>prev+curr.byteLength,0);
     let r=new Uint8Array(len);
     bufs.reduce((offset,curr)=>{

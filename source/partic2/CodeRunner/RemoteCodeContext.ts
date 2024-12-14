@@ -3,7 +3,7 @@ import {defaultFuncMap,RpcExtendClient1,RpcExtendClientCallable,RpcExtendClientO
 import { ConsoleDataEvent, LocalRunCodeContext, RunCodeContext,jsExecLib } from './CodeContext';
 
 
-import { future, TextToJsString } from 'partic2/jsutils1/base';
+import { future } from 'partic2/jsutils1/base';
 
 
 
@@ -97,25 +97,25 @@ export class RemoteRunCodeContext implements RunCodeContext{
     async runCode(source: string,resultVariable?:string): Promise<{err:{message:string,stack?:string}|null,resultVariable?:'_'}> {
         await this.initDone.get();
         resultVariable=resultVariable??'_';
-        source=TextToJsString(source);
+        source=JSON.stringify(source);
         let r=await this.remoteExecStr(`
-            let r=await arg.runCode('${source}','${resultVariable}');
+            let r=await arg.runCode(${source},'${resultVariable}');
             return JSON.stringify(r);`,this.remoteContext)
         return JSON.parse(r);
     }
     async codeComplete(code: string, caret: number) {
         await this.initDone.get();
-        let source=TextToJsString(code);
+        let source=JSON.stringify(code);
         let ret=await this.remoteExecStr(
-            `let r=await arg.codeComplete('${source}',${caret});
+            `let r=await arg.codeComplete(${source},${caret});
             return JSON.stringify(r);`,
             this.remoteContext)
         return JSON.parse(ret);
     }
     async jsExec(source: string): Promise<string> {
         await this.initDone.get();
-        source=TextToJsString(source);
-        return await this.remoteExecStr(`return await arg.jsExec('${source}')`,this.remoteContext)
+        source=JSON.stringify(source);
+        return await this.remoteExecStr(`return await arg.jsExec(${source})`,this.remoteContext)
     }
     async queryTooltip(code: string, caret: number): Promise<string> {
         await this.initDone.get();

@@ -7,7 +7,7 @@ import { IJSNBFileHandler, RunCodeTab } from './notebook';
 import { FileTypeHandler, JsModuleHandler, ImageFileHandler, TextFileHandler } from './fileviewer';
 import { SimpleFileSystem ,LocalWindowSFS,TjsSfs} from 'partic2/CodeRunner/JsEnviron';
 import { RegistryUI } from 'partic2/pxprpcClient/ui';
-import { clone, GetCurrentTime, sleep,assert, GenerateRandomString, future } from 'partic2/jsutils1/base';
+import { clone, GetCurrentTime, sleep,assert, GenerateRandomString, future, throwIfAbortError } from 'partic2/jsutils1/base';
 import { tjsFrom } from 'partic2/tjsonpxp/tjs';
 import { Invoker as jseioInvoker} from "partic2/pxprpcBinding/JseHelper__JseIo";
 import { StdioShellProfile1 } from './stdioshell';
@@ -17,7 +17,7 @@ import { RemoteRunCodeContext } from 'partic2/CodeRunner/RemoteCodeContext';
 import { LocalRunCodeContext, RunCodeContext } from 'partic2/CodeRunner/CodeContext';
 import {appendFloatWindow,removeFloatWindow} from 'partic2/pComponentUi/window'
 import { findRpcClientInfoFromClient } from './misclib';
-import { path } from 'partic2/jsutils1/webutils'
+import { lifecycle, path } from 'partic2/jsutils1/webutils'
 const __name__='partic2/JsNotebook/workspace'
 
 
@@ -67,7 +67,6 @@ export class Workspace extends React.Component<{rpc?:ClientInfo,fs?:SimpleFileSy
         super(props,ctx);
         this.fileTypeHandlers.forEach(v=>v.setWorkspace(this));
         this.setState({initFileDir:''});
-        this.init()
     }
     initOpenedFiles:string[]=[]
     async loadProfile(){
@@ -81,9 +80,29 @@ export class Workspace extends React.Component<{rpc?:ClientInfo,fs?:SimpleFileSy
                 profile={...profile,...JSON.parse(new TextDecoder().decode(data1))}
             }
         }catch(e:any){
-            if(e.name==='AbortError')throw e;
+            throwIfAbortError(e);
             await this.fs!.mkdir(profile.currPath);
-            await this.fs!.writeAll(profileFile,new TextEncoder().encode(JSON.stringify(profile)))
+            await this.fs!.writeAll(profileFile,new TextEncoder().encode(JSON.stringify(profile)));
+            for(let t1 of profile.openedFiles){
+                if((await this.fs!.filetype(t1))==='none'){
+                    await this.fs!.mkdir(path.dirname(t1));
+                    await this.fs!.writeAll(t1,new TextEncoder().encode(JSON.stringify({
+                        "ver": 1,
+                        "path": t1,
+                        "cells": JSON.stringify({'cellList': [
+                            {'cellInput': '//_ENV is the default "global" context for Code Cell \n_ENV',
+                            'cellOutput': ['', null],
+                            'key': 'rnd12rjykngi1ufte7uq'},
+                            {'cellInput': '//Also globalThis are available \nglobalThis',
+                            'cellOutput': ['', null],
+                            'key': 'rnd1inpn4a83tgvabops'},
+                            {'cellInput': '//"import" is also available as expected\nimport {BytesToHex} from \'partic2/jsutils1/base\'\nlet hex=BytesToHex(new Uint8Array([0x22,0x33,0x44]));\nconsole.info(hex)\nlet BytesFromHex=(await import(\'partic2/jsutils1/base\')).BytesFromHex\nconsole.info(BytesFromHex(hex))\n',
+                            'cellOutput': ['', null],
+                            'key': 'rnd1gn3dzsjben57zmdc'}],
+                      'consoleOutput': {}})
+                    })));
+                }
+            }
         }
         this.setState({initFileDir:profile.currPath})
         this.initOpenedFiles=profile.openedFiles;
@@ -103,14 +122,21 @@ export class Workspace extends React.Component<{rpc?:ClientInfo,fs?:SimpleFileSy
         let profileFile=moduleDataDir+'/serverProfile.json';
         await this.fs!.writeAll(profileFile,new TextEncoder().encode(JSON.stringify(profile)))
     }
-    async autoSaveProfile(){
-        while(true){
-            await sleep(5000);
-            await this.saveProfile();
-        }
+    onPauseListener=async ()=>{
+        await this.saveProfile();
     }
     jseio?:jseioInvoker
+    componentDidMount(): void {
+        this.init();
+        lifecycle.addEventListener('pause',this.onPauseListener);
+    }
+    componentWillUnmount(): void {
+        lifecycle.removeEventListener('pause',this.onPauseListener);
+    }
     async init(){
+        if(this.inited.done){
+            return;
+        }
         if(this.props.fs==undefined){
             if(this.props.rpc!=undefined){
                 await this.props.rpc.ensureConnected()
@@ -219,7 +245,6 @@ export class Workspace extends React.Component<{rpc?:ClientInfo,fs?:SimpleFileSy
             <div style={{flexBasis:(this.state.panel12SplitX??302-2)+'px',flexShrink:'0'
                 ,height:'100%',overflowY:'auto'}} ref={this.rref.panel1}>
                 <a href="javascript:;" onClick={()=>this.rref.rpcRegistry.current?.active()}>RpcRegistry</a><span>&nbsp;&nbsp;</span>
-                <a href="javascript:;" onClick={()=>this.saveProfile()}>SaveWorkspace</a>
                 <div style={{flexGrow:1}}>
                 <FileBrowser ref={this.rref.fb} sfs={this.state.fs} initDir={this.state.initFileDir} workspace={this}
             onOpenRequest={(path)=>this.doOpenFileRequest(path)} onCreateRequest={(dir)=>this.doCreateFileRequest(dir)}/>
@@ -245,7 +270,7 @@ export class Workspace extends React.Component<{rpc?:ClientInfo,fs?:SimpleFileSy
     }
 }
 
-export async function openWorkspaceWindowFor(supportedContext:'local window'|ClientInfo|RemoteRunCodeContext|LocalRunCodeContext,title?:string){
+export let defaultOpenWorkspaceWindowFor=async function (supportedContext:'local window'|ClientInfo|RemoteRunCodeContext|LocalRunCodeContext,title?:string){
     let wsref=new ReactRefEx<Workspace>();
     if(supportedContext=='local window' || (supportedContext instanceof LocalRunCodeContext)){
         appendFloatWindow(<WindowComponent key={GenerateRandomString()} title={title}>
@@ -263,4 +288,12 @@ export async function openWorkspaceWindowFor(supportedContext:'local window'|Cli
         </WindowComponent>)
     }
     (await wsref.waitValid()).openNotebookFor(supportedContext);
+}
+
+export async function setDefaultOpenWorkspaceWindowFor(openNotebook:typeof openWorkspaceWindowFor){
+    defaultOpenWorkspaceWindowFor=openNotebook;
+}
+
+export async function openWorkspaceWindowFor(supportedContext:'local window'|ClientInfo|RemoteRunCodeContext|LocalRunCodeContext,title?:string){
+    defaultOpenWorkspaceWindowFor(supportedContext,title);
 }
