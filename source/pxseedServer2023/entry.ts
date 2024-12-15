@@ -3,7 +3,7 @@ import {WebSocketServer,WebSocket } from 'ws'
 import { ArrayBufferConcat, ArrayWrap2,assert,CanceledError,copy,future, requirejs, sleep } from 'partic2/jsutils1/base';
 import {Io} from 'pxprpc/base'
 import {Duplex, EventEmitter, Readable} from 'stream'
-import { IncomingMessage, Server, ServerResponse } from 'http';
+import { IncomingHttpHeaders, IncomingMessage, Server, ServerResponse } from 'http';
 import {dirname,join as pathJoin} from 'path'
 import { RpcExtendServer1,defaultFuncMap,RpcExtendServerCallable } from 'pxprpc/extend'
 import { Server as PxprpcBaseServer } from 'pxprpc/base'
@@ -21,6 +21,7 @@ import { wrapReadable } from 'partic2/nodehelper/nodeio';
 
 export let __name__='pxseedServer2023/entry';
 
+
 class NodeWsIo implements Io{
     priv__cached=new ArrayWrap2<Uint8Array>([])
     closed:boolean=false;
@@ -30,8 +31,10 @@ class NodeWsIo implements Io{
                 this.priv__cached.queueBlockPush(new Uint8Array(data))
             }else if(data instanceof Buffer){
                 this.priv__cached.queueBlockPush(data);
-            }else{
+            }else if(data instanceof Array){
                 this.priv__cached.queueBlockPush(new Uint8Array(ArrayBufferConcat(data)));
+            }else{
+                throw new Error('Unknown data type')
             }
         });
         ws.on('close',(code,reason)=>{
@@ -69,14 +72,14 @@ export let WsServer={
         let url=new URL(req.url!,`http://${req.headers.host}`);
         if(url.pathname in this.router){
             this.ws.handleUpgrade(req,socket,head,(client,req)=>{
-                this.router[url.pathname](new NodeWsIo(client),req.url);
+                this.router[url.pathname](new NodeWsIo(client),req.url,req.headers);
             })
         }else{
             socket.end();
         }
         
     },
-    router:{} as {[path:string]:(io:NodeWsIo,url?:string)=>void}
+    router:{} as {[path:string]:(io:NodeWsIo,url:string|undefined,headers:IncomingHttpHeaders)=>void}
 }
 
 
@@ -92,7 +95,8 @@ export let config={
     pxseedBase:'/pxseed',
     pxprpcPath:'/pxprpc/0',
     listenOn:{host:'127.0.0.1',port:8088},
-    initModule:[]
+    initModule:[],
+    pxprpcCheckOrigin:['localhost','127.0.0.1','[::1]'] as string[]|false
 };
 
 export let ensureInit=new future<number>();
@@ -142,10 +146,26 @@ export let ensureInit=new future<number>();
         
         koaServ.use(koaRouter.middleware())
         console.log(JSON.stringify(config,undefined,2));
-        WsServer.router[config.pxseedBase+config.pxprpcPath]=(io)=>{
-            let serv=new RpcExtendServer1(new PxprpcBaseServer(io));
-            //mute error
-            serv.serve().catch(()=>{});
+        WsServer.router[config.pxseedBase+config.pxprpcPath]=(io,url,headers)=>{
+            let pass=false;
+            if(config.pxprpcCheckOrigin===false){
+                pass=true;
+            }
+            if(!pass && headers.origin!=undefined){
+                let originUrl=new URL(headers.origin);
+                for(let t1 of [config.listenOn.host,...(config.pxprpcCheckOrigin as string[])]){
+                    if(originUrl.hostname===t1){
+                        pass=true;
+                    };
+                }
+            }
+            if(pass){
+                let serv=new RpcExtendServer1(new PxprpcBaseServer(io));
+                //mute error
+                serv.serve().catch(()=>{});
+            }else{
+                io.close();
+            }
         }
         let lockFuture=[new future<string>()];
         function doExit(){
@@ -157,19 +177,6 @@ export let ensureInit=new future<number>();
         function doRestart(){
             console.info('TODO: restart is not implemented');
         }
-        koaRouter.get(config.pxseedBase+'/helper/:cmd',async (ctx,next)=>{
-            let cmd=ctx.params.cmd as string;
-            if(cmd==='exit'){
-                doExit();
-            }else if(cmd==='restart'){
-                doRestart();
-            }if(cmd=='wait'){
-                await lockFuture[0].get();
-            }else if(cmd=='notify'){
-                await lockFuture[0].setResult('');
-                lockFuture[0]=new future<string>();
-            }
-        })
         koaRouter.get(config.pxseedBase+'/www/:filepath(.+)',async (ctx,next)=>{
             let filepath=ctx.params.filepath as string;
             let savedPath=ctx.path;
