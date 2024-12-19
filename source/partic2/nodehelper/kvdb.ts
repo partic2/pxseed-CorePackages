@@ -7,8 +7,9 @@ import {CKeyValueDb, IKeyValueDb, setKvStoreBackend} from 'partic2/jsutils1/webu
 
 var __name__='partic2/JsNotebookServer/entry';
 
-const specialValueMark=`__special_${__name__}_foc2vd4nyk0amjbs`;
 
+
+import {toSerializableObject,fromSerializableObject} from 'partic2/CodeRunner/Inspector'
 
 
 export class FsBasedKvDbV1 implements IKeyValueDb{
@@ -42,20 +43,7 @@ export class FsBasedKvDbV1 implements IKeyValueDb{
             this.config!.fileList[key].type='Int8Array';
             await fs.writeFile(`${this.baseDir}/${fileName}`,val); 
         }else{
-            let data=JSON.stringify(val,(key,val)=>{
-                if(val===null || typeof val!=='object'){
-                    return val;
-                }
-                if(val instanceof ArrayBuffer){
-                    return {specialValueMark:true,type:'base64',data:ArrayBufferToBase64(val),clazz:'ArrayBuffer'}
-                }else if(val instanceof Uint8Array){
-                    return {specialValueMark:true,type:'base64',data:ArrayBufferToBase64(val),clazz:'Uint8Array'}
-                }else if(val instanceof Int8Array){
-                    return {specialValueMark:true,type:'base64',data:ArrayBufferToBase64(val),clazz:'Int8Array'}
-                }else{
-                    return val;
-                }
-            });
+            let data=JSON.stringify(toSerializableObject(val,{maxDepth:0x7fffffff,enumerateMode:'for in',maxKeyCount:0x7fffffff}));
             await fs.writeFile(`${this.baseDir}/${fileName}`,new TextEncoder().encode(data));
         }
         await fs.writeFile(this.baseDir+'/config.json',new TextEncoder().encode(JSON.stringify(this.config)))
@@ -74,20 +62,7 @@ export class FsBasedKvDbV1 implements IKeyValueDb{
                 return new Int8Array((await fs.readFile(fileName)).buffer);
             }else if(type==='json'){
                 let data=await fs.readFile(`${this.baseDir}/${fileName}`)
-                let r=JSON.parse(new TextDecoder().decode(data),(key,val)=>{
-                    if(val!==null && typeof val==='object' && specialValueMark in val){
-                        let data=Base64ToArrayBuffer(val.data);
-                        if(val.clazz=='ArrayBuffer'){
-                            return data;
-                        }else if(val.clazz=='Uint8Array'){
-                            return new Uint8Array(data);
-                        }else if(val.clazz=='Int8Array'){
-                            return new Int8Array(data);
-                        }
-                    }else{
-                        return val
-                    }
-                });
+                let r=fromSerializableObject(JSON.parse(new TextDecoder().decode(data)),{});
                 return r;
             }
         }catch(e){

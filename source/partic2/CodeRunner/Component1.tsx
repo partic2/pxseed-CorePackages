@@ -84,11 +84,17 @@ export class ObjectViewer extends React.Component<
                 </div>
             }
         }else if(robj instanceof Date){
-            return 'Date:'+robj.toString()
+            return <div>
+            {this.props.name}: Date:{robj.toString()})
+        </div>
         }else if(robj instanceof TypedArray){
-            return robj.constructor.name+':'+BytesToHex(new Uint8Array(robj.buffer,robj.bytesOffset,robj.length*robj.BYTES_PER_ELEMENT))
+            return <div>
+            {this.props.name}: {robj.constructor.name}:{BytesToHex(new Uint8Array(robj.buffer,robj.bytesOffset,robj.length*robj.BYTES_PER_ELEMENT))}
+        </div>
         }else if(robj instanceof ArrayBuffer){
-            return 'ArrayBuffer:'+BytesToHex(new Uint8Array(robj))
+            return <div>
+            {this.props.name}: ArrayBuffer:{BytesToHex(new Uint8Array(robj))}
+        </div>
         }else{
             let keys=Object.keys(robj)
             return <div>

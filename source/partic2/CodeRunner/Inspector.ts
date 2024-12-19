@@ -64,6 +64,8 @@ export function toSerializableObject(v:any,opt:typeof DefaultSerializingOption):
             return {[serializingEscapeMark]:'function',name:v.name};
         }else if(v===undefined){
             return {[serializingEscapeMark]:'undefined'}
+        }else if(typeof v==='bigint'){
+            return {[serializingEscapeMark]:'bigint',value:v.toString()}
         }else{
             return v
         }
@@ -306,6 +308,9 @@ export function fromSerializableObject(v:any,opt:{
                         }
                         return t1;
                     }
+                };
+                case 'bigint':{
+                    return BigInt(v.value)
                 }
             }
         }else{
