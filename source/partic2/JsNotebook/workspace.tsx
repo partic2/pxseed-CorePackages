@@ -220,13 +220,16 @@ export class Workspace extends React.Component<{rpc?:ClientInfo,fs?:SimpleFileSy
     async onNewFileCreated(path:string){
         await this.rref.fb.current!.reloadFileInfo()
         await this.rref.fb.current!.selectFiles([path])
-        this.rref.fb.current!.setAction('rename')
+        this.rref.fb.current!.DoRenameTo()
     }
     async doCreateFileRequest(dir:string){
         await this.inited.get();
         let t1=await new CreateFileTab().init({ws:this});
         (await this.rref.tv.waitValid()).addTab(t1);
         (await this.rref.tv.waitValid()).openTab(t1.id);
+    }
+    async openBookmarkTab(){
+        //TODO
     }
     __panel12SpliterMove=new PointTrace({
         onMove:(curr,start)=>{

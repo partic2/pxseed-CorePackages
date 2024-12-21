@@ -4,11 +4,12 @@ var ReactDOM=React
 
 import {ArrayWrap2, GenerateRandomString, GetBlobArrayBufferContent, GetCurrentTime} from 'partic2/jsutils1/base'
 import {CKeyValueDb, DynamicPageCSSManager,path,selectFile} from 'partic2/jsutils1/webutils'
-import { ReactRender, css } from 'partic2/pComponentUi/domui'
+import { ReactRefEx, ReactRender, css } from 'partic2/pComponentUi/domui'
 import { SimpleFileSystem,FileEntry, LocalWindowSFS } from 'partic2/CodeRunner/JsEnviron'
 import { FileTypeHandler, FileTypeHandlerBase } from './fileviewer'
 import { TabInfo } from 'partic2/pComponentUi/workspace'
 import { Workspace } from './workspace'
+import { confirm, prompt } from 'partic2/pComponentUi/window'
 
 
 var __name__='partic2/JsNotebook/filebrowser'
@@ -67,7 +68,6 @@ interface FileBrowserState{
     childrenFile:{name:string,type:string}[],
     errorMsg:string,
     selectedFiles:Set<string>,
-    action:'main-menu'|'rename',
     filterText:string,
     textInput1:string
 };
@@ -83,7 +83,6 @@ export class FileBrowser extends React.Component<{
         this.setState({
             currPath:this.props.initDir,childrenFile:[],
             selectedFiles:new Set(),
-            action:'main-menu',
             filterText:''
         });
     }
@@ -139,58 +138,48 @@ export class FileBrowser extends React.Component<{
             onOpenRequest={(path)=>this.doFileOpen(path)}/>
         });
     }
-    async DoCreateFile(isDir:boolean){
-        try{
-            let name=this.input1Ref.current!.value;
-            if(isDir){
-                await this.props.sfs.mkdir(this.state.currPath+'/'+name);
-            }else{
-                await this.props.sfs.writeAll(this.state.currPath+'/'+name,new Uint8Array(0));
-            }
-            this.setState({action:'main-menu'})
-            this.reloadFileInfo();
-        }catch(e){
-            this.setState({
-                errorMsg:(e as Error).toString()
-            })
-        }
-    }
     async selectFiles(path:string[]){
         return new Promise<void>((resolve,reject)=>{
             this.setState({selectedFiles:new Set(path)},resolve)
         });
     }
-    setAction(action:'main-menu'|'rename'){
-        if(action==='rename'){
-            let path=this.state.selectedFiles.values().next().value;
-            if(path==undefined)return;
-            path=path.substring(path!.lastIndexOf('/')+1)
-            this.setState({
-                action:'rename',textInput1:path
-            })
-        }else{
-            this.setState({action})
+    async _askForFileName(initname:string):Promise<string|null>{
+        let newFileNameInput=new ReactRefEx<HTMLInputElement>();
+        let dlg=await prompt(<div>
+            <input type='text' ref={newFileNameInput} style={{width:'100%',minWidth:'200px'}} value={initname}/>
+        </div>,'Input file name...')
+        let newFileName=null;
+        if((await dlg.answer.get())=='ok'){
+            newFileName=(await newFileNameInput.waitValid()).value;
         }
+        dlg.close();
+        return newFileName;
     }
     async DoRenameTo(){
         if(this.state.selectedFiles.size<1){
             this.setState({errorMsg:'No file selected'})
             return;
         }
-        let path=Array.from(await this.state.selectedFiles)[0]
-        let newPath=this.state.currPath+'/'+this.input1Ref.current!.value;
-        await this.props.sfs.rename(path,newPath);
-        this.setState({action:'main-menu'})
+        let path=Array.from(await this.state.selectedFiles)[0];
+        let newFileName=await this._askForFileName(path.substring(path.lastIndexOf('/')+1));
+        if(newFileName!=null){
+            let newPath=this.state.currPath+'/'+newFileName;
+            await this.props.sfs.rename(path,newPath);
+        }
         await this.reloadFileInfo();
     }
     async reloadFileInfo(){
         this.doFileOpen(this.state.currPath!);
     }
     async DoDelete(){
-        for(let f1 of Array.from(this.state.selectedFiles)){
-            this.props.sfs.delete2(f1)
+        let ans=await confirm(`Delete ${this.state.selectedFiles.size} files permenantly?`)
+        if(ans=='cancel'){
+            return;
         }
-        this.reloadFileInfo();
+        for(let f1 of this.state.selectedFiles){
+            await this.props.sfs.delete2(f1)
+        }
+        await this.reloadFileInfo();
     }
     async DoUpload(){
         let selected=await selectFile()
@@ -210,26 +199,69 @@ export class FileBrowser extends React.Component<{
             await this.doFileOpen(path.dirname(currTab.path as string));
         }
     }
-    input1Ref=React.createRef<HTMLInputElement>();
+    _clipboardFile={
+        paths:[] as string[],
+        mode:'copy' as 'copy'|'cut'
+    }
+    _clipboardIsCut=false;
+    async DoCopy(){
+        this._clipboardFile.paths.splice(0,this._clipboardFile.paths.length);
+        this._clipboardFile.paths.push(...this.state.selectedFiles);
+        this._clipboardFile.mode='copy'
+    }
+    async DoCut(){
+        this._clipboardFile.paths.splice(0,this._clipboardFile.paths.length);
+        this._clipboardFile.paths.push(...this.state.selectedFiles);
+        this._clipboardFile.mode='cut'
+    }
+    async DoPaste(){
+        if(this._clipboardFile.mode==='cut'){
+            for(let t1 of this._clipboardFile.paths){
+                let name=t1.substring(t1.lastIndexOf('/')+1);
+                this.props.sfs.rename(t1,(this.state.currPath??'')+'/'+name);
+            }
+        }else{
+            const copyFileAndDir=async (src:string,dst:string)=>{
+                if(await this.props.sfs.filetype(src)=='dir'){
+                    let children=await this.props.sfs.listdir(src);
+                    this.props.sfs.mkdir(dst)
+                    for(let t1 of children){
+                        await copyFileAndDir([src,t1.name].join('/'),[dst,t1.name].join('/'));
+                    }
+                }else{
+                    if(src==dst){
+                        dst+='_Copy';
+                    }
+                    //XXX:Not suitable for large file.
+                    let t1=await this.props.sfs.readAll(src);
+                    if(t1!=null){
+                        await this.props.sfs.writeAll(dst,t1);
+                    }
+                }
+            }
+            for(let t1 of this._clipboardFile.paths){
+                let name=t1.substring(t1.lastIndexOf('/')+1);
+                await copyFileAndDir(t1,(this.state.currPath??'')+'/'+name);
+            }
+        }
+        this.reloadFileInfo();
+    }
     filterRef=React.createRef<HTMLInputElement>();
     public renderAction(){
-        if(this.state.action=='main-menu'){
-            return <div>
-                <a href="javascript:;" onClick={()=>this.props.onCreateRequest?.(this.state.currPath!)}>New</a>&emsp;
-                <a href="javascript:;" onClick={()=>this.setAction('rename')}>Rename</a>&emsp;
-                <a href="javascript:;" onClick={()=>this.DoDelete()}>Delete</a><br/>
-                <a href="javascript:;" onClick={()=>this.DoUpload()}>Upload</a>&emsp;
-                {this.props.workspace!=undefined?
-                    <a href="javascript:;" onClick={()=>this.DoSyncTab()}>SyncTab</a>:null}&emsp;
-            </div>
-        }else if(this.state.action=='rename'){
-            return <div class={[css.simpleCard].join(' ')}>
-                name:<input type="text" style={{flexGrow:1}} ref={this.input1Ref} value={this.state.textInput1}
-                onChange={(ev)=>this.setState({textInput1:(ev.target as HTMLInputElement).value})}/><br/>
-                <a href="javascript:;" onClick={()=>this.setState({action:'main-menu'})}>Cancel</a>&emsp;
-                <a href="javascript:;" onClick={()=>this.DoRenameTo()}>Rename</a>
-            </div>
-        }
+        return <div>
+            <a href="javascript:;" onClick={()=>this.props.onCreateRequest?.(this.state.currPath!)}>New</a>&emsp;
+            <a href="javascript:;" onClick={()=>this.DoRenameTo()}>Rename</a>&emsp;
+            <a href="javascript:;" onClick={()=>this.DoDelete()}>Delete</a>&emsp;
+            <a href="javascript:;" onClick={()=>this.DoUpload()}>Upload</a>&emsp;
+            <a href="javascript:;" onClick={()=>this.DoCopy()}>Copy</a>&emsp;
+            <a href="javascript:;" onClick={()=>this.DoCut()}>Cut</a>&emsp;
+            <a href="javascript:;" onClick={()=>this.DoPaste()}>Paste</a>&emsp;
+            {this.props.workspace!=undefined?<span>
+                <a href="javascript:;" onClick={()=>this.DoSyncTab()}>SyncTab</a>&emsp;
+            </span>
+                :null}
+        </div>
+
     }
     public onFilterChange(filterText:string){
         this.setState({filterText})

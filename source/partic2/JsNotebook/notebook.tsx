@@ -1,7 +1,7 @@
 
 import { LocalRunCodeContext, registry, RunCodeContext } from 'partic2/CodeRunner/CodeContext';
 import { CodeCellList } from 'partic2/CodeRunner/WebUi';
-import { GetCurrentTime, WaitUntil, assert, future, requirejs, sleep } from 'partic2/jsutils1/base';
+import { GetCurrentTime, WaitUntil, assert, future, logger, requirejs, sleep } from 'partic2/jsutils1/base';
 import * as React from 'preact'
 
 import {ClientInfo, getAttachedRemoteRigstryFunction, getRegistered, listRegistered, persistent} from 'partic2/pxprpcClient/registry'
@@ -137,6 +137,11 @@ export class RunCodeTab extends TabInfoBase{
         }else{
             await alert('Unsupported code context');
             return;
+        }
+        let result1=await this.codeContext.runCode(
+            `await (await import('partic2/CodeRunner/JsEnviron')).initCodeEnv(_ENV,{codePath:${JSON.stringify(this.path)}});`)
+        if(result1.err!=null){
+            logger.warning(result1.err);
         }
         this.rref.view.current?.forceUpdate();
     }

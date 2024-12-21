@@ -1,8 +1,10 @@
 
-import { ArrayWrap2, GenerateRandomString, future, requirejs } from "partic2/jsutils1/base";
-import { CKeyValueDb, kvStore } from "partic2/jsutils1/webutils";
+import { ArrayWrap2, GenerateRandomString, GetCurrentTime, assert, future, requirejs, throwIfAbortError } from "partic2/jsutils1/base";
+import { CKeyValueDb, getWWWRoot, kvStore } from "partic2/jsutils1/webutils";
 import type * as tjsGlobalDecl from '@txikijs/types/types/txikijs'
 import { ClientInfo } from "partic2/pxprpcClient/registry";
+import {path as lpath} from 'partic2/jsutils1/webutils'
+import type { LocalRunCodeContext } from "./CodeContext";
 
 
 export interface FileEntry{
@@ -47,7 +49,7 @@ export class TjsSfs implements SimpleFileSystem{
         }catch(e){}
     }
     async writeAll(path: string, data: Uint8Array): Promise<void> {
-        let dirname=path.substring(0,path.lastIndexOf('/'));
+        let dirname=lpath.dirname(path);
         if(await this.filetype(dirname)!=='dir'){
             await this.mkdir(dirname);
         }
@@ -131,14 +133,12 @@ export class TjsSfs implements SimpleFileSystem{
         //maybe we should use another function name.
         return this.impl!.homedir()
     }
-
-    
 }
-
 
 export class LocalWindowSFS implements SimpleFileSystem{
     db?: CKeyValueDb;
     root?:FileEntry;
+    lastModified=0;
     //For compatibility. fs module is in partic2/JsNotebook in early day.
     dbname='partic2/JsNotebook/filebrowser/sfs';
 
@@ -151,14 +151,24 @@ export class LocalWindowSFS implements SimpleFileSystem{
             this.root=await this.db.getItem('lwsfs/1');
             if(this.root==undefined){
                 this.root={name:'',type:'dir',children:[]}
+                await this.saveChange();
             }
+            this.lastModified=(await this.db!.getItem('lwsfs/modifiedAt')??0) as number;
         }
     }
+    
     pathSplit(path:string){
         //remove empty name
         return path.split(/[\/\\]/).filter(v=>v!='');
     }
     protected async lookupPathDir(path2:string[],opt:{createParentDirectories?:boolean}){
+        //_ensureRootCacheLatest()
+        let lastModified=(await this.db!.getItem('lwsfs/modifiedAt')??0) as number;
+        if(this.lastModified<lastModified){
+            this.root=await this.db!.getItem('lwsfs/1');
+            this.lastModified=lastModified;
+        }
+
         let curobj:FileEntry=this.root!;
         for(let i1=0;i1<path2.length;i1++){
             let name=path2[i1];
@@ -219,7 +229,9 @@ export class LocalWindowSFS implements SimpleFileSystem{
         await this.saveChange()
     }
     async saveChange(){
-        this.db!.setItem('lwsfs/1',this.root);
+        this.lastModified=GetCurrentTime().getTime();
+        await this.db!.setItem('lwsfs/1',this.root);
+        await this.db!.setItem('lwsfs/modifiedAt',this.lastModified)
     }
     async listdir(path:string){
         let path2=this.pathSplit(path);
@@ -261,6 +273,96 @@ export class LocalWindowSFS implements SimpleFileSystem{
     }
 }
 
+import type * as nodefsmodule from 'fs/promises'
+import type * as nodepathmodule from 'path'
+
+class NodeSimpleFileSystem implements SimpleFileSystem{
+    pxprpc?: ClientInfo | undefined;
+    nodefs?:typeof nodefsmodule;
+    nodepath?:typeof nodepathmodule;
+    //is windows base(C:\... D:\...) path? like `TjsSfs` do.
+    //Maybe it is not good to use different path convention between node native and SimpleFileSystem.
+    winbasepath=false;
+    pathConvert(path:string){
+        //For windows 
+        if(path===''){
+            return '/';
+        }
+        if(path.startsWith('/') && this.winbasepath){
+            if(path.length<=3){
+                return path.substring(1)+'\\';
+            }else{
+                return path.substring(1);
+            }
+        }else{
+            return path;
+        }
+    }
+    async ensureInited(): Promise<void> {
+        this.nodefs=await import('fs/promises');
+        this.nodepath=await import('path')
+        try{
+            await this.nodefs!.stat('c:\\');
+            this.winbasepath=true;
+        }catch(e){}
+    }
+    async writeAll(path: string, data: Uint8Array): Promise<void> {
+        path=this.pathConvert(path);
+        let parent=this.nodepath!.dirname(path);
+        if(await this.filetype(parent)==='none'){
+            this.mkdir(parent);
+        }
+        await this.nodefs!.writeFile(path,data);
+    }
+    async readAll(path: string): Promise<Uint8Array | null> {
+        path=this.pathConvert(path);
+        return await this.nodefs!.readFile(path);
+    }
+    async delete2(path: string): Promise<void> {
+        path=this.pathConvert(path);
+        await this.nodefs!.rm(path,{recursive:true});
+    }
+    async listdir(path: string): Promise<{ name: string; type: string; }[]> {
+        let dummyRootDir:[string,{isDirectory:()=>boolean}][]=[];
+        if((path==='/' || path==='') && this.winbasepath){
+            if(dummyRootDir.length===0){
+                for(let t1 of 'cdefghijklmn'){
+                    try{
+                        dummyRootDir.push([t1+':',await this.nodefs!.stat(t1+':\\')]);
+                    }catch(e){
+                    }
+                }
+            }
+            return dummyRootDir.map(v=>({name:v[0],type:'dir'}))
+        }
+        path=this.pathConvert(path);
+        let dirinfo=await this.nodefs!.readdir(path,{withFileTypes:true});
+        return dirinfo.map(ent=>({name:ent.name,type:ent.isDirectory()?'dir':'file'}));
+    }
+    async filetype(path: string): Promise<"dir" | "file" | "none"> {
+        path=this.pathConvert(path);
+        try{
+            let ent=await this.nodefs!.stat(path);
+            return ent.isDirectory()?'dir':'file';
+        }catch(e:any){
+            throwIfAbortError(e);
+            return 'none';
+        }
+    }
+    async mkdir(path: string): Promise<void> {
+        path=this.pathConvert(path);
+        await this.nodefs!.mkdir(path,{recursive:true});
+    }
+    async rename(path: string, newPath: string): Promise<void> {
+        path=this.pathConvert(path);
+        await this.nodefs!.rename(path,newPath);
+    }
+    async dataDir(): Promise<string> {
+        return lpath.dirname((getWWWRoot() as string).replace(/\\/,'/'));
+    }
+    
+}
+
 
 class RequirejsResourceProvider{
     rootPath:string='www';
@@ -287,4 +389,57 @@ export async function installRequireProvider(fs:SimpleFileSystem,rootPath?:strin
     requirejs.addResourceProvider(provider.handler);
     installedRequirejsResourceProvider.push(provider);
     return provider.handler;
+}
+
+interface CodeContextEnvInitVar{
+    fs:{
+        simple?:SimpleFileSystem,
+        codePath?:string,
+        env:'unknown'|'node'|'browser',
+        loadScript:(path:string)=>Promise<void>
+    }
+}
+/* Usage: Run below code in CodeContext to init CodeContext _ENV
+    ```javascript
+    await (await import('partic2/CodeRunner/JsEnviron')).initCodeEnv(_ENV,{currentDirectory:'xxx'});
+    ```
+    Then these variable list in CodeContextEnvInitVar will be set to _ENV
+*/
+export async function initCodeEnv(_ENV:any,opt?:{codePath?:string}){
+    let env:'unknown'|'node'|'browser'='unknown'
+    if(globalThis.process?.versions?.node!=undefined){
+        env='node'
+    }else if(globalThis.navigator!=undefined){
+        env='browser'
+    }
+    let simplefs=undefined as SimpleFileSystem|undefined;
+    if(installedRequirejsResourceProvider.length>0){
+        simplefs=installedRequirejsResourceProvider[0].fs
+    }else if(env==='node'){
+        simplefs=new NodeSimpleFileSystem();
+        await simplefs.ensureInited();
+    }
+    let fs:CodeContextEnvInitVar['fs']={
+        simple: simplefs,
+        codePath: opt?.codePath,
+        env: env,
+        loadScript:async function(path:string){
+            assert(this.simple!=undefined);
+            if(path.startsWith('.')){
+                assert(this.codePath!=undefined )
+                path=lpath.dirname(this.codePath)+path.substring(1);
+            }
+            let jsbin=await this.simple.readAll(path);
+            if(jsbin==null){
+                throw new Error('File not existed');
+            }
+            let js=new TextDecoder().decode(jsbin);
+            let cc=_ENV.__priv_codeContext as LocalRunCodeContext;
+            let savedCodePath=this.codePath;
+            this.codePath=path;
+            await cc.runCode(js);
+            this.codePath=savedCodePath;
+        }
+    };
+    _ENV.fs=fs;
 }
