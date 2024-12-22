@@ -8,11 +8,11 @@ import { RpcExtendClient1, RpcExtendClientCallable, RpcExtendClientObject, RpcEx
 
 export var __name__=requirejs.getLocalRequireModule(require);
 
-export let rpcWorkerInitModule=['partic2/pxprpcClient/rpcworker'];
+export let rpcWorkerInitModule:string[]=[];
 
-defaultFuncMap[__name__+'.loadModule']=new RpcExtendServerCallable((name:string)=>requirejs.promiseRequire(name)).typedecl('s->o');
-defaultFuncMap[__name__+'.unloadModule']=new RpcExtendServerCallable((name:string)=>requirejs.undef(name)).typedecl('s->o');
-defaultFuncMap[__name__+'.getDefined']=new RpcExtendServerCallable(()=>requirejs.getDefined()).typedecl('s->o');
+defaultFuncMap[__name__+'.loadModule']=new RpcExtendServerCallable(async (name:string)=>requirejs.promiseRequire(name)).typedecl('s->o');
+defaultFuncMap[__name__+'.unloadModule']=new RpcExtendServerCallable(async (name:string)=>requirejs.undef(name)).typedecl('s->o');
+defaultFuncMap[__name__+'.getDefined']=new RpcExtendServerCallable(async ()=>requirejs.getDefined()).typedecl('s->o');
 defaultFuncMap[__name__+'.getConnectionFromUrl']=new RpcExtendServerCallable(async (url:string)=>{
     return await getConnectionFromUrl(url)
 }).typedecl('s->o');
@@ -49,8 +49,8 @@ export class RpcWorker{
                 this.wt=CreateWorkerThread(this.workerId);
                 await this.wt!.start();
                 WebMessage.bind(this.wt!.port!)
-                await this.wt!.runScript(`require([${rpcWorkerInitModule.map(v=>`'${v}'`).join(',')}],function(){
-                    resolve('init');
+                await this.wt!.runScript(`require(['partic2/pxprpcClient/rpcworker'],function(workerInit){
+                    workerInit.loadRpcWorkerInitModule(${JSON.stringify(rpcWorkerInitModule)}).then(resolve,reject);
                 },reject)`,true);
                 this.conn= await new WebMessage.Connection().connect(this.wt!.workerId,300);
             }
@@ -189,8 +189,8 @@ export async function getConnectionFromUrl(url:string):Promise<Io|null>{
         let swu=await import('partic2/jsutils1/webutilssw');
         let worker=await swu.ensureServiceWorkerInstalled();
         WebMessage.bind(worker!.port!)
-        await worker!.runScript(`require([${rpcWorkerInitModule.map(v=>`'${v}'`).join(',')}],function(){
-            resolve('init');
+        await worker!.runScript(`require(['partic2/pxprpcClient/rpcworker'],function(workerInit){
+            workerInit.loadRpcWorkerInitModule(${JSON.stringify(rpcWorkerInitModule)}).then(resolve,reject);
         },reject)`,true);
         return await new WebMessage.Connection().connect(worker!.workerId,300);
     }

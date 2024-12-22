@@ -1,10 +1,10 @@
 
 import { LocalRunCodeContext, registry, RunCodeContext } from 'partic2/CodeRunner/CodeContext';
 import { CodeCellList } from 'partic2/CodeRunner/WebUi';
-import { GetCurrentTime, WaitUntil, assert, future, logger, requirejs, sleep } from 'partic2/jsutils1/base';
+import { GenerateRandomString, GetCurrentTime, WaitUntil, assert, future, logger, requirejs, sleep } from 'partic2/jsutils1/base';
 import * as React from 'preact'
 
-import {ClientInfo, getAttachedRemoteRigstryFunction, getRegistered, listRegistered, persistent} from 'partic2/pxprpcClient/registry'
+import {ClientInfo, getAttachedRemoteRigstryFunction, getRegistered, listRegistered, persistent, ServerHostWorker1RpcName} from 'partic2/pxprpcClient/registry'
 import { LocalWindowSFS, installRequireProvider,SimpleFileSystem } from 'partic2/CodeRunner/JsEnviron';
 import { TabInfo, TabInfoBase } from 'partic2/pComponentUi/workspace';
 import { FileTypeHandler, FileTypeHandlerBase } from './fileviewer';
@@ -15,6 +15,7 @@ import { RegistryUI } from 'partic2/pxprpcClient/ui';
 import { RemoteRunCodeContext } from 'partic2/CodeRunner/RemoteCodeContext';
 import { DefaultActionBar, findRpcClientInfoFromClient } from './misclib';
 import { WindowComponent,alert } from 'partic2/pComponentUi/window';
+import { CodeContextRemoteObjectFetcher } from 'partic2/CodeRunner/Inspector';
 
 export let __name__='partic2/JsNotebook/notebook'
 
@@ -57,7 +58,7 @@ export class IJSNBFileHandler extends FileTypeHandlerBase{
 class RunCodeView extends React.Component<{tab:RunCodeTab},{}>{
     valueCollection=new ReactInputValueCollection();
     
-    actionBar=React.createRef<DefaultActionBar>();
+    actionBar=new ReactRefEx<DefaultActionBar>();
     onKeyDown(ev: React.JSX.TargetedKeyboardEvent<HTMLElement>){
         this.actionBar.current?.processKeyEvent(ev);
     }
@@ -107,6 +108,7 @@ export class RunCodeTab extends TabInfoBase{
     path:string=''
     rpc?:ClientInfo
     rref={ccl:new ReactRefEx<CodeCellList>(),view:new ReactRefEx<RunCodeView>()};
+    action={} as Record<string,()=>Promise<void>>
     inited=new future<boolean>();
     async useCodeContext(codeContext:'local window'|ClientInfo|RemoteRunCodeContext|LocalRunCodeContext|null){
         if(codeContext===null){
@@ -161,6 +163,40 @@ export class RunCodeTab extends TabInfoBase{
             let cells=this.rref.ccl.current!.saveTo();
             let saved=JSON.stringify({ver:1,rpc:(this.rpc?.name)??'__local',path:this.path,cells})
             await this.fs!.writeAll(this.path,new TextEncoder().encode(saved));
+        }
+        this.action.reloadCodeWorker=async()=>{
+            if(!(this.codeContext instanceof RemoteRunCodeContext)){
+                await alert('Only Remote Code Context support to reload.');
+                return;
+            }
+
+            let pxseedServ=getRegistered(ServerHostWorker1RpcName);
+            if(pxseedServ!=undefined){
+                try{
+                    let client1=await pxseedServ.ensureConnected();
+                    let runBuildScript=await client1.getFunc('pxseedServer2023/workerInit.runPxseedBuildScript');
+                    if(runBuildScript!=null){
+                        await runBuildScript.typedecl('->').call();
+                    }
+                }catch(e){
+                    //skip if error.
+                };
+            }
+            
+            let res=await this.codeContext.runCode(`
+if(globalThis.__workerId!=undefined){
+let workerInit=await import('partic2/pxprpcClient/rpcworker');
+await workerInit.reloadRpcWorker()
+}else{
+throw new Error('Only worker can reload');
+}`)
+            if(res.err!=null){
+                await alert(res.err.message);
+                return;
+            }else{
+                await this.useCodeContext(this.codeContext);
+            }
+            
         }
         this.doLoad();
         return this;

@@ -43,6 +43,7 @@ export class TextFileViewer extends TabInfoBase{
     fs?:SimpleFileSystem
     path?:string
     initLoad:boolean=true;
+    action={} as Record<string,()=>Promise<void>>;
     async init(initval:Partial<TextFileViewer>){
         await super.init(initval)
         this.action.save=async ()=>{
@@ -82,6 +83,7 @@ export class MediaFileViewerTab extends TabInfoBase{
     path?:string
     mediaType?:'image'|'audio'|'video'
     initLoad:boolean=true;
+    action={} as Record<string,()=>Promise<void>>
     async init(initval:Partial<MediaFileViewerTab>){
         await super.init(initval);
         await this.doLoad();

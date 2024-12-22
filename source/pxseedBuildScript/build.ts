@@ -2,10 +2,8 @@ import * as fs from 'fs/promises'
 import {constants as fsConst} from 'fs'
 import {dirname,sep,basename,join as pathJoin, relative} from 'path'
 import { pxseedBuiltinLoader } from './loaders';
-import { processDirectory,cleanBuildStatus } from './buildlib';
+import { processDirectory,cleanBuildStatus, sourceDir } from './buildlib';
 
-let sourceDir=pathJoin(dirname(dirname(__dirname)),'source');
-let outputDir=pathJoin(dirname(dirname(__dirname)),'www')
 
 
 ;(async ()=>{

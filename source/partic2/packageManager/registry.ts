@@ -614,7 +614,7 @@ tsconfig.json
 }
 
 export async function unloadPackageModules(pkg:string){
-    for(let mid in requirejs.getDefined()){
+    for(let mid in await requirejs.getDefined()){
         if(mid.startsWith(pkg+'/')){
             requirejs.undef(mid);
         }

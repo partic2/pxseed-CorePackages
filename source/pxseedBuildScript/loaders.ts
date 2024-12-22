@@ -4,12 +4,11 @@ import {constants} from 'fs'
 import {dirname,sep,basename,join as pathJoin, relative} from 'path'
 import {glob} from 'tinyglobby'
 import { readJson, runCommand } from './util'
-import {processDirectory, type PxseedStatus} from './buildlib'
-
-let sourceDir=pathJoin(dirname(dirname(__dirname)),'source');
-let outputDir=pathJoin(dirname(dirname(__dirname)),'www')
+import {type PxseedStatus} from './buildlib'
 
 
+export let sourceDir=pathJoin(dirname(dirname(__dirname)),'source');
+export let outputDir=pathJoin(dirname(dirname(__dirname)),'www')
 
 export let pxseedBuiltinLoader={
     copyFiles:async function(dir:string,config:{include:string[],outDir?:string}){

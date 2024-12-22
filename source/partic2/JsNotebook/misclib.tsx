@@ -18,7 +18,11 @@ export class DefaultActionBar extends React.Component<{action:{[name:string]:()=
         let btn=[] as {id:string,label:string}[];
         for(let name in this.props.action){
             if(name==='save'){
-                btn.push({id:'save',label:'Save(Ctrl+S)'})
+                btn.push({id:name,label:'Save(Ctrl+S)'})
+            }else if(name==='reload'){
+                btn.push({id:name,label:'Reload'})
+            }else if(name==='reloadCodeWorker'){
+                btn.push({id:name,label:'Reload Code Worker'})
             }else{
                 btn.push({id:name,label:name})
             }

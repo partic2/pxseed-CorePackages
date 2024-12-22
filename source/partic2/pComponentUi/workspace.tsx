@@ -10,11 +10,9 @@ export interface TabInfo{
     renderPage:()=>React.ComponentChild,
     onRendered?:()=>void
     onClose():Promise<boolean>,
-    action:{[name:string]:()=>Promise<void>}
 }
 
 export abstract class TabInfoBase implements TabInfo{
-    action={} as {[name:string]:()=>Promise<void>}
     renderPage():React.ComponentChild{
         throw new Error('Not Implemented')
     }

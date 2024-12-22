@@ -1,8 +1,10 @@
 import * as fs from 'fs/promises'
 import {constants as fsConst} from 'fs'
 import {dirname,sep,basename,join as pathJoin, relative} from 'path'
-import { pxseedBuiltinLoader } from './loaders';
+import { pxseedBuiltinLoader ,sourceDir,outputDir} from './loaders';
 import { readJson, writeJson } from './util';
+
+export {sourceDir,outputDir}
 
 export interface PxseedStatus{
     lastBuildTime:number,
@@ -18,6 +20,7 @@ let PxseedStatusDefault:PxseedStatus={
     currentBuildError:[],
     subpackages:[]
 }
+
 
 export interface PxseedConfig{
     name:string,
