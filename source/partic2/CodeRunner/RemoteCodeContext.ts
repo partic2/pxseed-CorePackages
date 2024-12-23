@@ -3,7 +3,7 @@ import {defaultFuncMap,RpcExtendClient1,RpcExtendClientCallable,RpcExtendClientO
 import { ConsoleDataEvent, LocalRunCodeContext, RunCodeContext,jsExecLib } from './CodeContext';
 
 
-import { future } from 'partic2/jsutils1/base';
+import { assert, future } from 'partic2/jsutils1/base';
 
 
 
@@ -48,6 +48,20 @@ export function getRemoteContext(client1:RpcExtendClient1){
 
 let rpcfunctionsProps=Symbol(__name__+'/'+'/rpcfunctions')
 
+export async function PxprpcJsLoadPxseedModule(client1:RpcExtendClient1,modules:string[]){
+    let jsExec=(await client1.getFunc('builtin.jsExec'));
+    let toJson=(await client1.getFunc('builtin.toJSON'));
+    try{
+        assert(jsExec!=null && toJson!=null);
+        jsExec.typedecl('so->o');
+        toJson.typedecl('o->s');
+        await jsExec.call(`return new Promise((resolve)=>{require(${JSON.stringify(modules)},function(rcc){resolve(null)},function(err){reject(err)})})`,null);
+    }finally{
+        await jsExec?.free();
+        await toJson?.free();
+    }
+}
+
 
 export class RemoteRunCodeContext implements RunCodeContext{
     public constructor(public client1:RpcExtendClient1){this.doInit();}
@@ -56,6 +70,7 @@ export class RemoteRunCodeContext implements RunCodeContext{
     closed=false;
     protected async doInit(){
         //XXX:race condition
+        await PxprpcJsLoadPxseedModule(this.client1,[__name__]);
         if(rpcfunctionsProps in this.client1){
             let t1=(this.client1 as any)[rpcfunctionsProps];
             this.jsExecObj=t1.jsExecObj;
