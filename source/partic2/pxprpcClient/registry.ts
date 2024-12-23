@@ -101,19 +101,51 @@ export class ClientInfo{
     }
 }
 
-class IoOverPxprpc implements Io{
-    constructor(public remoteIo:RpcExtendClientObject,public funcs:RemoteRegistryFunction){
+export class IoOverPxprpc implements Io{
+    public funcs?:RemoteRegistryFunction;
+    constructor(public remoteIo:RpcExtendClientObject){
     }
-    receive(): Promise<Uint8Array> {
-        return this.funcs.io_receive(this.remoteIo);
+    async receive(): Promise<Uint8Array> {
+        if(this.funcs==undefined){
+            this.funcs=await getAttachedRemoteRigstryFunction(this.remoteIo.client);
+        }
+        return await this.funcs.io_receive(this.remoteIo);
     }
-    send(data: Uint8Array[]): Promise<void> {
-        return this.funcs.io_send(this.remoteIo,new Uint8Array(ArrayBufferConcat(data)));
+    async send(data: Uint8Array[]): Promise<void> {
+        if(this.funcs==undefined){
+            this.funcs=await getAttachedRemoteRigstryFunction(this.remoteIo.client);
+        }
+        return await this.funcs.io_send(this.remoteIo,new Uint8Array(ArrayBufferConcat(data)));
     }
     close(): void {
         this.remoteIo.free();
     }
-    
+}
+
+export function createIoPipe():[Io,Io]{
+    let a2b=new ArrayWrap2<Uint8Array>();
+    let b2a=new ArrayWrap2<Uint8Array>();
+    closed=false
+    function oneSide(r:ArrayWrap2<Uint8Array>,s:ArrayWrap2<Uint8Array>):Io{
+        return {
+            receive:async():Promise<Uint8Array>=> {
+                if(closed)throw new Error('closed.');
+                return r.queueBlockShift();
+            },
+            send: async (data: Uint8Array[]): Promise<void> =>{
+                if(closed)throw new Error('closed.');
+                for(let t1 of data){
+                    s.queueSignalPush(t1)
+                }
+            },
+            close: ()=>{
+                closed=true;
+                r.cancelWaiting();
+                s.cancelWaiting();
+            }
+        }
+    }
+    return [oneSide(a2b,b2a),oneSide(b2a,a2b)];
 }
 
 let attachedRemoteFunction = Symbol('AttachedRemoteRigstryFunction');
@@ -181,7 +213,7 @@ export async function getConnectionFromUrl(url:string):Promise<Io|null>{
             restRpcPath=decodeURIComponent(restRpcPath);
         }
         let remoteIo=await fn.getConnectionFromUrl(restRpcPath);
-        return new IoOverPxprpc(remoteIo,fn);
+        return new IoOverPxprpc(remoteIo);
     }else if(url2.protocol=='serviceworker:'){
         if(url2.pathname!=='1'){
             throw new Error('Only support default service worker(serviceworker:1)')
