@@ -14,10 +14,6 @@ import './workerInit'
 import koaFiles from 'koa-files'
 import { getWWWRoot, lifecycle } from 'partic2/jsutils1/webutils';
 import { spawn } from 'child_process';
-import { Socket } from 'net';
-import { ClientInfo } from 'partic2/pxprpcClient/registry';
-import { wrapReadable } from 'partic2/nodehelper/nodeio';
-
 
 export let __name__='pxseedServer2023/entry';
 
@@ -91,13 +87,37 @@ koaServ.proxy=true;
 export let koaRouter=new KoaRouter();
 let pxseedFilesServer=koaFiles(dirname(dirname(__dirname)));
 
-export let config={
+interface PxseedServer2023StartupConfig{
+    pxseedBase?:string,
+    pxprpcPath?:string,
+    listenOn?:{host:string,port:number},
+    initModule?:string[],
+    pxprpcCheckOrigin?:string[]|false,
+    deamonMode?:{
+        enabled:false,
+        subprocessConfig:PxseedServer2023StartupConfig[]
+    }
+};
+
+export let config:PxseedServer2023StartupConfig={
     pxseedBase:'/pxseed',
     pxprpcPath:'/pxprpc/0',
     listenOn:{host:'127.0.0.1',port:8088},
     initModule:[],
-    pxprpcCheckOrigin:['localhost','127.0.0.1','[::1]'] as string[]|false
+    pxprpcCheckOrigin:['localhost','127.0.0.1','[::1]'],
+    deamonMode:{
+        enabled:false,
+        subprocessConfig:[]
+    }
 };
+
+let noderunJs=getWWWRoot()+'/noderun.js'
+export function nodeRun(moduleName:string,args:string[]){
+    console.info(noderunJs,moduleName,...args)
+    spawn(process.execPath,[noderunJs,moduleName,...args],{
+        stdio:'inherit'
+    });
+}
 
 export let ensureInit=new future<number>();
 ;(async()=>{
@@ -107,7 +127,17 @@ export let ensureInit=new future<number>();
         try{
             let configData=await fs.readFile(__dirname+'/config.json');
             console.log(`config file ${__dirname+'/config.json'} found. `);
-            copy(JSON.parse(new TextDecoder().decode(configData)),config,1);
+            let rootConfig=JSON.parse(new TextDecoder().decode(configData));
+            let subprocessAt=process.argv.indexOf('--subprocess');
+            if(process.argv[2]==__name__ && subprocessAt>=0 ){
+                //This is subprocee spawn by deamon.
+                let subprocessIndex=Number(process.argv[subprocessAt+1]);
+                Object.assign(config,rootConfig,rootConfig.deamonMode.subprocessConfig[subprocessIndex]);
+                config.deamonMode!.enabled=false;
+                config.deamonMode!.subprocessConfig=[]
+            }else{
+                Object.assign(config,rootConfig);
+            }
         }catch(e){
             console.log(`config file not found, write to ${__dirname+'/config.json'}`)
             await fs.writeFile(__dirname+'/config.json',new TextEncoder().encode(JSON.stringify(config)))
@@ -124,15 +154,15 @@ export let ensureInit=new future<number>();
                 }
             }
             httpServ.once('error',cb);
-            httpServ.listen(config.listenOn.port,config.listenOn.host,8,()=>{
+            httpServ.listen(config.listenOn!.port,config.listenOn!.host,8,()=>{
                 httpServ.off('error',cb);
                 p.setResult(null)
             });
             return p.get();
         }
         let listenSucc=false;
-        let maxListenPort=config.listenOn.port+4;
-        for(;config.listenOn.port<maxListenPort;config.listenOn.port++){
+        let maxListenPort=config.listenOn!.port+4;
+        for(;config.listenOn!.port<maxListenPort;config.listenOn!.port++){
             let t1=await doListen();
             if(t1==null){
                 listenSucc=true;
@@ -146,14 +176,14 @@ export let ensureInit=new future<number>();
         
         koaServ.use(koaRouter.middleware())
         console.log(JSON.stringify(config,undefined,2));
-        WsServer.router[config.pxseedBase+config.pxprpcPath]=(io,url,headers)=>{
+        WsServer.router[config.pxseedBase!+config.pxprpcPath]=(io,url,headers)=>{
             let pass=false;
             if(config.pxprpcCheckOrigin===false){
                 pass=true;
             }
             if(!pass && headers.origin!=undefined){
                 let originUrl=new URL(headers.origin);
-                for(let t1 of [config.listenOn.host,...(config.pxprpcCheckOrigin as string[])]){
+                for(let t1 of [config.listenOn!.host,...(config.pxprpcCheckOrigin as string[])]){
                     if(originUrl.hostname===t1){
                         pass=true;
                     };
@@ -167,7 +197,6 @@ export let ensureInit=new future<number>();
                 io.close();
             }
         }
-        let lockFuture=[new future<string>()];
         function doExit(){
             console.info('exiting...');
             lifecycle.dispatchEvent(new Event('pause'));
@@ -199,7 +228,7 @@ export let ensureInit=new future<number>();
         ensureInit.setResult(0);
         
         console.info(`package manager url:`)
-        console.info(`http://${config.listenOn.host}:${config.listenOn.port}${config.pxseedBase}/www/index.html?__jsentry=partic2%2fpackageManager%2fwebui`);
+        console.info(`http://${config.listenOn!.host}:${config.listenOn!.port}${config.pxseedBase}/www/index.html?__jsentry=partic2%2fpackageManager%2fwebui`);
 
         lifecycle.addEventListener('exit',()=>{
             console.info('close http server');
@@ -214,7 +243,12 @@ export let ensureInit=new future<number>();
             doRestart();
         }).typedecl('->');
     }
-    Promise.all(config.initModule.map(mod=>requirejs.promiseRequire(mod)));
+    Promise.allSettled(config.initModule!.map(mod=>requirejs.promiseRequire(mod)));
+    if(config.deamonMode!.enabled){
+        for(let t1=0;t1<config.deamonMode!.subprocessConfig.length;t1++){
+            nodeRun(__name__,['--subprocess',String(t1)]);
+        }
+    }
 })();
 
 
