@@ -387,9 +387,8 @@ export let requirejs = {
             that.require([implModName], function (mod0: mod) {
                 resolve(mod0);
             },(err:any)=>{
-                let err2=new Error('amd load failed') as any;
-                reject(err2);
-            })
+                reject(err);
+            });
         })
     },
     getConfig:function(){
@@ -397,6 +396,10 @@ export let requirejs = {
     },
     getDefined:async function ():Promise<{[k:string]:any}>{
         return amdContext.require.getDefined();
+    },
+    getFailed:async function ():Promise<{[k:string]:{error:Error}}>{
+        //partic2-iamdee feature
+        return amdContext.requirejs.getFailed();
     },
     undef:async function (mod:string){
         amdContext.requirejs.undef(mod)

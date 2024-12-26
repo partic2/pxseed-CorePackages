@@ -243,6 +243,16 @@
             }
             return r;
         };
+        require.getFailed = function () {
+            var r = {};
+            for (var k in moduleMap) {
+                var mod = moduleMap[k];
+                if (mod.moduleState === 4 /* ModuleState.ERROR */) {
+                    r[k] = { error: mod.moduleError };
+                }
+            }
+            return r;
+        };
         require.localRequireModule = moduleId;
         return require;
     }
