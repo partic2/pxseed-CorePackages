@@ -7,9 +7,9 @@ import {CKeyValueDb, DynamicPageCSSManager,path,selectFile} from 'partic2/jsutil
 import { ReactRefEx, ReactRender, css } from 'partic2/pComponentUi/domui'
 import { SimpleFileSystem,FileEntry, LocalWindowSFS } from 'partic2/CodeRunner/JsEnviron'
 import { FileTypeHandler, FileTypeHandlerBase } from './fileviewer'
-import { TabInfo } from 'partic2/pComponentUi/workspace'
 import { Workspace } from './workspace'
-import { confirm, prompt } from 'partic2/pComponentUi/window'
+import { alert, confirm, prompt } from 'partic2/pComponentUi/window'
+import { TextEditor } from 'partic2/pComponentUi/texteditor'
 
 
 var __name__='partic2/JsNotebook/filebrowser'
@@ -29,23 +29,23 @@ export class File extends React.Component<FileProp,{}>{
     public constructor(props?:FileProp,ctx?:any){
         super(props,ctx);
     }
-    lastSelectTime?:Date
+    lastSelectTime:Date|null=null
     protected onClick(ev: React.JSX.TargetedMouseEvent<HTMLDivElement>){
-        if(this.lastSelectTime!=undefined && GetCurrentTime().getTime()-this.lastSelectTime.getTime()<500){
+        if(this.lastSelectTime!=null && GetCurrentTime().getTime()-this.lastSelectTime.getTime()<500){
             //Dblclick
+            this.lastSelectTime=null;
             this.props.onOpenRequest?.(this.props.path);
-            ev.preventDefault();
         }else{
             this.props.onSelectChange?.(this.props.path,!this.props.selected);
+            this.lastSelectTime=GetCurrentTime();
         }
-        this.lastSelectTime=GetCurrentTime();
     }
     public render(){
         let cls=[css.selectable]
         if(this.props.selected){
             cls.push(css.selected)
         }
-        return (<div className={cls.join(' ')} onClick={(ev)=>this.onClick(ev)}> 
+        return (<div className={cls.join(' ')} onClick={(ev)=>this.onClick(ev)} onDblClick={(ev)=>ev.preventDefault()}> 
             [{this.props.type.charAt(0).toUpperCase()}]{this.props.name}
         </div>)
     }
@@ -66,7 +66,6 @@ export class DummyDirectoryHandler extends FileTypeHandlerBase{
 interface FileBrowserState{
     currPath?:string,
     childrenFile:{name:string,type:string}[],
-    errorMsg:string,
     selectedFiles:Set<string>,
     filterText:string,
     textInput1:string
@@ -108,6 +107,7 @@ export class FileBrowser extends React.Component<{
                 newPath='';
                 children=await this.props.sfs.listdir(newPath);
             }
+            this.state.selectedFiles.clear();
             this.setState({
                 currPath:newPath,
                 childrenFile:children
@@ -157,7 +157,7 @@ export class FileBrowser extends React.Component<{
     }
     async DoRenameTo(){
         if(this.state.selectedFiles.size<1){
-            this.setState({errorMsg:'No file selected'})
+            await alert('No file selected');
             return;
         }
         let path=Array.from(await this.state.selectedFiles)[0];
@@ -267,10 +267,20 @@ export class FileBrowser extends React.Component<{
         this.setState({filterText})
     }
     protected filesContainer=React.createRef();
+    protected async promptForCurrentPath(){
+        let newPathInput=new ReactRefEx<TextEditor>();
+        let dlg=await prompt(<TextEditor divClass={[css.simpleCard]} divStyle={{minWidth:300}} ref={newPathInput}/>,'Jump to');
+        (await newPathInput.waitValid()).setPlainText(this.state.currPath??'');
+        if(await dlg.answer.get()==='ok'){
+            this.doFileOpen(await (await newPathInput.waitValid()).getPlainText());
+        }
+        dlg.close();
+    }
     public render(){
         return (<div className={css.flexColumn} style={{height:'100%'}}>
-            <div style={{color:'red'}}>{this.state.errorMsg}</div>
-            <div style={{wordBreak:'break-all'}}>{this.state.currPath}</div>
+            <div style={{wordBreak:'break-all'}} className={[css.simpleCard].join(' ')}>
+                <a href="javascript:;" onClick={()=>this.promptForCurrentPath()}>{this.state.currPath}</a>
+            </div>
             {this.renderAction()}
             <input type='text' placeholder='filter' onInput={(ev)=>this.onFilterChange((ev.target as HTMLInputElement).value)}></input>
             <div style={{flexGrow:1,flexShrink:1}} ref={this.filesContainer}>

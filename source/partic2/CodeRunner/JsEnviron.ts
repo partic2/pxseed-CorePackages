@@ -1,10 +1,11 @@
 
 import { ArrayWrap2, GenerateRandomString, GetCurrentTime, assert, future, requirejs, throwIfAbortError } from "partic2/jsutils1/base";
-import { CKeyValueDb, getWWWRoot, kvStore } from "partic2/jsutils1/webutils";
+import { CKeyValueDb, getWWWRoot, kvStore, path } from "partic2/jsutils1/webutils";
 import type * as tjsGlobalDecl from '@txikijs/types/types/txikijs'
 import { ClientInfo } from "partic2/pxprpcClient/registry";
 import {path as lpath} from 'partic2/jsutils1/webutils'
 import type { LocalRunCodeContext } from "./CodeContext";
+
 
 
 export interface FileEntry{
@@ -275,6 +276,7 @@ export class LocalWindowSFS implements SimpleFileSystem{
 
 import type * as nodefsmodule from 'fs/promises'
 import type * as nodepathmodule from 'path'
+import { type CodeCompletionContext } from "./Inspector";
 
 class NodeSimpleFileSystem implements SimpleFileSystem{
     pxprpc?: ClientInfo | undefined;
@@ -397,7 +399,10 @@ interface CodeContextEnvInitVar{
         codePath?:string,
         env:'unknown'|'node'|'browser',
         loadScript:(path:string)=>Promise<void>
-    }
+    },
+    //import all members of module into _ENV
+    import2env:(moduleName:string)=>Promise<void>,
+    globalThis:typeof globalThis
 }
 /* Usage: Run below code in CodeContext to init CodeContext _ENV
     ```javascript
@@ -442,4 +447,33 @@ export async function initCodeEnv(_ENV:any,opt?:{codePath?:string}){
         }
     };
     _ENV.fs=fs;
+    _ENV.import2env=async (moduleName:string)=>{
+        let mod=await requirejs.promiseRequire<Record<string,unknown>>(moduleName);
+        for(let [k1,v1] of Object.entries(mod)){
+            _ENV[k1]=v1;
+        }
+    }
+    let {CustomFunctionParameterCompletionSymbol,importNameCompletion,makeFunctionCompletionWithFilePathArg0}=(await import('./Inspector'));
+    _ENV.import2env[CustomFunctionParameterCompletionSymbol]=async (context:CodeCompletionContext)=>{
+        let param=context.code.substring(context.funcParamStart!,context.caret);
+        let importName2=param.match(/\(\s*(['"])([^'"]+)$/);
+        if(importName2!=null){
+            let replaceRange:[number,number]=[context.funcParamStart!+param.lastIndexOf(importName2[1])+1,0];
+            replaceRange[1]=replaceRange[0]+importName2[2].length;
+            let importName=importName2[2];
+            let t1=await importNameCompletion(importName);
+            context.completionItems.push(...t1.map(v=>({type:'literal',candidate:v,replaceRange})))
+        }
+    }
+    _ENV.fs.loadScript[CustomFunctionParameterCompletionSymbol]=makeFunctionCompletionWithFilePathArg0(path.dirname(_ENV.fs.codePath));
+    _ENV.fs.simple.readAll[CustomFunctionParameterCompletionSymbol]=makeFunctionCompletionWithFilePathArg0(undefined);
+    _ENV.fs.simple.writeAll[CustomFunctionParameterCompletionSymbol]=makeFunctionCompletionWithFilePathArg0(undefined);
+    _ENV.fs.simple.listdir[CustomFunctionParameterCompletionSymbol]=makeFunctionCompletionWithFilePathArg0(undefined);
+    _ENV.fs.simple.filetype[CustomFunctionParameterCompletionSymbol]=makeFunctionCompletionWithFilePathArg0(undefined);
+    _ENV.fs.simple.delete2[CustomFunctionParameterCompletionSymbol]=makeFunctionCompletionWithFilePathArg0(undefined);
+    _ENV.globalThis=globalThis;
 }
+
+
+
+

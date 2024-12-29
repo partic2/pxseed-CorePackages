@@ -4,10 +4,10 @@ import {ancestor} from 'acorn-walk'
 import * as acorn from 'acorn'
 import { requirejs } from 'partic2/jsutils1/base';
 import * as jsutils1 from 'partic2/jsutils1/base'
-import { text2html } from 'partic2/pComponentUi/utils';
-import { installedRequirejsResourceProvider } from './JsEnviron';
-import { inspectCodeContextVariable, toSerializableObject, fromSerializableObject, CodeContextRemoteObjectFetcher, RemoteReference} from './Inspector';
-import { getWWWRoot } from 'partic2/jsutils1/webutils';
+
+import { inspectCodeContextVariable, toSerializableObject, fromSerializableObject, CodeContextRemoteObjectFetcher, 
+    RemoteReference, defaultCompletionHandlers, CodeCompletionItem} from './Inspector';
+
 
 acorn.defaultOptions.allowAwaitOutsideFunction=true;
 acorn.defaultOptions.ecmaVersion='latest';
@@ -16,11 +16,7 @@ acorn.defaultOptions.sourceType='module'
 
 
 
-export interface CodeCompletionItem{
-    type:string,
-    candidate:string,
-    replaceRange:[number,number]
-}
+
 
 export interface RunCodeContext{
     //resultVariable=resultVariable??'_'
@@ -92,7 +88,6 @@ function ensureFunctionProbe<T>(o:T,p:keyof T):CFuncCallProbe{
     }
     return p2.funcCallProbe!
 }
-
 
 //(event:'console.data',cb:onConsoleDataCallback):void;
 
@@ -285,164 +280,18 @@ export class LocalRunCodeContext implements RunCodeContext{
         let r=await code(this.localScopeProxy);
         return r;
     }
+    completionHandlers=[
+        ...defaultCompletionHandlers
+    ]
     async codeComplete(code: string, caret: number) {
-        let completionItems=[] as { type: string; candidate: string; replaceRange:[number,number]}[];
-
-        const checkIsCaretInStringLiteral=()=>{
-            let t1=code.substring(0,caret).split('').reduce((prev,curr)=>{
-                if(curr=='"'){prev.dquo++;}else if(curr=="'"){prev.quo++;}
-                return prev;
-            },{dquo:0,quo:0})
-            return t1.dquo%2==1 || t1.quo%2==1;
+        let completeContext={
+            code,caret,codeContext:this,completionItems:[]
         }
-
-        const propertyCompletion=async ()=>{
-            if(checkIsCaretInStringLiteral()){
-                return;
-            }
-            let explist=code.substring(0,caret).match(/[0-9a-zA-Z_.\[\]'"]+$/);
-            if(explist==null){
-                return;
-            }
-            let exp1=explist[0];
-            let objPart=exp1;
-            let propPart='';
-            let propDot=exp1.lastIndexOf('.');
-            if(propDot==-1){
-                propPart=exp1;
-                objPart='_ENV';
-            }else{
-                [objPart,propPart]=[exp1.substring(0,propDot),exp1.substring(propDot+1)];
-            }
-            let obj1:any;
-            try{
-                obj1=await this.runCodeInScope(`return ${objPart};`);
-            }catch(e){
-            }
-            if(obj1!=undefined){
-                let exists=new Set();
-                let protoobj=obj1;
-                let abstractTypedArray=Object.getPrototypeOf(Object.getPrototypeOf(new Uint8Array([]))).constructor;
-                let objectProto=Object.getPrototypeOf({});
-                for(let rp=0;rp<100;rp++){
-                    if(protoobj==null || protoobj==objectProto)break;
-                    let proto2=Object.getPrototypeOf(protoobj);
-                    if(typeof protoobj==='string'||(proto2!=null && proto2.constructor===Array)||protoobj instanceof abstractTypedArray){
-                        protoobj=Object.getPrototypeOf(protoobj);
-                        continue;
-                    }
-                    for(let t1 of Object.getOwnPropertyNames(protoobj)){
-                        try{
-                            if(t1.startsWith(propPart)&&!exists.has(t1)){
-                                exists.add(t1);
-                                completionItems.push({
-                                    type:typeof obj1[t1],
-                                    candidate:t1,
-                                    replaceRange:[(explist.index??0)+propDot+1,caret]
-                                });
-                            }
-                        }catch(e){}
-                    }
-                    protoobj=Object.getPrototypeOf(protoobj);
-                }
-            }
+        for(let t1 of this.completionHandlers){
+            await t1(completeContext);
         }
-        const removeLeadingSlash=(path:string)=>{
-            if(path.startsWith('/')){
-                return path.substring(1);
-            }else{
-                return path;
-            }
-        }
-        const importNameCompletion=async (partialName:string)=>{
-            let candidate=new Set<string>();
-            let defined=await requirejs.getDefined()
-            for(let t1 in defined){
-                if(t1.startsWith(partialName)){
-                    let t2=partialName.length;
-                    let nextPart=t1.indexOf('/',t2);
-                    if(nextPart>=0){
-                        candidate.add(t1.substring(0,nextPart));
-                    }else{
-                        candidate.add(t1);
-                    }
-                }
-            }
-            for(let customProvider of installedRequirejsResourceProvider){
-                let lastDirIndex=partialName.lastIndexOf('/');
-                let lastdir='';
-                if(lastDirIndex>=0){
-                    lastdir=partialName.substring(0,lastDirIndex);
-                }
-                try{
-                    let children=await customProvider.fs.listdir(customProvider.rootPath+'/'+lastdir);
-                    let nameFilter=removeLeadingSlash(partialName.substring(lastdir.length));
-                    for(let t1 of children){
-                        if(t1.name.startsWith(nameFilter)){
-                            if(t1.type=='file' && t1.name.endsWith('.js')){
-                                let modPath=removeLeadingSlash(
-                                    lastdir+'/'+t1.name.substring(0,t1.name.length-3))
-                                candidate.add(modPath);
-                            }else if(t1.type=='dir'){
-                                let modPath=removeLeadingSlash(lastdir+'/'+t1.name);
-                                candidate.add(modPath);
-                            }
-                        }
-                    }
-                }catch(e){};
-            }
-            //If in node environment
-            if(globalThis.process!=undefined&&globalThis.process.versions!=undefined&&globalThis.process.versions.node!=undefined){
-                let fs=await import('fs/promises');
-                let path=await import('path');
-                let moduleDir=getWWWRoot();
-                let lastDirIndex=partialName.lastIndexOf('/');
-                let lastdir='';
-                if(lastDirIndex>=0){
-                    lastdir=partialName.substring(0,lastDirIndex);
-                }
-                try{
-                    let children=await fs.readdir(path.join(moduleDir,lastdir),{withFileTypes:true});
-                    for(let t1 of children){
-                        let nameFilter=removeLeadingSlash(partialName.substring(lastdir.length));
-                        if(t1.name.startsWith(nameFilter)){
-                            if(!t1.isDirectory() && t1.name.endsWith('.js')){
-                                candidate.add(removeLeadingSlash(
-                                    lastdir+'/'+t1.name.substring(0,t1.name.length-3)));
-                            }else if(t1.isDirectory()){
-                                candidate.add(removeLeadingSlash(
-                                    lastdir+'/'+t1.name));
-                            }
-                        }
-                    }
-                }catch(e){};
-            }
-            return Array.from(candidate);
-        }
-
-        const importCompletion=async ()=>{
-            let behind=code.substring(0,caret);
-            let importExpr=behind.match(/import\s*\(\s*(['"])([^'"]+)$/);
-            if(importExpr!=null){
-                let replaceRange:[number,number]=[(importExpr.index??0)+importExpr[0].indexOf(importExpr[1])+1,0];
-                replaceRange[1]=replaceRange[0]+importExpr[2].length;
-                let importName=importExpr[2];
-                let t1=await importNameCompletion(importName);
-                completionItems.push(...t1.map(v=>({type:'literal',candidate:v,replaceRange})))
-            }
-            importExpr=behind.match(/import\s.*from\s*(['"])([^'"]+)$/);
-            if(importExpr!=null){
-                let replaceRange:[number,number]=[(importExpr.index??0)+importExpr[0].indexOf(importExpr[1])+1,0];
-                replaceRange[1]=replaceRange[0]+importExpr[2].length;
-                let importName=importExpr[2];
-                let t1=await importNameCompletion(importName);
-                completionItems.push(...t1.map(v=>({type:'literal',candidate:v,replaceRange})))
-            }
-        }
-
-        await propertyCompletion();
-        await importCompletion();
-        return completionItems;
+        //TODO:remove duplicate completionItems
+        return completeContext.completionItems;
     }
 }
 

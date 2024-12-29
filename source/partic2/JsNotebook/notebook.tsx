@@ -73,7 +73,7 @@ class RunCodeView extends React.Component<{tab:RunCodeTab},{}>{
                 Code Context:{(this.props.tab.rpc?.name)??'local window'}
             </a><span>&nbsp;&nbsp;</span><DefaultActionBar action={this.props.tab.action} ref={this.actionBar}/></div>
             {(this.props.tab.codeContext!=undefined)?
-                <CodeCellList codeContext={this.props.tab.codeContext} ref={this.props.tab.rref.ccl}/>:
+                <CodeCellList codeContext={this.props.tab.codeContext} ref={this.props.tab.rref.ccl} />:
                 'No CodeContext'
             }
             <WindowComponent ref={this.rref.selectContext} title="select context">
