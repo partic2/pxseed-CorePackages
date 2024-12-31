@@ -190,7 +190,11 @@ export class WindowComponent extends React.Component<WindowComponentProps,Window
         }
         return <div className={cssBase.flexColumn} style={windowDivStyle}
             ref={this.rref.container}
-            onClick={()=>{
+            onMouseDown={()=>{
+                if(this.state.activeTime>=0)
+                    this.setState({activeTime:GetCurrentTime().getTime()})
+            }}
+            onTouchStart={()=>{
                 if(this.state.activeTime>=0)
                     this.setState({activeTime:GetCurrentTime().getTime()})
             }}>
@@ -242,8 +246,8 @@ export function appendFloatWindow(window:React.VNode,active?:boolean){
     active=active??true;
     let ref2=new ReactRefEx<WindowComponent>().forward([window.ref].filter(v=>v!=undefined) as React.Ref<any>[]);
     window.ref=ref2;
-    if(!('key' in window)){
-        console.warn('window should has "key" property as unique identity');
+    if(window.key==undefined){
+        window.key=GenerateRandomString();
     }
     ensureFloatWindowContainer();
     floatWindowVNodes.push(window);
@@ -307,7 +311,7 @@ export async function confirm(message:string,title?:string){
 
 export async function prompt(form:React.VNode,title?:string){
     let result=new future<'ok'|'cancel'>();
-    let floatWindow1=<WindowComponent title={title??i18n.caution} onClose={()=>result.setResult('cancel')}>
+    let floatWindow1=<WindowComponent title={title??i18n.caution} onClose={()=>result.setResult('cancel')} key={GenerateRandomString()}>
         <div className={css.flexColumn}>
             {form}
             <div className={css.flexRow}>

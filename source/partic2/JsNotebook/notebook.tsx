@@ -13,8 +13,8 @@ import { __name__ as RemoteCodeContextName } from 'partic2/CodeRunner/RemoteCode
 import { FloatLayerComponent, ReactInputValueCollection, ReactRefEx, SimpleReactForm1, css } from 'partic2/pComponentUi/domui';
 import { RegistryUI } from 'partic2/pxprpcClient/ui';
 import { RemoteRunCodeContext } from 'partic2/CodeRunner/RemoteCodeContext';
-import { DefaultActionBar, findRpcClientInfoFromClient } from './misclib';
-import { WindowComponent,alert } from 'partic2/pComponentUi/window';
+import { CodeContextChooser, DefaultActionBar, findRpcClientInfoFromClient } from './misclib';
+import { WindowComponent,alert, appendFloatWindow, prompt, removeFloatWindow } from 'partic2/pComponentUi/window';
 import { CodeContextRemoteObjectFetcher } from 'partic2/CodeRunner/Inspector';
 
 export let __name__='partic2/JsNotebook/notebook'
@@ -63,40 +63,31 @@ class RunCodeView extends React.Component<{tab:RunCodeTab},{}>{
         this.actionBar.current?.processKeyEvent(ev);
     }
     rref={
-        selectContext:React.createRef<WindowComponent>(),
         rpcRegistry:React.createRef<WindowComponent>()
+    }
+    async openCodeContextChooser(){
+        let wnd2=<WindowComponent onClose={()=>{
+            removeFloatWindow(wnd2);
+        }} title='choose code context' >
+            <div style={{backgroundColor:'white'}}>
+            <CodeContextChooser onChoose={(rpc)=>{
+                this.props.tab.useCodeContext(rpc);
+                removeFloatWindow(wnd2);
+            }}/>
+            </div>
+        </WindowComponent>
+        appendFloatWindow(wnd2);
     }
     render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined; }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChild {
         return <div style={{width:'100%',overflow:'auto'}} onKeyDown={(ev)=>this.onKeyDown(ev)}>
             <div>
-            <a href="javascript:;" onClick={()=>this.rref.selectContext.current?.active()}>
+            <a href="javascript:;" onClick={()=>this.openCodeContextChooser()}>
                 Code Context:{(this.props.tab.rpc?.name)??'local window'}
             </a><span>&nbsp;&nbsp;</span><DefaultActionBar action={this.props.tab.action} ref={this.actionBar}/></div>
             {(this.props.tab.codeContext!=undefined)?
                 <CodeCellList codeContext={this.props.tab.codeContext} ref={this.props.tab.rref.ccl} />:
                 'No CodeContext'
             }
-            <WindowComponent ref={this.rref.selectContext} title="select context">
-                <div className={css.simpleCard}>
-                    <div>
-                        From builtin<br/>
-                        <a href="javascript:;" onClick={()=>this.props.tab.useCodeContext('local window')}>Local Window</a>&emsp;&emsp;
-                    </div>
-                    <div>
-                        From RPC<br/>
-                        <RegistryUI onSelectConfirm={(client)=>this.props.tab.useCodeContext(client)}/>
-                    </div>
-                    <div>
-                        From RunCodeContext registry<br/>
-                        {registry.list().map(name=>
-                            <a href="javascript:;" 
-                                onClick={()=>this.props.tab.useCodeContext(registry.get(name) as any)}>
-                                {name}
-                            </a>
-                        )}
-                    </div>
-                </div>
-            </WindowComponent>
             </div>
     }
 

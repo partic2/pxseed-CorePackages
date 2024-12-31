@@ -3,15 +3,12 @@ import { WebMessage } from "pxprpc/backend";
 import { Server } from "pxprpc/base";
 import { RpcExtendServer1, RpcExtendServerCallable, defaultFuncMap } from "pxprpc/extend";
 
-
-
-import {rpcWorkerInitModule}  from './registry'
-import { requirejs } from "../jsutils1/base";
+//Avoid to static import any module other than '"pxprpc" and "partic2/jsutils1/base"', To avoid incorrect call before workerInitModule imported.
+import { requirejs } from "partic2/jsutils1/base";
 
 const __name__=requirejs.getLocalRequireModule(require);
 
 declare var __workerId:string;
-WebMessage.bind(globalThis);
 
 
 new WebMessage.Server((conn)=>{
@@ -19,7 +16,7 @@ new WebMessage.Server((conn)=>{
     new RpcExtendServer1(new Server(conn)).serve().catch(()=>{});
 }).listen(__workerId);
 
-let rpcWorkerInited=false;
+
 
 let bootModules=new Set();
 
@@ -32,11 +29,14 @@ export async function savedAsBootModules(){
     });
 }
 
+//Almost only used by './registry'
+let rpcWorkerInited=false;
 export async function loadRpcWorkerInitModule(workerInitModule:string[]){
     if(!rpcWorkerInited){
         rpcWorkerInited=true;
-        rpcWorkerInitModule.push(...workerInitModule);
         await Promise.allSettled(workerInitModule.map(v=>import(v)));
+        let {rpcWorkerInitModule}=await import('./registry');
+        rpcWorkerInitModule.push(...workerInitModule);
         await savedAsBootModules();
     }
 }

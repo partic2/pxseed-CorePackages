@@ -74,7 +74,7 @@ export class MessagePortForNodeWorker implements BasicMessagePort{
             t1(msgevt)
         }
     }
-    postMessage (data: any, opt?: { transfer: Transferable[]; } | undefined){
+    postMessage (data: any, opt?: { transfer?: Transferable[]; } | undefined){
         this.nodePort.postMessage!(data);
     }
 }

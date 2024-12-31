@@ -405,7 +405,7 @@ export interface BasicMessagePort {
     addEventListener: (type: 'message', cb: (msg: MessageEvent) => void) => void;
     removeEventListener: (type: 'message', cb: (msg: MessageEvent) => void) => void;
     postMessage: (data: any, opt?: {
-        transfer: Transferable[];
+        transfer?: Transferable[];
     }) => void;
 }
 

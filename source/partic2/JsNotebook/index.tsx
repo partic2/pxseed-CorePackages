@@ -1,13 +1,16 @@
 
 import { DynamicPageCSSManager, GetUrlQueryVariable ,GetJsEntry, useDeviceWidth } from "partic2/jsutils1/webutils";
-import { DomRootComponent, ReactRender } from "partic2/pComponentUi/domui";
-import { getRegistered, persistent } from "partic2/pxprpcClient/registry";
+import { DomRootComponent, ReactRefEx, ReactRender } from "partic2/pComponentUi/domui";
+import { ClientInfo, getRegistered, persistent } from "partic2/pxprpcClient/registry";
 import { RegistryUI } from "partic2/pxprpcClient/ui";
 
 import * as React from 'preact'
 import { Workspace } from "./workspace";
-import { WindowComponent } from "partic2/pComponentUi/window";
+import { WindowComponent, alert } from "partic2/pComponentUi/window";
 import { getIconUrl } from "partic2/pxseedMedia1/index1";
+import { CodeContextChooser, findRpcClientInfoFromClient } from "./misclib";
+import { LocalRunCodeContext } from "partic2/CodeRunner/CodeContext";
+import { RemoteRunCodeContext } from "../CodeRunner/RemoteCodeContext";
 
 
 export let __name__='partic2/JsNotebook/index';
@@ -28,17 +31,17 @@ class ResourcePanel extends React.Component{
         DynamicPageCSSManager.PutCss('body',['margin:0px'])
         let rpc=GetUrlQueryVariable('__rpc');
         await persistent.load();
-        ReactRender(<div>
-            <h2>From...</h2>
-            <a href="javascript:;" onClick={()=>{
-                ReactRender(<div style={{width:'99vw',height:'98vh'}}><Workspace/></div>,DomRootComponent)
-            }}>Local Window</a>
-            <h2>or</h2>
-            <RegistryUI onSelectConfirm={(selected)=>{
-                if(selected!==null){
-                    ReactRender(<div style={{width:'99vw',height:'98vh'}}><Workspace rpc={selected}/></div>,DomRootComponent)
-                }
-            }}/>
-            </div>,DomRootComponent);
+        ReactRender(<CodeContextChooser onChoose={(rpc)=>{
+            if(rpc=='local window' || (rpc instanceof LocalRunCodeContext)){
+                ReactRender(<Workspace/>,DomRootComponent);
+            }else if(rpc instanceof ClientInfo){
+                ReactRender(<Workspace rpc={rpc}/>,DomRootComponent);
+            }else if(rpc instanceof RemoteRunCodeContext){
+                ReactRender(<Workspace rpc={findRpcClientInfoFromClient(rpc.client1)!}/>,DomRootComponent)
+            }else{
+                alert('Not support client');
+            }
+        }}/>,DomRootComponent);
+        
     }
 })();

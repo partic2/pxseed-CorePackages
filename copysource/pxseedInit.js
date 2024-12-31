@@ -92,7 +92,7 @@ var __pxseedInit={
                     globalThis.caches.delete(jspath).then(function(){
                         return globalThis.caches.open(jspath)
                     }).then(function(cacheIn){
-                        cache=cacheIn
+                        __pxseedInit.serviceWorker.cache=cacheIn
                     });
                     var defined=require.getDefined();
                     for(var modId in defined){

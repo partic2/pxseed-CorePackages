@@ -1,8 +1,8 @@
-import { ArrayBufferConcat, ArrayWrap2, GenerateRandomString, assert, copy, future, requirejs } from "partic2/jsutils1/base";
-import { GetPersistentConfig, SavePersistentConfig,BasicMessagePort,IWorkerThread, CreateWorkerThread, lifecycle } from "partic2/jsutils1/webutils";
+import { ArrayBufferConcat, ArrayWrap2, GenerateRandomString, future, requirejs } from "partic2/jsutils1/base";
+import { GetPersistentConfig, SavePersistentConfig,IWorkerThread, CreateWorkerThread, lifecycle, GetUrlQueryVariable } from "partic2/jsutils1/webutils";
 import { WebMessage, WebSocketIo } from "pxprpc/backend";
-import { Client, Io } from "pxprpc/base";
-import { RpcExtendClient1, RpcExtendClientCallable, RpcExtendClientObject, RpcExtendError, RpcExtendServerCallable, defaultFuncMap } from "pxprpc/extend";
+import { Client, Io, Server } from "pxprpc/base";
+import { RpcExtendClient1, RpcExtendClientCallable, RpcExtendClientObject, RpcExtendServer1, RpcExtendServerCallable, defaultFuncMap } from "pxprpc/extend";
 
 
 
@@ -191,7 +191,11 @@ export async function getAttachedRemoteRigstryFunction(client1:RpcExtendClient1)
 
 export async function getConnectionFromUrl(url:string):Promise<Io|null>{
     let url2=new URL(url);
-    if(url2.protocol=='webworker:'){
+    if(url2.protocol=='pxpwebmessage:'){
+        let conn=new WebMessage.Connection()
+        await conn.connect(url2.pathname,300);
+        return conn;
+    }else if(url2.protocol=='webworker:'){
         let workerId=url2.pathname;
         let rpcWorker=new RpcWorker(workerId);
         return await rpcWorker.ensureConnection();
@@ -254,7 +258,7 @@ export async function addClient(url:string,name?:string):Promise<ClientInfo>{
     }
 }
 
-export async function dropClient(name:string){
+export async function removeClient(name:string){
     let clie=registered.get(name);
     if(clie!=undefined){
         clie.disconnect()
@@ -269,6 +273,7 @@ export const ServiceWorker='service worker 1';
 
 export async function addBuiltinClient(){
     if(globalThis.location!=undefined && globalThis.WebSocket !=undefined){
+        //XXX: Check connection available?
         if(getRegistered(ServerHostRpcName)==null){
             let url=requirejs.getConfig().baseUrl as string;
             if(url.endsWith('/'))url=url.substring(0,url.length-1);
@@ -307,3 +312,35 @@ export let persistent={
         }
     }
 }
+//Critical Security Risk. this value can be use to communicate cross-origin.
+export let rpcId=(globalThis as any).__workerId??GenerateRandomString();
+
+if('window' in globalThis){
+    //Cross origin is not support 
+    if(globalThis.window.opener!=null){
+        WebMessage.bind({
+            postMessage:(data,opt)=>globalThis.window.opener.postMessage(data,{targetOrigin:'*',...opt}),
+            addEventListener:()=>{},
+            removeEventListener:()=>{}
+        })
+    }
+    if(globalThis.window.parent!=undefined && globalThis.window.self!=globalThis.window.parent){
+        WebMessage.bind({
+            postMessage:(data,opt)=>globalThis.window.parent.postMessage(data,{targetOrigin:'*',...opt}),
+            addEventListener:()=>{},
+            removeEventListener:()=>{}
+        })
+    }
+    //Critical Security Risk
+    new WebMessage.Server((conn)=>{
+        //mute error
+        new RpcExtendServer1(new Server(conn)).serve().catch(()=>{});
+    }).listen(rpcId);
+    
+}
+
+if(('postMessage' in globalThis) && ('addEventListener' in globalThis) && ('removeEventListener' in globalThis)){
+    WebMessage.bind(globalThis)
+}
+
+WebMessage.postMessageOptions.targetOrigin='*'
