@@ -14,8 +14,7 @@ import { FloatLayerComponent, ReactInputValueCollection, ReactRefEx, SimpleReact
 import { RegistryUI } from 'partic2/pxprpcClient/ui';
 import { RemoteRunCodeContext } from 'partic2/CodeRunner/RemoteCodeContext';
 import { CodeContextChooser, DefaultActionBar, findRpcClientInfoFromClient } from './misclib';
-import { WindowComponent,alert, appendFloatWindow, prompt, removeFloatWindow } from 'partic2/pComponentUi/window';
-import { CodeContextRemoteObjectFetcher } from 'partic2/CodeRunner/Inspector';
+import { WindowComponent,alert, appendFloatWindow, prompt, removeFloatWindow } from 'partic2/pComponentUi/window';;
 
 export let __name__='partic2/JsNotebook/notebook'
 
@@ -69,7 +68,7 @@ class RunCodeView extends React.Component<{tab:RunCodeTab},{}>{
         let wnd2=<WindowComponent onClose={()=>{
             removeFloatWindow(wnd2);
         }} title='choose code context' >
-            <div style={{backgroundColor:'white'}}>
+            <div style={{backgroundColor:'white',padding:'1px'}}>
             <CodeContextChooser onChoose={(rpc)=>{
                 this.props.tab.useCodeContext(rpc);
                 removeFloatWindow(wnd2);
@@ -102,39 +101,43 @@ export class RunCodeTab extends TabInfoBase{
     action={} as Record<string,()=>Promise<void>>
     inited=new future<boolean>();
     async useCodeContext(codeContext:'local window'|ClientInfo|RemoteRunCodeContext|LocalRunCodeContext|null){
-        if(codeContext===null){
-            //canceled
-            return
-        }
-        if(codeContext==='local window'){
-            this.codeContext=new LocalRunCodeContext();
-            this.rpc=undefined;
-        }else if(codeContext instanceof ClientInfo){
-            await codeContext.ensureConnected();
-            await (await codeContext.jsServerLoadModule(RemoteCodeContextName)).free();
-            //init worker context
-            await (await codeContext.jsServerLoadModule('partic2/JsNotebook/workerinit')).free();
-            this.rpc=codeContext;
-            this.codeContext=new RemoteRunCodeContext(codeContext.client!);
-        }else if(codeContext instanceof RemoteRunCodeContext){
-            let foundRpc=findRpcClientInfoFromClient(codeContext.client1);
-            if(foundRpc===null){
-                await alert('RemoteRunCodeContext must attached to a registered RpcClientInfo.');
+        try{
+            if(codeContext===null){
+                //canceled
+                return
+            }
+            if(codeContext==='local window'){
+                this.codeContext=new LocalRunCodeContext();
+                this.rpc=undefined;
+            }else if(codeContext instanceof ClientInfo){
+                await codeContext.ensureConnected();
+                await (await codeContext.jsServerLoadModule(RemoteCodeContextName)).free();
+                //init worker context
+                await (await codeContext.jsServerLoadModule('partic2/JsNotebook/workerinit')).free();
+                this.rpc=codeContext;
+                this.codeContext=new RemoteRunCodeContext(codeContext.client!);
+            }else if(codeContext instanceof RemoteRunCodeContext){
+                let foundRpc=findRpcClientInfoFromClient(codeContext.client1);
+                if(foundRpc===null){
+                    await alert('RemoteRunCodeContext must attached to a registered RpcClientInfo.');
+                    return;
+                }
+                await (await foundRpc.jsServerLoadModule('partic2/JsNotebook/workerinit')).free();
+                this.rpc=foundRpc;
+                this.codeContext=codeContext;
+            }else if(codeContext instanceof LocalRunCodeContext){
+                this.codeContext=codeContext
+            }else{
+                await alert('Unsupported code context');
                 return;
             }
-            await (await foundRpc.jsServerLoadModule('partic2/JsNotebook/workerinit')).free();
-            this.rpc=foundRpc;
-            this.codeContext=codeContext;
-        }else if(codeContext instanceof LocalRunCodeContext){
-            this.codeContext=codeContext
-        }else{
-            await alert('Unsupported code context');
-            return;
-        }
-        let result1=await this.codeContext.runCode(
-            `await (await import('partic2/CodeRunner/JsEnviron')).initCodeEnv(_ENV,{codePath:${JSON.stringify(this.path)}});`)
-        if(result1.err!=null){
-            logger.warning(result1.err);
+            let result1=await this.codeContext.runCode(
+                `await (await import('partic2/CodeRunner/JsEnviron')).initCodeEnv(_ENV,{codePath:${JSON.stringify(this.path)}});`)
+            if(result1.err!=null){
+                logger.warning(result1.err);
+            }
+        }catch(e:any){
+            await alert(e.toString(),'Error');
         }
         this.rref.view.current?.forceUpdate();
     }

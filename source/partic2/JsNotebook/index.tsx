@@ -33,11 +33,11 @@ class ResourcePanel extends React.Component{
         await persistent.load();
         ReactRender(<CodeContextChooser onChoose={(rpc)=>{
             if(rpc=='local window' || (rpc instanceof LocalRunCodeContext)){
-                ReactRender(<Workspace/>,DomRootComponent);
+                ReactRender(<Workspace divStyle={{height:'100vh'}}/>,DomRootComponent);
             }else if(rpc instanceof ClientInfo){
-                ReactRender(<Workspace rpc={rpc}/>,DomRootComponent);
+                ReactRender(<Workspace divStyle={{height:'100vh'}} rpc={rpc}/>,DomRootComponent);
             }else if(rpc instanceof RemoteRunCodeContext){
-                ReactRender(<Workspace rpc={findRpcClientInfoFromClient(rpc.client1)!}/>,DomRootComponent)
+                ReactRender(<Workspace divStyle={{height:'100vh'}} rpc={findRpcClientInfoFromClient(rpc.client1)!}/>,DomRootComponent)
             }else{
                 alert('Not support client');
             }

@@ -268,26 +268,34 @@ export async function removeClient(name:string){
 
 export const ServerHostRpcName='server host';
 export const ServerHostWorker1RpcName='server host worker 1';
+export const WebWorker1RpcName='webworker 1'
 export const ServiceWorker='service worker 1';
 
 
 export async function addBuiltinClient(){
     if(globalThis.location!=undefined && globalThis.WebSocket !=undefined){
-        //XXX: Check connection available?
         if(getRegistered(ServerHostRpcName)==null){
             let url=requirejs.getConfig().baseUrl as string;
             if(url.endsWith('/'))url=url.substring(0,url.length-1);
             let slashAt=url.lastIndexOf('/');
             let pxseedBase=slashAt>=0?url.substring(0,slashAt):'';
             let pxprpcUrl=(pxseedBase+'/pxprpc/0').replace(/^http/,'ws');
-            addClient(pxprpcUrl,ServerHostRpcName);
+            let wstest:WebSocketIo
+            try{
+                wstest=await new WebSocketIo().connect(pxprpcUrl);
+                wstest.close();
+                addClient(pxprpcUrl,ServerHostRpcName);
+            }catch(e){}
         }
-        if(getRegistered(ServerHostWorker1RpcName)==null){
+        if(getRegistered(ServerHostRpcName)!=null && getRegistered(ServerHostWorker1RpcName)==null){
             addClient('iooverpxprpc:'+ServerHostRpcName+'/'+
             encodeURIComponent('webworker:'+__name__+'/worker/1'),ServerHostWorker1RpcName)
         }
         if(getRegistered(ServiceWorker)==null){
             addClient('serviceworker:1',ServiceWorker);
+        }
+        if(getRegistered(WebWorker1RpcName)==null){
+            addClient('webworker:'+__name__+'/worker/1',WebWorker1RpcName)
         }
     }else{
         if(getRegistered(ServerHostWorker1RpcName)==null){

@@ -3,7 +3,7 @@
 import * as React from 'preact'
 import { ClientInfo, addClient, removeClient, getRegistered, listRegistered, persistent, rpcId } from './registry';
 import { ReactRefEx, css, event } from 'partic2/pComponentUi/domui';
-import { prompt} from 'partic2/pComponentUi/window';
+import { prompt,alert} from 'partic2/pComponentUi/window';
 import { ArrayWrap2, assert, GenerateRandomString } from 'partic2/jsutils1/base';
 
 class AddCard extends React.Component<{},{
@@ -76,7 +76,7 @@ export class RegistryUI extends React.Component<{},{selected:string|null}>{
     }
     async doAdd(){
         let addCard=new ReactRefEx<AddCard>();
-        let dlg=await prompt(<AddCard ref={addCard}/>,'New rpc clienst');
+        let dlg=await prompt(<AddCard ref={addCard}/>,'New rpc client');
         if(await dlg.answer.get()==='ok'){
             let {url,name}=(await addCard.waitValid()).getAddClientInfo();
             await addClient(url,name);
@@ -88,7 +88,7 @@ export class RegistryUI extends React.Component<{},{selected:string|null}>{
     async doEdit(){
         let selected=this.state.selected!;
         let addCard=new ReactRefEx<AddCard>();
-        let dlg=await prompt(<AddCard ref={addCard}/>,'New rpc clienst');
+        let dlg=await prompt(<AddCard ref={addCard}/>,'New rpc client');
         (await addCard.waitValid()).setAddClientInfo({
             name:selected,
             url:getRegistered(selected)?.url??''
@@ -117,7 +117,11 @@ export class RegistryUI extends React.Component<{},{selected:string|null}>{
     }
     async doConnect(){
         let conn=getRegistered(this.state.selected!);
-        await conn!.ensureConnected();
+        try{
+            await conn!.ensureConnected();
+        }catch(e:any){
+            await alert(e.toString());
+        }
         this.forceUpdate();
     }
     getSelected(){

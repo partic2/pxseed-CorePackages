@@ -20,17 +20,23 @@ acorn.defaultOptions.sourceType='module'
 
 export interface RunCodeContext{
     //resultVariable=resultVariable??'_'
-    runCode(source:string,resultVariable?:string):Promise<{err:{message:string,stack?:string}|null}>;
+    //'runCode' will process source before execute, depend on the implemention.
+    // Only string result will be stored into 'stringResult', otherwise null will be stored.
+    runCode(source:string,resultVariable?:string):Promise<{stringResult:string|null,err:{message:string,stack?:string}|null}>;
+
+    //jsExec run code in globalThis scope, and different from runCode, never process source before execute.
+    //'code' has signature like '__jsExecSample' below. Promise will be resolved. Only string result will be returned, otherwise '' will be returned.
     jsExec(code:string):Promise<string>;
+
     codeComplete(code:string,caret:number):Promise<CodeCompletionItem[]>;
     queryTooltip(code:string,caret:number):Promise<string>;
     event:EventTarget;
     close():void;
 }
-//RunCodeContext.jsExec like this
-async function __temp1(lib:typeof jsExecLib,codeContext:LocalRunCodeContext){
+//RunCodeContext.jsExec run code like this
+async function __jsExecSample(lib:typeof jsExecLib,codeContext:LocalRunCodeContext):Promise<string>{
     //Your code
-    
+    return '';
 }
 
 export class ConsoleDataEvent extends Event{
@@ -164,10 +170,10 @@ export class LocalRunCodeContext implements RunCodeContext{
         if(r instanceof Promise){
             r=await r;
         }
-        if((typeof r)!=='string'){
-            r=JSON.stringify(r);
+        if((typeof r)==='string'){
+            return r;
         }
-        return r;
+        return '';
     }
     processSource(source:string):{modifiedSource:string,declaringVariableNames:string[]}{
         let result=acorn.parse(source,{allowAwaitOutsideFunction:true,ecmaVersion:'latest',allowReturnOutsideFunction:true})
@@ -253,30 +259,17 @@ export class LocalRunCodeContext implements RunCodeContext{
         try{
             let result=await this.runCodeInScope(proc1.modifiedSource);
             this.localScope[resultVariable]=result;
-            return {err:null}
+            let stringResult=(typeof(result)==='string')?result:null;
+            return {stringResult,err:null}
         }catch(e){
             let {message,stack}=e as Error;
-            return {err:{message,stack}}
+            return {stringResult:null,err:{message,stack}}
         }
     }
     async runCodeInScope(source:string){
-        //alternative 1 : object expand
-        /*
-        proc1.declaringVariableNames.forEach(v=>{
-            this.localScope[v]=undefined;
-            this.decledVar.add(v);
-        });
-        let varList=Array.from(this.decledVar).join(',');
-        let expand='let {'+varList+'}=_ENV;';
-        let restore='_ENV.__priv_update({'+varList+'});'
-        let code=new Function('_ENV',"'use strict'\n"+expand+
-        'return (async ()=>{'+proc1.modifiedSource+'})().then((r)=>{'+restore+'_ENV._=r;});');
-        */
-        //alternative 2 : with(Proxy)
         let withBlockBegin='with(_ENV){';
         let code=new Function('_ENV',withBlockBegin+
         'return (async ()=>{'+source+'\n})();}');
-        //TODO: alternative 3 : transform identity access to property access,complex but consider the best way.
         let r=await code(this.localScopeProxy);
         return r;
     }
@@ -285,12 +278,16 @@ export class LocalRunCodeContext implements RunCodeContext{
     ]
     async codeComplete(code: string, caret: number) {
         let completeContext={
-            code,caret,codeContext:this,completionItems:[]
+            code,caret,codeContext:this,completionItems:[] as CodeCompletionItem[]
         }
         for(let t1 of this.completionHandlers){
-            await t1(completeContext);
+            //Mute error
+            try{
+                await t1(completeContext);
+            }catch(e:any){
+                jsutils1.throwIfAbortError(e);
+            }
         }
-        //TODO:remove duplicate completionItems
         return completeContext.completionItems;
     }
 }
@@ -351,6 +348,9 @@ export class CodeContextShell{
         let result=await this.codeContext.runCode(code,nextResult);
         if(result.err==null){
             try{
+                if(result.stringResult!=null){
+                    return result.stringResult;
+                }
                 let returnObject=await this.inspectObject([nextResult]);
                 if(returnObject instanceof RemoteReference){
                     returnObject.accessPath=[nextResult]

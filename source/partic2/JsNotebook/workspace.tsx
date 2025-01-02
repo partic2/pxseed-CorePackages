@@ -11,11 +11,11 @@ import { clone, GetCurrentTime, sleep,assert, GenerateRandomString, future, thro
 import { tjsFrom } from 'partic2/tjsonpxp/tjs';
 import { Invoker as jseioInvoker} from "partic2/pxprpcBinding/JseHelper__JseIo";
 import { StdioShellProfile1 } from './stdioshell';
-import {WindowComponent} from 'partic2/pComponentUi/window'
+import {removeFloatWindow, WindowComponent} from 'partic2/pComponentUi/window'
 import {PointTrace} from 'partic2/pComponentUi/transform'
 import { RemoteRunCodeContext } from 'partic2/CodeRunner/RemoteCodeContext';
 import { LocalRunCodeContext, RunCodeContext } from 'partic2/CodeRunner/CodeContext';
-import {appendFloatWindow,removeFloatWindow} from 'partic2/pComponentUi/window'
+import {appendFloatWindow,alert} from 'partic2/pComponentUi/window'
 import { findRpcClientInfoFromClient } from './misclib';
 import { lifecycle, path } from 'partic2/jsutils1/webutils'
 const __name__='partic2/JsNotebook/workspace'
@@ -127,7 +127,7 @@ export class Workspace extends React.Component<{rpc?:ClientInfo,fs?:SimpleFileSy
     }
     jseio?:jseioInvoker
     componentDidMount(): void {
-        this.init();
+        this.init().catch((e)=>alert(e.toString()));
         lifecycle.addEventListener('pause',this.onPauseListener);
     }
     componentWillUnmount(): void {
@@ -275,18 +275,22 @@ export class Workspace extends React.Component<{rpc?:ClientInfo,fs?:SimpleFileSy
 
 export let defaultOpenWorkspaceWindowFor=async function (supportedContext:'local window'|ClientInfo|RemoteRunCodeContext|LocalRunCodeContext,title?:string){
     let wsref=new ReactRefEx<Workspace>();
+    let appendedWindow:React.VNode[]=[];
+    const onCloseWindow=()=>{
+        appendedWindow.forEach(wnd=>removeFloatWindow(wnd));
+    }
     if(supportedContext=='local window' || (supportedContext instanceof LocalRunCodeContext)){
-        appendFloatWindow(<WindowComponent key={GenerateRandomString()} title={title}>
+        appendFloatWindow(<WindowComponent key={GenerateRandomString()} title={title} onClose={onCloseWindow}>
             <Workspace ref={wsref} divStyle={{backgroundColor:'white'}}/>
         </WindowComponent>)
     }else if(supportedContext instanceof ClientInfo){
-        appendFloatWindow(<WindowComponent key={GenerateRandomString()} title={title}>
+        appendFloatWindow(<WindowComponent key={GenerateRandomString()} title={title} onClose={onCloseWindow}>
             <Workspace ref={wsref} rpc={supportedContext} divStyle={{backgroundColor:'white'}}/>
         </WindowComponent>)
     }else if(supportedContext instanceof RemoteRunCodeContext){
         let rpc=findRpcClientInfoFromClient(supportedContext.client1);
         assert(rpc!=null);
-        appendFloatWindow(<WindowComponent key={GenerateRandomString()} title={title}>
+        appendFloatWindow(<WindowComponent key={GenerateRandomString()} title={title} onClose={onCloseWindow}>
             <Workspace ref={wsref} rpc={rpc!} divStyle={{backgroundColor:'white'}}/>
         </WindowComponent>)
     }

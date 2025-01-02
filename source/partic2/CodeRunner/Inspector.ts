@@ -41,7 +41,7 @@ export class DelayOnceCall{
 let DefaultSerializingOption={
     maxDepth:6,
     maxKeyCount:100,
-    enumerateMode:'for in' as 'for in'|'Object.getOwnPropertyNames'|undefined
+    enumerateMode:'for in' as 'for in'|'Object.getOwnPropertyNames'
 }
 
 export let serializingEscapeMark='__Zag7QaCUiZb1ABgL__';
@@ -55,9 +55,10 @@ function forInListProps(obj:any){
 }
 //The return value should be JSON-serializable.
 //using serializingEscapeMark to represent non-JSON-serializable object.
-export function toSerializableObject(v:any,opt:typeof DefaultSerializingOption):any{
+export function toSerializableObject(v:any,opt:Partial<typeof DefaultSerializingOption>):any{
     let listProps=forInListProps;
     let TypedArray=Object.getPrototypeOf(Object.getPrototypeOf(new Uint8Array())).constructor;
+    opt={...DefaultSerializingOption,...opt};
     if(opt.enumerateMode=='Object.getOwnPropertyNames'){
         listProps=Object.getOwnPropertyNames
     }
@@ -78,16 +79,16 @@ export function toSerializableObject(v:any,opt:typeof DefaultSerializingOption):
         return {[serializingEscapeMark]:'unidentified',isArray,keyCount}
     }else{
         if(v instanceof Array){
-            if(v.length>opt.maxKeyCount){
+            if(v.length>opt.maxKeyCount!){
                 return {[serializingEscapeMark]:'unidentified',isArray:true,keyCount:v.length};
             }else{
-                return v.map(v2=>toSerializableObject(v2,{...opt,maxDepth:opt.maxDepth-1}));
+                return v.map(v2=>toSerializableObject(v2,{...opt,maxDepth:opt.maxDepth!-1}));
             }
         }else if(v[serializingEscapeMark]!=undefined){
             let v2={...v};
             delete v2[serializingEscapeMark];
             return {[serializingEscapeMark]:'unescape',value:toSerializableObject(v2,opt),
-                markValue:toSerializableObject(v[serializingEscapeMark],{...opt,maxDepth:opt.maxDepth-1})};
+                markValue:toSerializableObject(v[serializingEscapeMark],{...opt,maxDepth:opt.maxDepth!-1})};
         }else if(v instanceof Date){
             return {[serializingEscapeMark]:'date',time:v.getTime()};
         }else if(v instanceof TypedArray){
@@ -108,12 +109,12 @@ export function toSerializableObject(v:any,opt:typeof DefaultSerializingOption):
         }else{
             let r={} as Record<string,any>;
             let keys=listProps(v);
-            if(keys.length>opt.maxKeyCount){
+            if(keys.length>opt.maxKeyCount!){
                 return {[serializingEscapeMark]:'unidentified',isArray:false,keyCount:keys.length}
             }else{
                 for(let k1 of keys){
                     try{
-                        r[k1]=toSerializableObject(v[k1],{...opt,maxDepth:opt.maxDepth-1});
+                        r[k1]=toSerializableObject(v[k1],{...opt,maxDepth:opt.maxDepth!-1});
                     }catch(e:any){
                         r[k1]={
                             [serializingEscapeMark]:'error',
@@ -494,7 +495,8 @@ export const defaultCompletionHandlers:Array<(context:CodeCompletionContext)=>Pr
         let obj1:any;
         try{
             obj1=await context.codeContext.runCodeInScope(`return ${objExpr};`);
-        }catch(e){
+        }catch(e:any){
+            throwIfAbortError(e);
         }
         if(obj1!=undefined){
             let exists=new Set();
@@ -566,11 +568,15 @@ export const defaultCompletionHandlers:Array<(context:CodeCompletionContext)=>Pr
         }
         let funcName=behind.substring(0,paramStart).match(/[0-9a-zA-Z_.\[\]'"]+$/);
         if(funcName==null)return;
-        let funcObj=await context.codeContext.runCodeInScope(`return ${funcName};`);
-        if(CustomFunctionParameterCompletionSymbol in funcObj){
-            let customCompletion=funcObj[CustomFunctionParameterCompletionSymbol] as (ctx:CodeCompletionContext)=>Promise<void>;
-            context.funcParamStart=paramStart;
-            await customCompletion(context as any);
+        try{
+            let funcObj=await context.codeContext.runCodeInScope(`return ${funcName};`);
+            if(CustomFunctionParameterCompletionSymbol in funcObj){
+                let customCompletion=funcObj[CustomFunctionParameterCompletionSymbol] as (ctx:CodeCompletionContext)=>Promise<void>;
+                context.funcParamStart=paramStart;
+                await customCompletion(context as any);
+            }
+        }catch(e:any){
+            throwIfAbortError(e);
         }
     },
 ]

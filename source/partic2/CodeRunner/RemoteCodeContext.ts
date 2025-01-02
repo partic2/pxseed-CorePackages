@@ -1,6 +1,6 @@
 
 import {defaultFuncMap,RpcExtendClient1,RpcExtendClientCallable,RpcExtendClientObject,RpcExtendServerCallable} from 'pxprpc/extend'
-import { ConsoleDataEvent, LocalRunCodeContext, RunCodeContext,jsExecLib } from './CodeContext';
+import { ConsoleDataEvent, RunCodeContext,jsExecLib } from './CodeContext';
 
 
 import { assert, future } from 'partic2/jsutils1/base';
@@ -109,7 +109,7 @@ export class RemoteRunCodeContext implements RunCodeContext{
     async remoteExecStr(source:string,arg:any):Promise<string>{
         return await this.jsExecStr!.call(source,arg);
     }
-    async runCode(source: string,resultVariable?:string): Promise<{err:{message:string,stack?:string}|null,resultVariable?:'_'}> {
+    async runCode(source: string,resultVariable?:string): Promise<{stringResult:string|null,err:{message:string,stack?:string}|null,resultVariable?:'_'}> {
         await this.initDone.get();
         resultVariable=resultVariable??'_';
         source=JSON.stringify(source);
