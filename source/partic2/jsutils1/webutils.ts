@@ -418,6 +418,7 @@ export interface IWorkerThread{
 }
 
 class WebWorkerThread implements IWorkerThread{
+    //XXX:Chrome for android don't support SharedWorker.
     port?:Worker;
     workerId='';
     waitReady=new future<number>();
@@ -512,7 +513,7 @@ export function setWorkerThreadImplementation(impl:{new(workerId?:string):IWorke
 
 export class HttpClient{
     async fetch(url:string,init?:RequestInit){
-        for(let hook of this.hooks){
+        for(let hook of this.reqHooks){
             await hook({url,init});
         }
         let resp=await fetch(url,init);
@@ -521,10 +522,10 @@ export class HttpClient{
         }
         return resp;
     }
-    hooks:((req:{url:string,init?:RequestInit})=>Promise<void>)[]=[];
-    respHooks:((req:{url:string,init?:RequestInit},resp:Response)=>Promise<void>)[]=[]
+    protected reqHooks:((req:{url:string,init?:RequestInit})=>Promise<void>)[]=[];
+    protected respHooks:((req:{url:string,init?:RequestInit},resp:Response)=>Promise<void>)[]=[]
     hookRequest(hook:((req:{url:string,init?:RequestInit})=>Promise<void>)){
-        this.hooks.push(hook);
+        this.reqHooks.push(hook);
     }
     hookResponse(hook:(req:{url:string,init?:RequestInit},resp:Response)=>Promise<void>){
         this.respHooks.push(hook);
@@ -570,7 +571,7 @@ export function BuildUrlFromJsEntryModule(entryModule:string,urlarg?:string){
     return window.location.pathname+'?__jsentry='+encodeURIComponent(entryModule)+(urlarg?'&'+urlarg:'');
 }
 
-export function getWWWRoot(){
+export function getWWWRoot():string{
     return requirejs.getConfig().baseUrl
 }
 

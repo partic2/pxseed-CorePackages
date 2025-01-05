@@ -1,4 +1,3 @@
-import { text2html } from "partic2/pComponentUi/utils";
 import type { LocalRunCodeContext, RunCodeContext } from "./CodeContext";
 import { ArrayBufferToBase64, ArrayWrap2, Base64ToArrayBuffer, GenerateRandomString, future, mutex, requirejs, sleep, throwIfAbortError } from "partic2/jsutils1/base";
 import { SimpleFileSystem, installedRequirejsResourceProvider } from "./JsEnviron";
@@ -132,8 +131,6 @@ interface RemoteObjectFetcher{
     fetch(accessPath:(string|number)[],opt:Partial<
         typeof DefaultSerializingOption
     >):Promise<any>;
-    //free variable like iteratorName
-    deleteName(name:string):Promise<void>;
 }
 
 
@@ -463,15 +460,15 @@ export interface CodeCompletionContext{
     funcParamStart?:number
 }
 
-export const defaultCompletionHandlers:Array<(context:CodeCompletionContext)=>Promise<void>>=[
-    async (context)=>{
+export const builtInCompletionHandlers={
+    checkIsInStringLiteral:async (context:CodeCompletionContext)=>{
         let t1=context.code.substring(0,context.caret).split('').reduce((prev,curr)=>{
             if(curr=='"'){prev.dquo++;}else if(curr=="'"){prev.quo++;}
             return prev;
         },{dquo:0,quo:0})
         context.isCaretInStringLiteral=t1.dquo%2==1 || t1.quo%2==1;
     },
-    async (context)=>{
+    propertyCompletion:async (context:CodeCompletionContext)=>{
         //propertyCompletion
         if(context.isCaretInStringLiteral){
             return;
@@ -481,13 +478,13 @@ export const defaultCompletionHandlers:Array<(context:CodeCompletionContext)=>Pr
         let objExpr:string;
         let fieldStr:string;
         if(matched!=undefined){
-            let dot=behind.lastIndexOf('.');
+            let dot=matched[0].lastIndexOf('.');
             if(dot>=0){
-                objExpr=behind.substring(matched.index!,dot);
-                fieldStr=behind.substring(dot+1);
+                objExpr=matched[0].substring(matched.index!,dot);
+                fieldStr=matched[0].substring(dot+1);
             }else{
                 objExpr='_ENV';
-                fieldStr=behind.substring(matched.index!);
+                fieldStr=matched[0];
             }
         }else{
             return;
@@ -526,8 +523,7 @@ export const defaultCompletionHandlers:Array<(context:CodeCompletionContext)=>Pr
             }
         }
     },
-    async (context)=>{
-        //import completion
+    importStatementCompletion:async (context:CodeCompletionContext)=>{
         let behind=context.code.substring(0,context.caret);
         let importExpr=behind.match(/import\s*\(\s*(['"])([^'"]+)$/);
         if(importExpr!=null){
@@ -546,8 +542,7 @@ export const defaultCompletionHandlers:Array<(context:CodeCompletionContext)=>Pr
             context.completionItems.push(...t1.map(v=>({type:'literal',candidate:v,replaceRange})))
         }
     },
-    async (context)=>{
-        //simple custom function call Completion
+    customFunctionParameterCompletion:async (context:CodeCompletionContext)=>{
         let behind=context.code.substring(0,context.caret);
         let rBracketCnt=0;
         let paramStart=-1;
@@ -578,5 +573,12 @@ export const defaultCompletionHandlers:Array<(context:CodeCompletionContext)=>Pr
         }catch(e:any){
             throwIfAbortError(e);
         }
-    },
+    }
+}
+
+export const defaultCompletionHandlers:Array<(context:CodeCompletionContext)=>Promise<void>>=[
+    builtInCompletionHandlers.checkIsInStringLiteral,
+    builtInCompletionHandlers.propertyCompletion,
+    builtInCompletionHandlers.importStatementCompletion,
+    builtInCompletionHandlers.customFunctionParameterCompletion,
 ]
