@@ -20,6 +20,8 @@ export interface SimpleFileSystem{
     ensureInited():Promise<void>;
     writeAll(path:string,data:Uint8Array):Promise<void>;
     readAll(path:string):Promise<Uint8Array|null>;
+    read(path:string,offset:number,buf:Uint8Array):Promise<number>;
+    write(path:string,offset:number,buf:Uint8Array):Promise<number>;
     delete2(path:string):Promise<void>;
     listdir(path:string):Promise<{name:string,type:string}[]>;
     filetype(path:string):Promise<'dir'|'file'|'none'>;
@@ -30,6 +32,7 @@ export interface SimpleFileSystem{
 
 
 export class TjsSfs implements SimpleFileSystem{
+    
     
     impl?:typeof tjs
     pxprpc?:ClientInfo
@@ -132,7 +135,32 @@ export class TjsSfs implements SimpleFileSystem{
     async dataDir(): Promise<string> {
         //note homedir is Application specified, not the user home normally.
         //maybe we should use another function name.
-        return this.impl!.homedir()
+        let datadir=this.impl!.homedir().replace(/\\/g,'/');
+        if(!datadir.startsWith('/')){
+            datadir='/'+datadir;
+        }
+        return datadir
+    }
+    async read(path:string,offset: number, buf: Uint8Array): Promise<number> {
+        let fh=await this.impl!.open(path,'r+');
+        try{
+            let len=await fh.read(buf,offset);
+            if(len===null){
+                throw new Error('EOF reached');
+            }
+            return len;
+        }finally{
+            fh.close();
+        }
+    }
+    async write(path:string, offset:number, buf: Uint8Array): Promise<number> {
+        let fh=await this.impl!.open(path,'r+');
+        try{
+            let len=await fh.write(buf,offset);
+            return len;
+        }finally{
+            fh.close();
+        }
     }
 }
 
@@ -144,6 +172,7 @@ export class LocalWindowSFS implements SimpleFileSystem{
     dbname='partic2/JsNotebook/filebrowser/sfs';
 
     constructor(){}
+    
     pxprpc?: ClientInfo | undefined;
     async ensureInited(){
         //XXX: race condition
@@ -272,6 +301,33 @@ export class LocalWindowSFS implements SimpleFileSystem{
     async dataDir(): Promise<string> {
         return ''
     }
+    //TODO:Seek read/write still read entire file. We need implement FilePart in kv db.
+    async read(path: string, offset: number, buf: Uint8Array): Promise<number> {
+        let entire=await this.readAll(path);
+        if(entire===null){
+            throw new Error(`${path} can't be read.`);
+        }
+        if(offset>=entire?.length){
+            throw new Error('EOF reached');
+        }
+        let len=Math.min(offset,length);
+        buf.set(new Uint8Array(entire,offset,len));
+        return len;
+    }
+    async write(path: string, offset: number, buf: Uint8Array): Promise<number> {
+        let entire=await this.readAll(path);
+        if(entire===null){
+            throw new Error(`${path} can't be read.`);
+        }
+        if(offset+buf.byteLength>=entire?.length){
+            let t2=new Uint8Array(offset+buf.byteLength);
+            t2.set(entire);
+            entire=t2;
+        }
+        entire.set(buf,offset);
+        await this.writeAll(path,buf);
+        return buf.byteLength;
+    }
 }
 
 import type * as nodefsmodule from 'fs/promises'
@@ -360,9 +416,18 @@ class NodeSimpleFileSystem implements SimpleFileSystem{
         await this.nodefs!.rename(path,newPath);
     }
     async dataDir(): Promise<string> {
-        return lpath.dirname((getWWWRoot() as string).replace(/\\/,'/'));
+        return lpath.dirname(getWWWRoot().replace(/\\/,'/'));
     }
-    
+    async read(path: string, offset: number, buf: Uint8Array): Promise<number> {
+        let fh=await this.nodefs!.open(path,'r+');
+        let r=await fh.read(buf,0,buf.byteLength,offset);
+        return r.bytesRead;
+    }
+    async write(path: string, offset: number, buf: Uint8Array): Promise<number> {
+        let fh=await this.nodefs!.open(path,'r+');
+        let r=await fh.write(buf,0,buf.byteLength,offset);
+        return r.bytesWritten;
+    }   
 }
 
 
