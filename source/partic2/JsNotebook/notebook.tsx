@@ -10,7 +10,8 @@ import { TabInfo, TabInfoBase } from 'partic2/pComponentUi/workspace';
 import { FileTypeHandler, FileTypeHandlerBase } from './fileviewer';
 
 import { __name__ as RemoteCodeContextName } from 'partic2/CodeRunner/RemoteCodeContext';
-import { FloatLayerComponent, ReactInputValueCollection, ReactRefEx, SimpleReactForm1, css } from 'partic2/pComponentUi/domui';
+import { ReactRefEx } from 'partic2/pComponentUi/domui';
+import {ReactInputValueCollection} from 'partic2/pComponentUi/input'
 import { RegistryUI } from 'partic2/pxprpcClient/ui';
 import { RemoteRunCodeContext } from 'partic2/CodeRunner/RemoteCodeContext';
 import { CodeContextChooser, DefaultActionBar, findRpcClientInfoFromClient } from './misclib';

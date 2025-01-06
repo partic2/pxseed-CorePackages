@@ -109,12 +109,6 @@ class CDomRootComponent extends DomComponentGroup{
 export var DomRootComponent=new CDomRootComponent();
 
 
-interface ReactInput{
-    value:any;
-    addEventListener(type:'change',cb:(ev:Event)=>void):void;
-    removeEventListener(type:'change',cb:(ev:Event)=>void):void;
-}
-
 export abstract class ReactEventTarget<P={},S={}> extends React.Component<P,S> implements EventTarget{
     eventTarget:EventTarget=new EventTarget();
     addEventListener(type: string, callback: EventListenerOrEventListenerObject | null, options?: boolean | AddEventListenerOptions | undefined): void {
@@ -128,88 +122,6 @@ export abstract class ReactEventTarget<P={},S={}> extends React.Component<P,S> i
     }
 }
 
-export class ValueCheckBox extends ReactEventTarget<{value?:boolean,style?:React.JSX.CSSProperties,className?:string},{}>{
-    protected cbref=React.createRef();
-    public componentDidMount(){
-        if(this.props.value!=undefined){
-            this.cbref.current.checked=this.props.value;
-        }
-    }
-    render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined; }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChild {
-        return <input ref={this.cbref} style={this.props.style} 
-                    onChange={()=>this.eventTarget.dispatchEvent(new Event('change'))}
-                    type="checkbox" className={this.props.className}/>
-    }
-    get value(){
-        return this.cbref.current?.checked;
-    }
-    set value(v:boolean){
-        if(this.cbref.current!=null){
-            this.cbref.current.checked=v;
-        }
-    }
-}
-
-export class ReactInputValueCollection extends EventTarget{
-    inputRef={} as {[k:string]:ReactRefEx<ReactInput>}
-    _onInputValueChange=()=>{
-        this.dispatchEvent(new Event('change'));
-    }
-    getRefForInput(name:string):React.RefObject<any>{
-        if(name in this.inputRef){
-            return this.inputRef[name];
-        }
-        let rref=new ReactRefEx<ReactInput>();
-        rref.addEventListener('change',(ev:RefChangeEvent<ReactInput>)=>{
-            if(ev.data.prev!=null){
-                ev.data.prev.removeEventListener('change',this._onInputValueChange);
-            }
-            if(ev.data.curr!=null){
-                ev.data.curr.addEventListener('change',this._onInputValueChange);
-            }
-        });
-        this.inputRef[name]=rref;
-        return rref;
-    }
-    getValue(){
-        let val={} as {[k:string]:any}
-        for(var name in this.inputRef){
-            let elem=this.inputRef[name].current;
-            if(elem!=undefined){
-                val[name]=elem.value;
-            }
-        }
-        return val;
-    }
-    setValue(val:{[k:string]:any}){
-        for(var name in this.inputRef){
-            let elem=this.inputRef[name].current;
-            if(elem!=undefined && val[name]!==undefined){
-                elem.value=val[name];
-            }
-        }
-    }
-    forwardChangeEvent(eventTarget:EventTarget){
-        this.addEventListener('change',()=>eventTarget.dispatchEvent(new Event('change')));
-        return this;
-    }
-}
-
-export class SimpleReactForm1<P={},S={}> extends ReactEventTarget<P&{},S>{
-    public render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined; }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChild {
-        return this.props.children;
-    }
-    protected valueCollection=new ReactInputValueCollection().forwardChangeEvent(this.eventTarget);
-    getRefForInput(name:string){
-        return this.valueCollection.getRefForInput(name);
-    }
-    get value():any{
-        return this.valueCollection.getValue();
-    }
-    set value(val:any){
-        this.valueCollection.setValue(val);
-    }
-}
 
 
 export var css={
