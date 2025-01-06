@@ -248,14 +248,10 @@ export function listRegistered(){
 
 export async function addClient(url:string,name?:string):Promise<ClientInfo>{
     name=(name==undefined||name==='')?url.toString():name;
-    let clie=registered.get(name);
-    if(clie!=null){
-        return clie;
-    }else{
-        clie=new ClientInfo(name,url);
-        registered.set(name,clie);
-        return clie;
-    }
+    let clie=new ClientInfo(name,url);
+    registered.set(name,clie);
+    await persistent.save();
+    return clie;
 }
 
 export async function removeClient(name:string){
@@ -264,6 +260,7 @@ export async function removeClient(name:string){
         clie.disconnect()
         registered.delete(name)
     }
+    await persistent.save();
 }
 
 export const ServerHostRpcName='server host';
@@ -274,6 +271,8 @@ export const ServiceWorker='service worker 1';
 
 export async function addBuiltinClient(){
     if(globalThis.location!=undefined && globalThis.WebSocket !=undefined){
+        /*
+        //Moved to pxseedServer2023/webentry, because key is required sometime.
         if(getRegistered(ServerHostRpcName)==null){
             let url=requirejs.getConfig().baseUrl as string;
             if(url.endsWith('/'))url=url.substring(0,url.length-1);
@@ -287,6 +286,7 @@ export async function addBuiltinClient(){
                 addClient(pxprpcUrl,ServerHostRpcName);
             }catch(e){}
         }
+        */
         if(getRegistered(ServerHostRpcName)!=null && getRegistered(ServerHostWorker1RpcName)==null){
             addClient('iooverpxprpc:'+ServerHostRpcName+'/'+
             encodeURIComponent('webworker:'+__name__+'/worker/1'),ServerHostWorker1RpcName)
@@ -312,12 +312,12 @@ export let persistent={
     },
     load:async function load() {
         let config=await GetPersistentConfig(__name__);
-        await addBuiltinClient();
         if('registered' in config){
             (config.registered as {name:string,url:string}[]).forEach(item=>{
                 addClient(item.url,item.name);
             })
         }
+        await addBuiltinClient();
     }
 }
 //Critical Security Risk. this value can be use to communicate cross-origin.

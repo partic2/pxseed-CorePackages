@@ -12,8 +12,8 @@ import KoaRouter from 'koa-router'
 import * as fs from 'fs/promises'
 import './workerInit'
 import koaFiles from 'koa-files'
-import { getWWWRoot, lifecycle } from 'partic2/jsutils1/webutils';
-import { spawn } from 'child_process';
+import { GetUrlQueryVariable2, getWWWRoot, lifecycle } from 'partic2/jsutils1/webutils';
+import { ChildProcess, spawn } from 'child_process';
 
 export let __name__='pxseedServer2023/entry';
 
@@ -93,10 +93,18 @@ interface PxseedServer2023StartupConfig{
     listenOn?:{host:string,port:number},
     initModule?:string[],
     pxprpcCheckOrigin?:string[]|false,
+    //If key!==null. Client should provide url parameter 'key' to get authorization from websocket.
+    //DON'T expose the config file to public, if pxprpc is accessible from public. 
+    pxprpcKey?:string|null
     deamonMode?:{
         enabled:false,
         subprocessConfig:PxseedServer2023StartupConfig[]
     }
+    //RegExp to block private/secret file access.
+    blockFilesMatch?:string[]
+    //Specify the directory serve as file server. default is ['www','source'].
+    //'source' is added to enable sourceMap.
+    serveDirectory?:string[]
 };
 
 export let config:PxseedServer2023StartupConfig={
@@ -105,16 +113,20 @@ export let config:PxseedServer2023StartupConfig={
     listenOn:{host:'127.0.0.1',port:8088},
     initModule:[],
     pxprpcCheckOrigin:['localhost','127.0.0.1','[::1]'],
+    pxprpcKey:null,
     deamonMode:{
         enabled:false,
         subprocessConfig:[]
-    }
+    },
+    //pxprpcKey should be secret.
+    blockFilesMatch:['^/www/pxseedServer2023/config.json$'],
+    serveDirectory:['www','source']
 };
 
 let noderunJs=getWWWRoot()+'/noderun.js'
-export function nodeRun(moduleName:string,args:string[]){
+export function nodeRun(moduleName:string,args:string[]):ChildProcess{
     console.info(noderunJs,moduleName,...args)
-    spawn(process.execPath,[noderunJs,moduleName,...args],{
+    return spawn(process.execPath,[noderunJs,moduleName,...args],{
         stdio:'inherit'
     });
 }
@@ -180,13 +192,26 @@ export let ensureInit=new future<number>();
             let pass=false;
             if(config.pxprpcCheckOrigin===false){
                 pass=true;
-            }
-            if(!pass && headers.origin!=undefined){
+            }else if(headers.origin!=undefined){
                 let originUrl=new URL(headers.origin);
                 for(let t1 of [config.listenOn!.host,...(config.pxprpcCheckOrigin as string[])]){
                     if(originUrl.hostname===t1){
                         pass=true;
                     };
+                }
+            }
+            if(!pass){
+                io.close();
+                return;
+            }
+            pass=false;
+            if(config.pxprpcKey===null){
+                pass=true;
+            }else{
+                if(decodeURIComponent(GetUrlQueryVariable2(url??'','key')??'')===config.pxprpcKey){
+                    pass=true;
+                }else{
+                    pass=false;
                 }
             }
             if(pass){
@@ -206,29 +231,40 @@ export let ensureInit=new future<number>();
         function doRestart(){
             console.info('TODO: restart is not implemented');
         }
-        koaRouter.get(config.pxseedBase+'/www/:filepath(.+)',async (ctx,next)=>{
-            let filepath=ctx.params.filepath as string;
-            let savedPath=ctx.path;
-            ctx.path=`/www/${filepath}`;
-            await next();
-            ctx.path=savedPath
-            if(filepath==='pxseedInit.js'){
-                ctx.set('Cache-Control','no-cache');
-            }
-        },pxseedFilesServer);
-        //for sourcemap, optional.
-        koaRouter.get(config.pxseedBase+'/source/:filepath(.+)',async (ctx,next)=>{
-            let filepath=ctx.params.filepath as string;
-            let savedPath=ctx.path;
-            ctx.path=`/source/${filepath}`;
-            await next();
-            ctx.path=savedPath
-        },pxseedFilesServer);
+        let blockFilesMatchReg=(config.blockFilesMatch??[]).map(exp=>new RegExp(exp));
+        for(let dir1 of config.serveDirectory??[]){
+            koaRouter.get(config.pxseedBase+`/${dir1}/:filepath(.+)`,async (ctx,next)=>{
+                let filepath=ctx.params.filepath as string;
+                filepath=`/${dir1}/${filepath}`
+                for(let re1 of blockFilesMatchReg){
+                    if(re1.test(filepath)){
+                        ctx.response.status=403;
+                        ctx.response.body=`File access is blocked by blockFilesMatch rule: ${re1.source}`;
+                        return;
+                    }
+                }
+                let savedPath=ctx.path;
+                ctx.path=filepath
+                await next();
+                ctx.path=savedPath
+                if(filepath==='/www/pxseedInit.js'){
+                    ctx.set('Cache-Control','no-cache');
+                }
+            },pxseedFilesServer);
+        }
         
         ensureInit.setResult(0);
         
-        console.info(`package manager url:`)
-        console.info(`http://${config.listenOn!.host}:${config.listenOn!.port}${config.pxseedBase}/www/index.html?__jsentry=partic2%2fpackageManager%2fwebui`);
+        console.info(`pxseed server entry url:`)
+        let accessHost=config.listenOn!.host;
+        if(accessHost=='0.0.0.0'){
+            accessHost='127.0.0.1';
+        }
+        let launcherUrl=`http://${accessHost}:${config.listenOn!.port}${config.pxseedBase}/www/index.html?__jsentry=pxseedServer2023%2fwebentry`
+        if(config.pxprpcKey!=null){
+            launcherUrl+='&__pxprpcKey='+encodeURIComponent(config.pxprpcKey)
+        }
+        console.info(launcherUrl);
 
         lifecycle.addEventListener('exit',()=>{
             console.info('close http server');
@@ -245,9 +281,28 @@ export let ensureInit=new future<number>();
     }
     Promise.allSettled(config.initModule!.map(mod=>requirejs.promiseRequire(mod)));
     if(config.deamonMode!.enabled){
+        let subprocs:ChildProcess[]=[]
         for(let t1=0;t1<config.deamonMode!.subprocessConfig.length;t1++){
-            nodeRun(__name__,['--subprocess',String(t1)]);
+            let subprocess=nodeRun(__name__,['--subprocess',String(t1)]);
+            subprocs.push(subprocess);
         }
+        defaultFuncMap['pxseedServer2023.subprocess.waitExitCode']=new RpcExtendServerCallable(async (index:number)=>{
+            let subp=subprocs[index];
+            if(subp.exitCode!=null){
+                return subp.exitCode;
+            }else{
+                return new Promise<number>(
+                    (resolve)=>subp.once('exit',(exitCode)=>{resolve(exitCode??-1)}))
+            }
+        }).typedecl('i->i');
+        defaultFuncMap['pxseedServer2023.subprocess.restart']=new RpcExtendServerCallable(async (index:number)=>{
+            if(subprocs[index].exitCode==null){
+                subprocs[index].kill();
+                await sleep(1000);
+            }
+            let subprocess=nodeRun(__name__,['--subprocess',String(index)]);
+            subprocs[index]=subprocess;
+        }).typedecl('i->');
     }
 })();
 
