@@ -1,6 +1,6 @@
 
 import * as KoaRouter from 'koa-router'
-
+import {ExtendableContext} from 'koa'
 import {wrapReadable} from 'partic2/nodehelper/nodeio'
 import { JsonRpcError, JsonRpcRequest, JsonRpcResponse, errorCode } from './prot';
 
@@ -12,7 +12,7 @@ const decoder=new TextDecoder();
 
 export async function handleJsonRpcRequestWithHttpInfo(handlers:Map<string,(params:any,opt?:any)=>Promise<any>>,
         req:JsonRpcRequest,
-        info?:{headers:Record<string,string | string[] | undefined>,suorceIp:string}
+        info?:{headers:Record<string,string | string[] | undefined>,suorceIp:string,koa?:ExtendableContext}
     ){
     let handler=handlers.get(req.method);
     let resp=new JsonRpcResponse(req.id);
@@ -58,11 +58,11 @@ export class KoaJsonRpc{
                         let t2=new JsonRpcRequest().fromRaw(t1);
                         jreq.push(t2);
                     }
-                    let jresp=await Promise.all(jreq.map(t1=>handleJsonRpcRequestWithHttpInfo(this.handlers,t1,{headers:ctx.header,suorceIp:ctx.ip})));
+                    let jresp=await Promise.all(jreq.map(t1=>handleJsonRpcRequestWithHttpInfo(this.handlers,t1,{headers:ctx.header,suorceIp:ctx.ip,koa:ctx})));
                     ctx.response.body=JSON.stringify(jresp.map(v=>v.toRaw()));
                 }else{
                     let jreq=new JsonRpcRequest().fromRaw(parsedBody);
-                    let jresp=await handleJsonRpcRequestWithHttpInfo(this.handlers,jreq,{headers:ctx.header,suorceIp:ctx.ip})
+                    let jresp=await handleJsonRpcRequestWithHttpInfo(this.handlers,jreq,{headers:ctx.header,suorceIp:ctx.ip,koa:ctx})
                     ctx.response.body=JSON.stringify(jresp.toRaw());
                 }
                 await next();

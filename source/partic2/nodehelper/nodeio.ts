@@ -1,5 +1,7 @@
 import { Readable } from "stream";
-import {ArrayBufferConcat, ArrayWrap2, future} from 'partic2/jsutils1/base'
+import {ArrayBufferConcat, ArrayWrap2, assert, future} from 'partic2/jsutils1/base'
+import { Io } from "pxprpc/base";
+import { Server, Socket } from "net";
 
 
 export var wrappedStreams=Symbol('wrappedStreams');
@@ -59,5 +61,81 @@ class ReadStream4NodeIo{
             }
         }
         return ArrayBufferConcat(buffList)
+    }
+}
+
+
+export class PxprpcIoFromSocket implements Io{
+    public sock?:Socket;
+    async connect(opt:{
+        path:string
+    }|{
+        host:string,
+        port:number
+    }){
+        if(this.sock==undefined){
+            return new Promise<undefined>((resolve,reject)=>{
+                    this.sock=new Socket();
+                    this.sock.once('error',()=>{
+                        reject(this.sock!);
+                    });
+                    this.sock.connect(opt,()=>resolve(undefined));
+            });
+        }else{
+            return this.sock;
+        }
+    }
+    async receive(): Promise<Uint8Array> {
+        let buf1=new Uint8Array(4);
+        await wrapReadable(this.sock!).read(buf1,0);
+        let size=new DataView(buf1.buffer).getInt32(0,true);
+        buf1=new Uint8Array(size);
+        await wrapReadable(this.sock!).read(buf1,0);
+        return buf1;
+    }
+    async send(data: Uint8Array[]): Promise<void> {
+        let size=data.reduce((prev,curr)=>prev+curr.byteLength,0);
+        let buf1=new Uint8Array(4);
+        new DataView(buf1.buffer).setInt32(0,size,true);
+        this.sock!.write(buf1);
+        data.forEach((buf2)=>{
+            this.sock!.write(buf2);
+        });
+    }
+    close(): void {
+        this.sock!.end();
+    }
+}
+
+export class PxprpcTcpServer{
+    onNewConnection:(conn:Io)=>void=()=>{}
+    ssock?:Server
+    async listen(opt:{
+        host?:string
+        port:number
+    }|{
+        path:string
+    }){
+        return new Promise<undefined>((resolve,reject)=>{
+            this.ssock=new Server();
+            this.ssock.once('error',(err)=>reject(err));
+            this.ssock.on('connection',(conn)=>{
+                let io1=new PxprpcIoFromSocket();
+                io1.sock=conn;
+                this.onNewConnection(io1);
+            })
+            this.ssock.listen(opt,6,()=>resolve(undefined));
+        });
+    }
+    async close(){
+        return new Promise<undefined>((resolve,reject)=>{
+            this.ssock!.close((err)=>{
+                if(err!=null){
+                    reject(err);
+                }else{
+                    resolve(undefined);
+                }
+            })
+        })
     }
 }
