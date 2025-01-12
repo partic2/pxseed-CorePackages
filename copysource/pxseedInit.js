@@ -26,28 +26,30 @@ var __pxseedInit={
         cache:null,
         //Fetch from cache or, if not found, from network, and save to cache.
         //Usually used by pxseedInit internally.
-        cacheFetch:function(url){
-            var that=this;
-            return this.cache.match(url).then(function(matchResult){
-                if(matchResult==undefined){
-                    var respClone
-                    return fetch(url).then(function(resp){
-                        respClone=resp.clone()
-                        return that.cache.put(url,resp);
-                    }).then(function(){
-                        return respClone;
-                    });
-                }else{
-                    return matchResult;
-                }
-            })
-        },
+        cacheFetch:null,
         //pxseedInit internallly use, to listen the serviceWorkerLoaded event.
         onServiceWorkerLoaded:[],
         //pxseedInit internallly use, to indicate whether the serviceWorkerLoaded has been called.
         isServiceWorkerLoaded:false
     }
 };
+__pxseedInit.serviceWorker.cacheFetch=function(url){
+    var that=this;
+    return this.cache.match(url).then(function(matchResult){
+        if(matchResult==undefined){
+            var respClone
+            return fetch(url).then(function(resp){
+                respClone=resp.clone()
+                return that.cache.put(url,resp);
+            }).then(function(){
+                return respClone;
+            });
+        }else{
+            return matchResult;
+        }
+    })
+}.bind(__pxseedInit.serviceWorker);
+
 (function(){
     //globalThis polyfill
     try{
@@ -134,41 +136,12 @@ var __pxseedInit={
             }).then((respText)=>{
                 (new Function(respText))();
                 //remove default broken script loader.
-                define.amd.scriptLoaders.shift();
                 require.config({
                     baseUrl:__pxseedInit.wwwroot,
                     waitSeconds:300,
                     urlArgs:urlArgs,
+                    serviceWorkerFetch:__pxseedInit.serviceWorker.cacheFetch
                 });
-                var serviceWorkerScriptLoader={
-                    currentDefining:null,
-                    loadModule:function(moduleId, url, done) {
-                        var that=this;
-                        url=(url.match(/[^\?]*/)??[''])[0];
-                        var resp0=[];
-                        __pxseedInit.serviceWorker.cacheFetch(url).then((resp)=>{
-                            resp0.push(resp);
-                            return resp.text()
-                        }).then(function(respText){
-                            if(!resp0[0].ok){
-                                throw new Error('cache fetch failed with:'+respText);
-                            }
-                            that.currentDefining=moduleId;
-                            try{
-                                (new Function(respText))();
-                                done(null);
-                            }finally{
-                                that.currentDefining=null;
-                            }
-                        }).catch(function(err){
-                            done(err);
-                        })
-                    },
-                    getDefiningModule:function(){
-                        return this.currentDefining;
-                    }
-                }
-                define.amd.scriptLoaders.push(serviceWorkerScriptLoader);
                 require([__pxseedInit._entry]);
             });
         }else{

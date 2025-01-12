@@ -324,7 +324,6 @@ export let persistent={
 export let rpcId=(globalThis as any).__workerId??GenerateRandomString();
 
 if('window' in globalThis){
-    //Cross origin is not support 
     if(globalThis.window.opener!=null){
         WebMessage.bind({
             postMessage:(data,opt)=>globalThis.window.opener.postMessage(data,{targetOrigin:'*',...opt}),
@@ -337,18 +336,12 @@ if('window' in globalThis){
             postMessage:(data,opt)=>globalThis.window.parent.postMessage(data,{targetOrigin:'*',...opt}),
             addEventListener:()=>{},
             removeEventListener:()=>{}
-        })
+        });
     }
     //Critical Security Risk
     new WebMessage.Server((conn)=>{
         //mute error
         new RpcExtendServer1(new Server(conn)).serve().catch(()=>{});
     }).listen(rpcId);
-    
+    WebMessage.postMessageOptions.targetOrigin='*'   
 }
-
-if(('postMessage' in globalThis) && ('addEventListener' in globalThis) && ('removeEventListener' in globalThis)){
-    WebMessage.bind(globalThis)
-}
-
-WebMessage.postMessageOptions.targetOrigin='*'

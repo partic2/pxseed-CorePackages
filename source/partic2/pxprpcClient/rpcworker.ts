@@ -10,6 +10,7 @@ const __name__=requirejs.getLocalRequireModule(require);
 
 declare var __workerId:string;
 
+WebMessage.bind(globalThis)
 
 new WebMessage.Server((conn)=>{
     //mute error

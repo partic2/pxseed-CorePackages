@@ -7,10 +7,19 @@
         new Function('this.globalThis=this')();
     }
     var scriptLoaders = [];
-    var BrowserScriptLoader = /** @class */ (function () {
-        function BrowserScriptLoader() {
+    var config1 = {
+        baseUrl: './',
+        serviceWorkerFetch: globalThis.fetch
+    };
+    function panic(message) {
+        if (!config1.IAMDEE_PRODUCTION_BUILD) {
+            throw Error(message);
         }
-        BrowserScriptLoader.prototype.loadModule = function (moduleId, url, done) {
+    }
+    var HTMLTagScriptLoader = /** @class */ (function () {
+        function HTMLTagScriptLoader() {
+        }
+        HTMLTagScriptLoader.prototype.loadModule = function (moduleId, url, done) {
             // Adding new script to the browser. Since it is inserted
             // dynamically it will be "async" by default
             var el = document.createElement("script");
@@ -25,19 +34,19 @@
             };
             document.head.appendChild(el);
         };
-        BrowserScriptLoader.prototype.getDefiningModule = function () {
+        HTMLTagScriptLoader.prototype.getDefiningModule = function () {
             if (document.currentScript != null) {
                 return document.currentScript.getAttribute('_amd_moduleId');
             }
             return null;
         };
-        return BrowserScriptLoader;
+        return HTMLTagScriptLoader;
     }());
-    var BrowserWorkerScriptLoader = /** @class */ (function () {
-        function BrowserWorkerScriptLoader() {
+    var ImportScriptsScriptLoader = /** @class */ (function () {
+        function ImportScriptsScriptLoader() {
             this.currentDefining = null;
         }
-        BrowserWorkerScriptLoader.prototype.loadModule = function (moduleId, url, done) {
+        ImportScriptsScriptLoader.prototype.loadModule = function (moduleId, url, done) {
             this.currentDefining = moduleId;
             try {
                 globalThis.importScripts(url);
@@ -50,25 +59,56 @@
                 this.currentDefining = null;
             }
         };
-        BrowserWorkerScriptLoader.prototype.getDefiningModule = function () {
+        ImportScriptsScriptLoader.prototype.getDefiningModule = function () {
             return this.currentDefining;
         };
-        return BrowserWorkerScriptLoader;
+        return ImportScriptsScriptLoader;
+    }());
+    var ServiceWorkerScriptLoader = /** @class */ (function () {
+        function ServiceWorkerScriptLoader() {
+            this.currentDefining = null;
+        }
+        ServiceWorkerScriptLoader.prototype.loadModule = function (moduleId, url, done) {
+            var that = this;
+            var resp0;
+            config1.serviceWorkerFetch(url).then(function (resp) {
+                resp0 = resp;
+                return resp.text();
+            }).then(function (respText) {
+                if (!resp0.ok) {
+                    throw new Error('fetch respond with ' + resp0.status);
+                }
+                that.currentDefining = moduleId;
+                try {
+                    (new Function(respText))();
+                    done(null);
+                }
+                finally {
+                    that.currentDefining = null;
+                }
+            }).catch(function (err) {
+                done(err);
+            });
+        };
+        ServiceWorkerScriptLoader.prototype.getDefiningModule = function () {
+            return this.currentDefining;
+        };
+        return ServiceWorkerScriptLoader;
     }());
     if (globalThis.window != undefined && globalThis.document != undefined) {
-        scriptLoaders.push(new BrowserScriptLoader());
+        scriptLoaders.push(new HTMLTagScriptLoader());
     }
     else if (globalThis.self != undefined && typeof (globalThis.importScripts) == 'function') {
-        scriptLoaders.push(new BrowserWorkerScriptLoader());
+        if ('registration' in globalThis && 'clients' in globalThis) {
+            //service worker
+            scriptLoaders.push(new ServiceWorkerScriptLoader());
+        }
+        else {
+            scriptLoaders.push(new ImportScriptsScriptLoader());
+        }
     }
     var moduleMap = {};
     function noop() { }
-    function panic(message) {
-        if (!config1.IAMDEE_PRODUCTION_BUILD) {
-            throw Error(message);
-        }
-    }
-    var config1 = { baseUrl: './' };
     function isAnonymousDefine(args) {
         return typeof args[0] != "string";
     }
@@ -292,6 +332,13 @@
         tryNextScriptLoader();
     }
     function doDefine(id, dependencies, factory) {
+        if (config1.onDefining != undefined) {
+            var p = { moduleId: id, dependencies: dependencies, factory: factory };
+            config1.onDefining(p);
+            id = p.moduleId;
+            dependencies = p.dependencies;
+            factory = p.factory;
+        }
         var existingModule = moduleMap[id];
         var definedModule = {
             moduleState: 0 /* ModuleState.DEFINED */,
