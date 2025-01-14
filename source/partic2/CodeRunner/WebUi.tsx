@@ -259,7 +259,7 @@ export class DefaultCodeCellList extends React.Component<
         this.state.list.splice(pos+1,0,{ref:new ReactRefEx<CodeCell>(),key:GenerateRandomString()})
         this.forceUpdate();
     }
-    async dropCell(cellKey:string){
+    async deleteCell(cellKey:string){
         let pos=this.state.list.findIndex(v=>v.key==cellKey);
         try{
             await this.state.list[pos].ref.current?.close();
@@ -302,7 +302,7 @@ export class DefaultCodeCellList extends React.Component<
                 let r=[<CodeCell ref={v.ref} key={v.key} 
                 codeContext={this.state.codeContext!} customBtns={[
                     {label:'New',cb:()=>this.newCell(v.key)},
-                    {label:'Drop',cb:()=>this.dropCell(v.key)}
+                    {label:'Del',cb:()=>this.deleteCell(v.key)}
                 ]} onClearOutputs={()=>this.clearConsoleOutput(v.key)}
                     onRun={async ()=>{this.lastRunCellKey=v.key;}}
                     onFocusChange={(focusin)=>{if(focusin)this.setState({lastFocusCellKey:v.key})}}
