@@ -1,4 +1,7 @@
 
+//To initialize node environment. For these don't want to start http server, just import this module.
+import './workerInit'
+
 import {WebSocketServer,WebSocket } from 'ws'
 import { ArrayBufferConcat, ArrayWrap2,assert,CanceledError,copy,future, requirejs, sleep } from 'partic2/jsutils1/base';
 import {Io} from 'pxprpc/base'
@@ -10,7 +13,6 @@ import { Server as PxprpcBaseServer } from 'pxprpc/base'
 import Koa from 'koa'
 import KoaRouter from 'koa-router'
 import * as fs from 'fs/promises'
-import './workerInit'
 import koaFiles from 'koa-files'
 import { GetUrlQueryVariable2, getWWWRoot, lifecycle } from 'partic2/jsutils1/webutils';
 import { ChildProcess, spawn } from 'child_process';

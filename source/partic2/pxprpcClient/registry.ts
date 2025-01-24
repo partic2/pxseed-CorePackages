@@ -229,6 +229,13 @@ export async function getConnectionFromUrl(url:string):Promise<Io|null>{
             workerInit.loadRpcWorkerInitModule(${JSON.stringify(rpcWorkerInitModule)}).then(resolve,reject);
         },reject)`,true);
         return await new WebMessage.Connection().connect(worker!.workerId,300);
+    }else if(url2.protocol=='pxseedjs:'){
+        //For user custom connection factory.
+        //potential security issue?
+        let functionDelim=url2.pathname.lastIndexOf('.');
+        let moduleName=url2.pathname.substring(0,functionDelim);
+        let functionName=url2.pathname.substring(functionDelim+1);
+        return (await import(moduleName))[functionName](url2.toString());
     }
     return null;
 }
@@ -248,7 +255,12 @@ export function listRegistered(){
 
 export async function addClient(url:string,name?:string):Promise<ClientInfo>{
     name=(name==undefined||name==='')?url.toString():name;
-    let clie=new ClientInfo(name,url);
+    let clie=registered.get(name);
+    if(clie==undefined){
+        //Skip if existed, To avoid connection lost unexpected.
+        clie=new ClientInfo(name,url);
+    }
+    clie.url=url;
     registered.set(name,clie);
     await persistent.save();
     return clie;
@@ -271,22 +283,6 @@ export const ServiceWorker='service worker 1';
 
 export async function addBuiltinClient(){
     if(globalThis.location!=undefined && globalThis.WebSocket !=undefined){
-        /*
-        //Moved to pxseedServer2023/webentry, because key is required sometime.
-        if(getRegistered(ServerHostRpcName)==null){
-            let url=requirejs.getConfig().baseUrl as string;
-            if(url.endsWith('/'))url=url.substring(0,url.length-1);
-            let slashAt=url.lastIndexOf('/');
-            let pxseedBase=slashAt>=0?url.substring(0,slashAt):'';
-            let pxprpcUrl=(pxseedBase+'/pxprpc/0').replace(/^http/,'ws');
-            let wstest:WebSocketIo
-            try{
-                wstest=await new WebSocketIo().connect(pxprpcUrl);
-                wstest.close();
-                addClient(pxprpcUrl,ServerHostRpcName);
-            }catch(e){}
-        }
-        */
         if(getRegistered(ServerHostRpcName)!=null && getRegistered(ServerHostWorker1RpcName)==null){
             addClient('iooverpxprpc:'+ServerHostRpcName+'/'+
             encodeURIComponent('webworker:'+__name__+'/worker/1'),ServerHostWorker1RpcName)

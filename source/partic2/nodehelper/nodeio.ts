@@ -1,5 +1,5 @@
 import { Readable } from "stream";
-import {ArrayBufferConcat, ArrayWrap2, assert, future} from 'partic2/jsutils1/base'
+import {ArrayBufferConcat, ArrayWrap2, assert, future, requirejs} from 'partic2/jsutils1/base'
 import { Io } from "pxprpc/base";
 import { Server, Socket } from "net";
 
@@ -50,6 +50,20 @@ class ReadStream4NodeIo{
         }
         return readLen;
     }
+    async readFully(buf:Uint8Array){
+        let end=buf.byteOffset+buf.byteLength;
+        let start=0;
+        while(start<end){
+            let readLen=await this.read(buf,start);
+            if(readLen==null){
+                if(start<end){
+                    throw new Error('EOF occured');
+                }
+            }else{
+                start+=readLen;
+            }
+        }
+    }
     async readAll(){
         let buffList=[]
         for(let t1=0;t1<1024*1024;t1++){
@@ -76,8 +90,8 @@ export class PxprpcIoFromSocket implements Io{
         if(this.sock==undefined){
             return new Promise<undefined>((resolve,reject)=>{
                     this.sock=new Socket();
-                    this.sock.once('error',()=>{
-                        reject(this.sock!);
+                    this.sock.once('error',(err)=>{
+                        reject(err);
                     });
                     this.sock.connect(opt,()=>resolve(undefined));
             });
@@ -87,10 +101,10 @@ export class PxprpcIoFromSocket implements Io{
     }
     async receive(): Promise<Uint8Array> {
         let buf1=new Uint8Array(4);
-        await wrapReadable(this.sock!).read(buf1,0);
+        await wrapReadable(this.sock!).readFully(buf1);
         let size=new DataView(buf1.buffer).getInt32(0,true);
         buf1=new Uint8Array(size);
-        await wrapReadable(this.sock!).read(buf1,0);
+        await wrapReadable(this.sock!).readFully(buf1);
         return buf1;
     }
     async send(data: Uint8Array[]): Promise<void> {
@@ -137,5 +151,28 @@ export class PxprpcTcpServer{
                 }
             })
         })
+    }
+}
+
+
+import { defaultFuncMap, RpcExtendServerCallable } from "pxprpc/extend";
+import { GetUrlQueryVariable2 } from "partic2/jsutils1/webutils";
+
+const __name__=requirejs.getLocalRequireModule(require);
+//security issue?
+defaultFuncMap[__name__+'.createPxprpcIoFromTcpTarget']=new RpcExtendServerCallable(async (connectTo:string)=>{
+    let s=new PxprpcIoFromSocket();
+    await s.connect(JSON.parse(connectTo))
+    return s;
+}).typedecl('s->o');
+
+export async function createIoPxseedJsUrl(url:string){
+    let type=GetUrlQueryVariable2(url,'type');
+    if(type==='tcp'){
+        let io=new PxprpcIoFromSocket();
+        let host=GetUrlQueryVariable2(url,'host')??'127.0.0.1';
+        let port=Number(GetUrlQueryVariable2(url,'port')!);
+        await io.connect({host,port});
+        return io;
     }
 }
