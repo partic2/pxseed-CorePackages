@@ -34,9 +34,12 @@ export interface PxseedConfig{
     }
 }
 
+declare var requirejs:any
+
 function makeDefaultStatus():PxseedStatus{
     return {...PxseedStatusDefault,lastBuildError:[],currentBuildError:[],subpackages:[]}
 }
+
 
 export async function processDirectory(dir:string){
     console.log(`enter ${dir}`);
@@ -53,7 +56,7 @@ export async function processDirectory(dir:string){
             }
         }
     }else{
-        let pxseedConfig=await readJson(pathJoin(dir,'pxseed.config.json'));
+        let pxseedConfig=await readJson(pathJoin(dir,'pxseed.config.json')) as PxseedConfig;
         let pstat:PxseedStatus;
         if(children.find(v=>v.name=='.pxseed.status.json')){
             pstat=await readJson(pathJoin(dir,'.pxseed.status.json'));
@@ -64,9 +67,30 @@ export async function processDirectory(dir:string){
         let loaders=pxseedConfig.loaders;
         for(let loaderConfig of loaders){
             try{
-                await pxseedBuiltinLoader[loaderConfig.name](dir,loaderConfig,pstat);
+                //Experimental.
+                if(loaderConfig.name==='ensure'){
+                    let packages=loaderConfig.packages as string[]|undefined;
+                    if(packages!=undefined){
+                        for(let p1 of packages){
+                            await processDirectory(pathJoin(sourceDir,p1));
+                        }
+                    }
+                }else if(loaderConfig.name.startsWith('pxseedjs:')){
+                    let pathname=new URL(loaderConfig.name).pathname;
+                    let delim=pathname.lastIndexOf('.');
+                    let moduleName=pathname.substring(0,delim);
+                    let funcName=pathname.substring(delim+1);
+                    try{
+                        let mod=await import(moduleName);
+                        await mod[funcName](dir,loaderConfig,pstat);
+                    }catch(e:any){
+                        pstat.currentBuildError.push(`Failed to load module with message ${e.toString()}`);
+                    };
+                }else{
+                    await pxseedBuiltinLoader[loaderConfig.name](dir,loaderConfig,pstat);
+                }
             }catch(e){
-                pstat.currentBuildError.push(`loader ${loaderConfig.name} failed with error ${String(e)}`);
+                pstat.currentBuildError.push(`loader "${loaderConfig.name}" failed with error ${String(e)}`);
             }
         }
         if(pstat.subpackages.length>0){
