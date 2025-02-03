@@ -26,7 +26,13 @@ export function docNode2text(node:Node){
                     textData+=' ';
                 }
             }
-            textData+=walker.currentNode.data.replace(/\n|(^ +)|( +$)/g,'').replace(/\u00a0/g,' ');
+            //When paste, a redundancy space will be append after text.
+            let next=walker.currentNode.nextSibling;
+            if(textData==' ' && (next==null || next instanceof HTMLDivElement || next instanceof HTMLParagraphElement)){
+                 textData='';
+            }else{
+                textData+=walker.currentNode.data.replace(/\n|(^ +)|( +$)/g,'').replace(/\u00a0/g,' ');
+            }
             //trim charCode(32) and THEN replace charCode(160)
             textParts.push({node:walker.currentNode,
                 text:textData});

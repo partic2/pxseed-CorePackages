@@ -103,8 +103,8 @@ export function toSerializableObject(v:any,opt:Partial<typeof DefaultSerializing
             return {[serializingEscapeMark]:'ArrayBuffer',
                 value:ArrayBufferToBase64(v)
             }
-        }else if(v instanceof RemoteReference){
-            return {[serializingEscapeMark]:'RemoteReference',accessPath:v.accessPath}
+        }else if(getRemoteReference in v){
+            return {[serializingEscapeMark]:'RemoteReference',accessPath:v[getRemoteReference]().accessPath}
         }else{
             let r={} as Record<string,any>;
             let keys=listProps(v);
@@ -209,10 +209,13 @@ export class UnidentifiedArray extends UnidentifiedObject{
     }
 }
 //Usually used in client to make dereference on server side, by 'fromSerializableObject'.
+export const getRemoteReference=Symbol(__name__+'.getRemoteReference')
 export class RemoteReference{
     constructor(public accessPath:(number|string)[]){};
+    [getRemoteReference](){
+        return this;
+    }
 }
-
 
 export class MiscObject{
     //"serializingError" represent the error throw during serializing, Not the real JS Error object.
@@ -582,3 +585,4 @@ export const defaultCompletionHandlers:Array<(context:CodeCompletionContext)=>Pr
     builtInCompletionHandlers.importStatementCompletion,
     builtInCompletionHandlers.customFunctionParameterCompletion,
 ]
+

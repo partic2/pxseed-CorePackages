@@ -6,7 +6,9 @@ import { requirejs } from 'partic2/jsutils1/base';
 import * as jsutils1 from 'partic2/jsutils1/base'
 
 import { inspectCodeContextVariable, toSerializableObject, fromSerializableObject, CodeContextRemoteObjectFetcher, 
-    RemoteReference, defaultCompletionHandlers, CodeCompletionItem} from './Inspector';
+    RemoteReference, defaultCompletionHandlers, CodeCompletionItem, getRemoteReference} from './Inspector';
+import { Io } from 'pxprpc/base';
+import { createIoPipe } from 'partic2/pxprpcClient/registry';
 
 
 acorn.defaultOptions.allowAwaitOutsideFunction=true;
@@ -14,9 +16,27 @@ acorn.defaultOptions.ecmaVersion='latest';
 acorn.defaultOptions.allowReturnOutsideFunction=true;
 acorn.defaultOptions.sourceType='module'
 
+const __name__=requirejs.getLocalRequireModule(require);
 
 
-
+export function addAwaitHook(source:string){
+    let replacePlan=[] as {start:number,end:number,newString:string}[];
+    ancestor(acorn.parse(source,{ecmaVersion:'latest'}),{
+        AwaitExpression:(node)=>{
+            replacePlan.push({start:node.start+5,end:node.start+5,newString:'Promise.awaitHook('});
+            replacePlan.push({start:node.end,end:node.end,newString:')'});
+        }
+    });
+    let modified:string[]=[];
+    let start=0;
+    replacePlan.sort((a,b)=>a.start-b.start)
+    replacePlan.forEach(plan=>{
+        modified.push(source.substring(start,plan.start));
+        modified.push(plan.newString);
+        start=plan.end
+    });
+    modified.push(source.substring(start));
+}
 
 export interface RunCodeContext{
     //resultVariable=resultVariable??'_'
@@ -29,9 +49,15 @@ export interface RunCodeContext{
     jsExec(code:string):Promise<string>;
 
     codeComplete(code:string,caret:number):Promise<CodeCompletionItem[]>;
-    queryTooltip(code:string,caret:number):Promise<string>;
+
     event:EventTarget;
+
     close():void;
+
+    //use pipe for faster communication, avoid code compiling.
+    //return null if no such pipe.
+    //Code runing in context can create pipe server by calling _ENV.servePipe with type (name:string)=>Promise<Io>
+    connectPipe(name:string):Promise<Io|null>
 }
 //RunCodeContext.jsExec run code like this
 async function __jsExecSample(lib:typeof jsExecLib,codeContext:LocalRunCodeContext):Promise<string>{
@@ -39,12 +65,17 @@ async function __jsExecSample(lib:typeof jsExecLib,codeContext:LocalRunCodeConte
     return '';
 }
 
-export class ConsoleDataEvent extends Event{
-    static EventType='console.data'
-    data?:{level:string,message:string}
-    constructor(){
-        super(ConsoleDataEvent.EventType);
+export class CodeContextEvent<T> extends Event{
+    public data:T|undefined=undefined;
+    constructor(type?:string,initDict?:{data?:T}){
+        super(type??__name__+'.CodeContextEvent',{});
+        this.data=initDict?.data;
     }
+}
+//Emit on console data output.
+export interface ConsoleDataEventData{
+    level:string,
+    message:string
 }
 
 let FuncCallEventType=jsutils1.GenerateRandomString();
@@ -95,12 +126,11 @@ function ensureFunctionProbe<T>(o:T,p:keyof T):CFuncCallProbe{
     return p2.funcCallProbe!
 }
 
-//(event:'console.data',cb:onConsoleDataCallback):void;
-
 export class LocalRunCodeContext implements RunCodeContext{
     importHandler:(source:string)=>Promise<any>=async (source)=>{
         return requirejs.promiseRequire(source);
     };
+    event=new EventTarget();
     localScope:{[key:string]:any}={
         //this CodeContext
         __priv_codeContext:undefined,
@@ -112,23 +142,25 @@ export class LocalRunCodeContext implements RunCodeContext{
         //some utils provide by codeContext
         __priv_jsExecLib:jsExecLib,
         //custom source processor for 'runCode' _ENV.__priv_processSource, run before built in processor.
-        __priv_processSource:null as null|((s:string)=>string)
+        __priv_processSource:null as null|((s:string)=>string),
+        event:this.event,
+        servePipe:this.servePipe.bind(this)
     };
     localScopeProxy;
-    event=new EventTarget();
     protected onConsoleLogListener=(e:Event)=>{
         let e2=e as FuncCallEvent;
         let name=e2.originalFunction!.name;
-        let evt=new ConsoleDataEvent();
-        evt.data={
-            level:name,
-            message:e2.argv.map(v=>{
-                if(typeof v=='object'){
-                    return JSON.stringify(v)
-                }else{
-                    return String(v);
-                }}).join()
-        }
+        let evt=new CodeContextEvent<ConsoleDataEventData>('console.data',{
+            data:{
+                level:name,
+                message:e2.argv.map(v=>{
+                    if(typeof v=='object'){
+                        return JSON.stringify(v)
+                    }else{
+                        return String(v);
+                    }}).join()
+            }
+        });
         this.event.dispatchEvent(evt);
     }
     constructor(){
@@ -154,6 +186,21 @@ export class LocalRunCodeContext implements RunCodeContext{
                 return true;
             }
         });
+    }
+    protected servingPipe=new Map<string,[Io,Io]>();
+    async connectPipe(name:string):Promise<Io|null>{
+        let pipe1=this.servingPipe.get(name);
+        if(pipe1==null){
+            return null;
+        }else{
+            this.servingPipe.delete(name);
+            return pipe1[0];
+        }
+    }
+    async servePipe(name:string):Promise<Io>{
+        let pipe1=createIoPipe();
+        this.servingPipe.set(name,pipe1);
+        return pipe1[1];
     }
     async queryTooltip(code: string, caret: number): Promise<string> {
         return '';
@@ -292,29 +339,45 @@ export class LocalRunCodeContext implements RunCodeContext{
     }
 }
 
-function CreateEventQueue(eventTarget:EventTarget,eventList:string[]){
-    let eventBuffer=new jsutils1.ArrayWrap2<Event>();
-    
-    let listener=(event:Event)=>{
-        eventBuffer.queueSignalPush(event);
+//Usually used by remote puller.
+export class EventQueuePuller{
+    protected eventBuffer=new jsutils1.ArrayWrap2<Event>();
+    constructor(public event:EventTarget){};
+    protected listenerCb=(event:Event)=>{
+        this.eventBuffer.queueSignalPush(event);
     }
-    for(let event of eventList){
-        eventTarget.addEventListener(event,listener);
+    protected listeningEventType=new Set<string>();
+    addPullEventType(type:string){
+        this.listeningEventType.add(type);
+        this.event.addEventListener(type,this.listenerCb);
     }
-    return {
-        next:async ()=>{
-            let event=await eventBuffer.queueBlockShift();
-            return JSON.stringify({
-                type:event.type,
-                data:(event as any).data
-            })
-        },
-        close:()=>{
-            for(let event of eventList){
-                eventTarget.removeEventListener(event,listener);
-            }
+    removePullEventType(type:string){
+        this.listeningEventType.delete(type);
+        this.event.removeEventListener(type,this.listenerCb);
+    }
+    //Only .data is serialized now.
+    async next(){
+        let event=await this.eventBuffer.queueBlockShift();
+        return JSON.stringify(toSerializableObject({
+            type:event.type,
+            data:(event as any).data
+        },{maxDepth:1000,maxKeyCount:1000000}));
+    }
+    async close(){
+        for(let t1 of Array.from(this.listeningEventType)){
+            this.removePullEventType(t1);
         }
     }
+}
+
+function CreateEventQueue(eventTarget:EventTarget,eventList?:string[]){
+    let t1=new EventQueuePuller(eventTarget);
+    if(eventList!=undefined){
+        for(let t2 of eventList){
+            t1.addPullEventType(t2);
+        }
+    }
+    return t1;
 }
 
 export var jsExecLib={
@@ -334,8 +397,69 @@ type OnlyAsyncFunctionProp<Mod>={
     [P in keyof Mod]:Mod[P] extends (...args:any[])=>Promise<any>?Mod[P]:never
 }
 
+class RemotePipe extends RemoteReference implements Io{
+    context?:RunCodeContext
+    local?:Io
+    receive(): Promise<Uint8Array> {
+        return this.local!.receive();
+    }
+    send(data: Uint8Array[]): Promise<void> {
+        return this.local!.send(data);
+    }
+    close(): void {
+        this.local!.close();
+        if(this.context!=undefined){
+            this.context.runCode(`delete _ENV${this.accessPath.map(t1=>`['${t1}']`).join('')}`)
+        }
+    }
+}
+
+//TODO: remove EventListener
+export class RemoteEventTarget extends EventTarget{
+    protected remoteQueueName='__eventQueue_'+jsutils1.GenerateRandomString();
+    closed=false;
+    public codeContext?:RunCodeContext;
+    public remote?:RemoteReference;
+    constructor(){
+        super();
+    }
+    async start(){
+        this.pullInterval();
+    }
+    [getRemoteReference](){
+        jsutils1.assert(this.remote!=undefined);
+        return this.remote;
+    }
+    async useRemoteReference(remoteReference:RemoteReference){
+        this.remote=remoteReference;
+    }
+    protected remotePrepared=new jsutils1.future<string>();
+    protected async enableRemoteEvent(type:string){
+        await this.remotePrepared.get();
+        await this.codeContext!.jsExec(`codeContext.localScope['${this.remoteQueueName}'].addPullEventType('${type}')`)
+    }
+    protected async pullInterval(){
+        await this.codeContext!.jsExec(
+            `codeContext.localScope['${this.remoteQueueName}']=lib.CreateEventQueue(codeContext.localScope${this.remote!.accessPath.map(t1=>`['${t1}']`).join('')})`)
+        this.remotePrepared.setResult('');
+        while(!closed){
+            let msg=await this.codeContext!.jsExec(`return await codeContext.localScope['${this.remoteQueueName}'].next()`);
+            let ev=fromSerializableObject(JSON.parse(msg),{});
+            this.dispatchEvent(new CodeContextEvent(ev.type,{data:ev.data}));
+        }
+    }
+    addEventListener(type: string, callback: EventListenerOrEventListenerObject | null, options?: boolean | AddEventListenerOptions | undefined): void {
+        this.enableRemoteEvent(type);
+        super.addEventListener(type,callback,options);
+    }
+    close(){
+        this.closed=true;
+        this.codeContext!.jsExec(`codeContext.localScope['${this.remoteQueueName}'].close()`)
+    }
+}
+
 export class CodeContextShell{
-    onConsoleData: (event: ConsoleDataEvent) => void=()=>{};
+    onConsoleData: (event: CodeContextEvent<ConsoleDataEventData>) => void=()=>{};
     runCodeLogger:(s:string,resultVariable?:string)=>void=()=>{};
     returnObjectLogger:(err:{message:string,stack?:string}|null,ret:any)=>void=()=>{};
     constructor(public codeContext:RunCodeContext){
@@ -367,6 +491,16 @@ export class CodeContextShell{
             this.returnObjectLogger(result.err,null);
             throw new Error(result.err.message+'\n'+(result.err.stack??''));
         }
+    }
+    async createRemotePipe(){
+        let remotePipe=new RemotePipe([`__pipe_${jsutils1.GenerateRandomString()}`]);
+        remotePipe.context=this.codeContext
+        let result=await this.codeContext.runCode(`_ENV.${remotePipe.accessPath[0]}=await _ENV.servePipe('${remotePipe.accessPath[0]}')`);
+        if(result.err!=null){
+            throw new Error(result.err.message+'\n'+(result.err.stack??''));
+        };
+        remotePipe.local=(await this.codeContext.connectPipe(remotePipe.accessPath[0] as string))!
+        return remotePipe
     }
     async importModule<T>(mod:string,asName:string){
         let importResult=await this.codeContext.runCode(`import * as ${asName} from '${mod}' `);
@@ -415,7 +549,7 @@ export class CodeContextShell{
         return await inspectCodeContextVariable(new CodeContextRemoteObjectFetcher(this.codeContext),accessPath,{maxDepth:50,maxKeyCount:10000});
     }
     async init(): Promise<void> {
-        this.codeContext.event.addEventListener(ConsoleDataEvent.EventType,this.onConsoleData);
+        this.codeContext.event.addEventListener('console.data',this.onConsoleData as any);
     }
 }
 

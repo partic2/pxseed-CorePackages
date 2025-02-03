@@ -125,9 +125,12 @@ export class IoOverPxprpc implements Io{
 export function createIoPipe():[Io,Io]{
     let a2b=new ArrayWrap2<Uint8Array>();
     let b2a=new ArrayWrap2<Uint8Array>();
-    closed=false
+    let closed=false
     function oneSide(r:ArrayWrap2<Uint8Array>,s:ArrayWrap2<Uint8Array>):Io{
-        return {
+        let tio={
+            isClosed:()=>{
+                return closed;
+            },
             receive:async():Promise<Uint8Array>=> {
                 if(closed)throw new Error('closed.');
                 return r.queueBlockShift();
@@ -144,6 +147,7 @@ export function createIoPipe():[Io,Io]{
                 s.cancelWaiting();
             }
         }
+        return tio;
     }
     return [oneSide(a2b,b2a),oneSide(b2a,a2b)];
 }

@@ -1,7 +1,7 @@
 
 import { FlattenArraySync, GenerateRandomString, assert, sleep } from 'partic2/jsutils1/base';
 import { ReactRefEx, css as css1 } from 'partic2/pComponentUi/domui';
-import { ConsoleDataEvent, RunCodeContext } from './CodeContext';
+import { CodeContextEvent, ConsoleDataEventData, RunCodeContext } from './CodeContext';
 import * as React from 'preact'
 import { DynamicPageCSSManager } from 'partic2/jsutils1/webutils';
 import { TextEditor } from 'partic2/pComponentUi/texteditor';
@@ -247,9 +247,9 @@ export class DefaultCodeCellList extends React.Component<
     beforeRender(){
         if(this.props.codeContext!==this.state.codeContext){
             if(this.state.codeContext!=null){
-                this.state.codeContext.event.removeEventListener('console.data',this.onConsoleData);
+                this.state.codeContext.event.removeEventListener('console.data',this.onConsoleData as any);
             }
-            this.props.codeContext.event.addEventListener('console.data',this.onConsoleData);
+            this.props.codeContext.event.addEventListener('console.data',this.onConsoleData as any);
             this.setState({codeContext:this.props.codeContext});
         }
     }
@@ -371,7 +371,7 @@ export class DefaultCodeCellList extends React.Component<
             this.setState({error:e.message+'\n'+(e.stack??'')})
         }
     }
-    onConsoleData=(event:ConsoleDataEvent)=>{
+    onConsoleData=(event:CodeContextEvent<ConsoleDataEventData>)=>{
         let index=this.state.list.findIndex(v=>v.key===this.lastRunCellKey);
         if(index<0)index=0;
         let cell=this.state.list[index];

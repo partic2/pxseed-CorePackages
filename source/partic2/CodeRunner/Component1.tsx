@@ -1,7 +1,6 @@
 import * as React from 'preact'
 import { MiscObject, UnidentifiedObject } from './Inspector';
 import { BytesToHex, GenerateRandomString } from 'partic2/jsutils1/base';
-import { ConsoleDataEvent } from './CodeContext';
 
 
 export class ObjectViewer extends React.Component<
