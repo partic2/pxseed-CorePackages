@@ -23,8 +23,10 @@ export function addAwaitHook(source:string){
     let replacePlan=[] as {start:number,end:number,newString:string}[];
     ancestor(acorn.parse(source,{ecmaVersion:'latest'}),{
         AwaitExpression:(node)=>{
-            replacePlan.push({start:node.start+5,end:node.start+5,newString:'Promise.awaitHook('});
-            replacePlan.push({start:node.end,end:node.end,newString:')'});
+            if(!source.substring(node.argument.start,node.argument.end).startsWith('Promise.__awaitHook(')){
+                replacePlan.push({start:node.argument.start,end:node.argument.start,newString:'Promise.__awaitHook('});
+                replacePlan.push({start:node.argument.end,end:node.argument.end,newString:')'});
+            }
         }
     });
     let modified:string[]=[];
@@ -36,6 +38,7 @@ export function addAwaitHook(source:string){
         start=plan.end
     });
     modified.push(source.substring(start));
+    return modified.join('');
 }
 
 export interface RunCodeContext{

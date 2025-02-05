@@ -120,6 +120,7 @@ export class Task<T> {
     __locals = {};
     __abortController = new AbortController();
     __step(tNext: any, error: any) {
+        let savedTask=Task.currentTask
         Task.currentTask = this;
         try {
             if (this.__abortController.signal.aborted) {
@@ -141,7 +142,7 @@ export class Task<T> {
         } catch (e) {
             this.__resolver![2](e);
         } finally {
-            Task.currentTask = null;
+            Task.currentTask = savedTask;
         }
     }
     run() {
@@ -176,6 +177,16 @@ export class Task<T> {
     then<TResult1 = T, TResult2 = never>(onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null, onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | undefined | null): Promise<TResult1 | TResult2> {
         return this.__resolver![0].then(onfulfilled, onrejected);
     }
+}
+
+
+export function setupAwaitHook(){
+    (Promise as any).__awaitHook=Task.awaitWrap;
+}
+
+if(('Promise' in globalThis) && !('__awaitHook' in globalThis.Promise)){
+    //Should we setup await hook automatically?
+    setupAwaitHook();
 }
 
 export function throwIfAbortError(e:Error){

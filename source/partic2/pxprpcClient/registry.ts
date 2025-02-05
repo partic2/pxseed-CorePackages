@@ -22,6 +22,9 @@ export interface RemoteRegistryFunction{
     getConnectionFromUrl(url:string):Promise<RpcExtendClientObject>;
     io_send(io:RpcExtendClientObject,data:Uint8Array):Promise<void>;
     io_receive(io:RpcExtendClientObject):Promise<Uint8Array>;
+    jsExec(code:string,obj:RpcExtendClientObject):Promise<RpcExtendClientObject|null>;
+    bufferData(obj:RpcExtendClientObject):Promise<Uint8Array>;
+    anyToString(obj:RpcExtendClientObject):Promise<string>;
 }
 
 
@@ -170,6 +173,15 @@ class RemoteRegistryFunctionImpl implements RemoteRegistryFunction{
     async io_receive(io: RpcExtendClientObject): Promise<Uint8Array> {
         return this.funcs[3]!.call(io);
     }
+    async jsExec(code:string,obj:RpcExtendClientObject):Promise<RpcExtendClientObject|null>{
+        return this.funcs[4]!.call(code,obj)
+    }
+    async bufferData(obj:RpcExtendClientObject):Promise<Uint8Array>{
+        return this.funcs[5]!.call(obj);
+    }
+    async anyToString(obj:RpcExtendClientObject):Promise<string>{
+        return this.funcs[6]!.call(obj);
+    }
     async ensureInit(){
         if(this.funcs.length==0){
             this.funcs=[
@@ -177,6 +189,9 @@ class RemoteRegistryFunctionImpl implements RemoteRegistryFunction{
                 (await this.client1!.getFunc(__name__+'.getConnectionFromUrl'))?.typedecl('s->o'),
                 (await this.client1!.getFunc('pxprpc_pp.io_send'))?.typedecl('ob->'),
                 (await this.client1!.getFunc('pxprpc_pp.io_receive'))?.typedecl('o->b'),
+                (await this.client1!.getFunc('builtin.jsExec'))?.typedecl('so->o'),
+                (await this.client1!.getFunc('builtin.bufferData'))?.typedecl('o->b'),
+                (await this.client1!.getFunc('builtin.anyToString'))?.typedecl('o->s')
             ]
         }
     }
@@ -246,14 +261,23 @@ export async function getConnectionFromUrl(url:string):Promise<Io|null>{
 
 let registered=new Map<string,ClientInfo>();
 
-
-
-export function getRegistered(name:string):ClientInfo|undefined;
+//Only get current cached registered client. Use "getPersistentRegistered" to get all possible registered client.
 export function getRegistered(name:string){
     return registered.get(name);
 }
 
+//Only get current cached registered client. Use "listPersistentRegistered" to get all possible registered client.
 export function listRegistered(){
+    return registered.entries();
+}
+
+export async function getPersistentRegistered(name:string){
+    await persistent.load();
+    return getRegistered(name);
+}
+
+export async function listPersistentRegistered(name:string){
+    await persistent.load();
     return registered.entries();
 }
 
