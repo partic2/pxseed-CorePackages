@@ -2,8 +2,8 @@
 //To initialize node environment. For these don't want to start http server, just import this module.
 import './workerInit'
 
-import {WebSocketServer,WebSocket } from 'ws'
-import { ArrayBufferConcat, ArrayWrap2,assert,CanceledError,copy,future, requirejs, sleep } from 'partic2/jsutils1/base';
+
+import { ArrayBufferConcat, ArrayWrap2,assert,CanceledError,copy,future, requirejs, sleep, Task } from 'partic2/jsutils1/base';
 import {Io} from 'pxprpc/base'
 import {Duplex, EventEmitter, Readable} from 'stream'
 import { IncomingHttpHeaders, IncomingMessage, Server, ServerResponse } from 'http';
@@ -18,51 +18,8 @@ import { GetUrlQueryVariable2, getWWWRoot, lifecycle } from 'partic2/jsutils1/we
 import { ChildProcess, spawn } from 'child_process';
 
 export let __name__='pxseedServer2023/entry';
-
-
-class NodeWsIo implements Io{
-    priv__cached=new ArrayWrap2<Uint8Array>([])
-    closed:boolean=false;
-    constructor(public ws:WebSocket){
-        ws.on('message',(data,isBin)=>{
-            if(data instanceof ArrayBuffer){
-                this.priv__cached.queueBlockPush(new Uint8Array(data))
-            }else if(data instanceof Buffer){
-                this.priv__cached.queueBlockPush(data);
-            }else if(data instanceof Array){
-                this.priv__cached.queueBlockPush(new Uint8Array(ArrayBufferConcat(data)));
-            }else{
-                throw new Error('Unknown data type')
-            }
-        });
-        ws.on('close',(code,reason)=>{
-            this.closed=true;
-            this.priv__cached.cancelWaiting();
-        });
-    }
-    async receive(): Promise<Uint8Array> {
-        try{
-            let wsdata=await this.priv__cached.queueBlockShift();
-            return wsdata;
-        }catch(e){
-            if(e instanceof CanceledError && this.closed){
-                this.ws.close();
-                throw new Error('closed.')
-            }else{
-                this.ws.close();
-                throw e;
-            }
-        }
-    }
-    async send(data: Uint8Array[]): Promise<void> {
-        this.ws.send(ArrayBufferConcat(data));
-    }
-    close(): void {
-        this.ws.close();
-        this.closed=true;
-        this.priv__cached.cancelWaiting();
-    }
-}
+import {WebSocketServer } from 'ws'
+import { NodeWsIo } from 'partic2/nodehelper/nodeio';
 
 export let WsServer={
     ws:new WebSocketServer({noServer:true}),
@@ -89,7 +46,7 @@ koaServ.proxy=true;
 export let koaRouter=new KoaRouter();
 let pxseedFilesServer=koaFiles(dirname(dirname(__dirname)));
 
-interface PxseedServer2023StartupConfig{
+export interface PxseedServer2023StartupConfig{
     pxseedBase?:string,
     pxprpcPath?:string,
     listenOn?:{host:string,port:number},
@@ -102,6 +59,7 @@ interface PxseedServer2023StartupConfig{
         enabled:false,
         subprocessConfig:PxseedServer2023StartupConfig[]
     }
+    subprocessIndex?:number
     //RegExp to block private/secret file access.
     blockFilesMatch?:string[]
     //Specify the directory serve as file server. default is ['www','source'].
@@ -125,6 +83,8 @@ export let config:PxseedServer2023StartupConfig={
     serveDirectory:['www','source']
 };
 
+export let rootConfig={...config};
+
 let noderunJs=getWWWRoot()+'/noderun.js'
 export function nodeRun(moduleName:string,args:string[]):ChildProcess{
     console.info(noderunJs,moduleName,...args)
@@ -141,14 +101,17 @@ export let ensureInit=new future<number>();
         try{
             let configData=await fs.readFile(__dirname+'/config.json');
             console.log(`config file ${__dirname+'/config.json'} found. `);
-            let rootConfig=JSON.parse(new TextDecoder().decode(configData));
+            let readinConfig=JSON.parse(new TextDecoder().decode(configData));
+            rootConfig=Object.assign(readinConfig);
+            if(globalThis.process==undefined)return null;
             let subprocessAt=process.argv.indexOf('--subprocess');
-            if(process.argv[2]==__name__ && subprocessAt>=0 ){
+            if(process.argv[2]=='pxseedServer2023/entry' && subprocessAt>=0 ){
                 //This is subprocee spawn by deamon.
                 let subprocessIndex=Number(process.argv[subprocessAt+1]);
-                Object.assign(config,rootConfig,rootConfig.deamonMode.subprocessConfig[subprocessIndex]);
+                Object.assign(config,rootConfig,rootConfig.deamonMode!.subprocessConfig[subprocessIndex]);
                 config.deamonMode!.enabled=false;
                 config.deamonMode!.subprocessConfig=[]
+                config.subprocessIndex=subprocessIndex;
             }else{
                 Object.assign(config,rootConfig);
             }
@@ -192,7 +155,7 @@ export let ensureInit=new future<number>();
         console.log(JSON.stringify(config,undefined,2));
         WsServer.router[config.pxseedBase!+config.pxprpcPath]=(io,url,headers)=>{
             let pass=false;
-            if(config.pxprpcCheckOrigin===false){
+            if(config.pxprpcCheckOrigin===false || headers.origin==undefined){
                 pass=true;
             }else if(headers.origin!=undefined){
                 let originUrl=new URL(headers.origin);
@@ -305,6 +268,21 @@ export let ensureInit=new future<number>();
             let subprocess=nodeRun(__name__,['--subprocess',String(index)]);
             subprocs[index]=subprocess;
         }).typedecl('i->');
+        //Usually to used to restart process self.
+        defaultFuncMap['pxseedServer2023.subprocess.restartOnExit']=new RpcExtendServerCallable(async (index:number)=>{
+            console.info('restart',index)
+            let task=Task.fork(function*(){
+                while(subprocs[index].exitCode==null){
+                    yield sleep(1000);
+                }
+                let subprocess=nodeRun(__name__,['--subprocess',String(index)]);
+                subprocs[index]=subprocess; 
+            }).run();
+            return {close:()=>{
+                //To avoid abort restart
+                sleep(3000).then(()=>task.abort());
+            }}
+        }).typedecl('i->o');
     }
 })();
 

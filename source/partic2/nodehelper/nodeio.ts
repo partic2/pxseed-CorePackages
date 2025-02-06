@@ -1,5 +1,5 @@
 import { Readable } from "stream";
-import {ArrayBufferConcat, ArrayWrap2, assert, future, requirejs} from 'partic2/jsutils1/base'
+import {ArrayBufferConcat, ArrayWrap2, assert, CanceledError, future, requirejs} from 'partic2/jsutils1/base'
 import { Io } from "pxprpc/base";
 import { Server, Socket } from "net";
 
@@ -176,3 +176,51 @@ export async function createIoPxseedJsUrl(url:string){
         return io;
     }
 }
+
+
+import {WebSocket } from 'ws'
+export class NodeWsIo implements Io{
+    priv__cached=new ArrayWrap2<Uint8Array>([])
+    closed:boolean=false;
+    constructor(public ws:WebSocket){
+        ws.on('message',(data,isBin)=>{
+            if(data instanceof ArrayBuffer){
+                this.priv__cached.queueBlockPush(new Uint8Array(data))
+            }else if(data instanceof Buffer){
+                this.priv__cached.queueBlockPush(data);
+            }else if(data instanceof Array){
+                this.priv__cached.queueBlockPush(new Uint8Array(ArrayBufferConcat(data)));
+            }else{
+                throw new Error('Unknown data type')
+            }
+        });
+        ws.on('close',(code,reason)=>{
+            this.closed=true;
+            this.priv__cached.cancelWaiting();
+        });
+    }
+    async receive(): Promise<Uint8Array> {
+        try{
+            let wsdata=await this.priv__cached.queueBlockShift();
+            return wsdata;
+        }catch(e){
+            if(e instanceof CanceledError && this.closed){
+                this.ws.close();
+                throw new Error('closed.')
+            }else{
+                this.ws.close();
+                throw e;
+            }
+        }
+    }
+    async send(data: Uint8Array[]): Promise<void> {
+        this.ws.send(ArrayBufferConcat(data));
+    }
+    close(): void {
+        this.ws.close();
+        this.closed=true;
+        this.priv__cached.cancelWaiting();
+    }
+}
+
+globalThis.WebSocket=WebSocket as any;

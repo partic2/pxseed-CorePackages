@@ -483,7 +483,7 @@ export const builtInCompletionHandlers={
         if(matched!=undefined){
             let dot=matched[0].lastIndexOf('.');
             if(dot>=0){
-                objExpr=matched[0].substring(matched.index!,dot);
+                objExpr=matched[0].substring(0,dot);
                 fieldStr=matched[0].substring(dot+1);
             }else{
                 objExpr='_ENV';
