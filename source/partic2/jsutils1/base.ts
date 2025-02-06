@@ -87,21 +87,6 @@ export class Task<T> {
     static *yieldWrap<T2>(p: Promise<T2>) {
         return (yield p) as T2;
     }
-    /*
-        Avoid losing Task.currentTask after await returned, and also avoid setting incorrent Task when await is pending.
-        eg: await Task.awaitWrap(anotherAsyncFunction())
-    */
-    static async awaitWrap<T2>(p: Promise<T2>) {
-        Task.getAbortSignal()?.throwIfAborted();
-        let savedTask = Task.currentTask;
-        Task.currentTask = null;
-        try {
-            let r = await p;
-            return r;
-        } finally {
-            Task.currentTask = savedTask;
-        }
-    }
     constructor(taskMain: Generator<Promise<any>, T, any> | (() => Generator<Promise<any>, T, any>),
         public name?: string) {
         this.__iter = (typeof taskMain === 'function') ? taskMain() : taskMain;
@@ -180,13 +165,9 @@ export class Task<T> {
 }
 
 
-export function setupAwaitHook(){
-    (Promise as any).__awaitHook=Task.awaitWrap;
-}
-
 if(('Promise' in globalThis) && !('__awaitHook' in globalThis.Promise)){
-    //Should we setup await hook automatically?
-    setupAwaitHook();
+    //Should we setup empty await hook automatically?
+    (Promise as any).__awaitHook=()=>{}
 }
 
 export function throwIfAbortError(e:Error){
