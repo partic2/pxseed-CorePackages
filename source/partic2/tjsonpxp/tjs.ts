@@ -2,7 +2,7 @@ import { RpcExtendClientObject, TableSerializer } from "pxprpc/extend";
 import { Invoker,getDefault } from "partic2/pxprpcBinding/JseHelper__JseIo";
 import { WaitUntil, future,copy, ArrayWrap2 } from "partic2/jsutils1/base";
 
-import type {} from '@txikijs/types'
+import type {} from '@txikijs/types/src/index'
 
 
 /**
@@ -355,7 +355,7 @@ function homedir(){
 }
 
     let tjsi={
-        realpath,unlink,rename,mkstemp,stat,open,rmdir,copyfile,mkdir,readdir,readFile,rm,spawn,homedir,platform
+        realpath,unlink,rename,mkstemp,stat,open,rmdir,copyfile,mkdir,readdir,readFile,rm,spawn,homedir,platform,realPath:realpath
     } as any;
 
     (invoker as any)[tjsImpl]=tjsi;
