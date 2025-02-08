@@ -46,7 +46,7 @@ export class StdioShell extends React.Component<StdioShellProps,StdioShellStats>
             let tjs=await tjsFrom(this.props.ws.jseio!);
             if(cmdline==undefined){
                 cmdline='sh';
-                if(tjs.platform=='windows'){
+                if(tjs.system.platform=='windows'){
                     cmdline='cmd';
                 }
             }else{

@@ -126,7 +126,6 @@ export let pxseedBuiltinLoader={
         let json =(await import('@rollup/plugin-json')).default;
         let terser =(await import('@rollup/plugin-terser')).default;
         let replacer=(await import('@rollup/plugin-replace')).default
-        let builtinModules=(await import('builtin-modules')).default;
         for(let mod of config.entryModules){
             let existed=false;
             try{
@@ -149,7 +148,7 @@ export let pxseedBuiltinLoader={
                         })
                     ],
                     external:(source: string, importer: string | undefined, isResolved: boolean):boolean|null => {
-                        if(builtinModules.includes(source)){
+                        if((globalThis as any).requirejs.__nodeenv.require.resolve.paths(source)==null){
                             return true;
                         }
                         return false;

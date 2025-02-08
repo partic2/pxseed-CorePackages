@@ -1,7 +1,7 @@
 
 import { ArrayWrap2, GenerateRandomString, GetCurrentTime, assert, future, requirejs, throwIfAbortError } from "partic2/jsutils1/base";
 import { CKeyValueDb, getWWWRoot, kvStore, path } from "partic2/jsutils1/webutils";
-import type * as tjsGlobalDecl from '@txikijs/types/types/txikijs'
+import type {} from '@txikijs/types/src/index'
 import { ClientInfo } from "partic2/pxprpcClient/registry";
 import {path as lpath} from 'partic2/jsutils1/webutils'
 import type { LocalRunCodeContext } from "./CodeContext";
@@ -79,7 +79,7 @@ export class TjsSfs implements SimpleFileSystem{
     }
     async delete2(path: string): Promise<void> {
         path=this.pathConvert(path);
-        await this.impl!.rm(path);
+        await this.impl!.remove(path);
     }
     protected pathConvert(path:string):string{
         if(path===''){
@@ -109,7 +109,7 @@ export class TjsSfs implements SimpleFileSystem{
         }
         path=this.pathConvert(path);
         let files=[] as { name: string; type: string; }[];
-        for await (let child of await this.impl!.readdir(path)){
+        for await (let child of await this.impl!.readDir(path)){
             files.push({name:child.name,type:child.isDirectory?'dir':'file'})
         }
         return files;
@@ -125,7 +125,7 @@ export class TjsSfs implements SimpleFileSystem{
     }
     async mkdir(path: string): Promise<void> {
         path=this.pathConvert(path);
-        await this.impl!.mkdir(path);
+        await this.impl!.makeDir(path);
     }
     async rename(path: string, newPath: string): Promise<void> {
         path=this.pathConvert(path);
@@ -135,7 +135,7 @@ export class TjsSfs implements SimpleFileSystem{
     async dataDir(): Promise<string> {
         //note homedir is Application specified, not the user home normally.
         //maybe we should use another function name.
-        let datadir=this.impl!.homedir().replace(/\\/g,'/');
+        let datadir=this.impl!.homeDir.replace(/\\/g,'/');
         if(!datadir.startsWith('/')){
             datadir='/'+datadir;
         }

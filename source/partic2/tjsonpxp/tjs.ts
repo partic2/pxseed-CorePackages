@@ -355,7 +355,13 @@ function homedir(){
 }
 
     let tjsi={
-        realpath,unlink,rename,mkstemp,stat,open,rmdir,copyfile,mkdir,readdir,readFile,rm,spawn,homedir,platform,realPath:realpath
+        realpath,unlink,rename,mkstemp,stat,open,rmdir,copyfile,mkdir,readdir,readFile,rm,spawn,homedir,platform,
+        realPath:realpath,
+        remove:rm,
+        homeDir:dataDir,
+        makeDir:mkdir,
+        readDir:readdir,
+        system:{platform:platform}
     } as any;
 
     (invoker as any)[tjsImpl]=tjsi;
