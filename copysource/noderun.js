@@ -22,6 +22,7 @@ process.on('uncaughtException', (error) => {
 let nodeRequire=require
 class NodeScriptLoader{
     currentDefiningModule=null
+    useLegacyRequire=false;
     async loadModuleAsync(moduleId,url){
         try{
             let filename=await fs.realpath(url);
@@ -38,24 +39,37 @@ class NodeScriptLoader{
                 throw e;
             }
         }
-        try{
-            let nodeImportName=moduleId;
-            let mod;
+        if(!this.useLegacyRequire){
             try{
+                let nodeImportName=moduleId;
+                let mod;
                 mod=await import(nodeImportName);
+                define(moduleId,[],mod)
+                return null;
             }catch(e){
-                //Some es module can only import with .js suffix.
-                mod=await import(nodeImportName+'.js');
+                if(e.code=='MODULE_NOT_FOUND'){
+                    //mute
+                }else{
+                    console.warn(e);
+                }
             }
-            define(moduleId,[],mod)
-            return null;
-        }catch(e){
-            if(e.message.indexOf('Cannot find module')>=0){
-                //mute
-            }else{
-                console.warn(e);
+        }else{
+            //For these version NOT support dynamic import.
+            try{
+                let nodeImportName=moduleId;
+                let mod;
+                mod=require(nodeImportName);
+                define(moduleId,[],{...mod,default:mod});
+                return null;
+            }catch(e){
+                if(e.code=='MODULE_NOT_FOUND'){
+                    //mute
+                }else{
+                    console.warn(e);
+                }
             }
         }
+        
         return new Error('NodeScriptLoader:Cannot find module '+moduleId);
     }
     loadModule(moduleId,url,done){
@@ -78,7 +92,13 @@ exports.main=async (entry)=>{
         waitSeconds:30,
         nodeIdCompat:true  //remove suffix .js
     });
-    define.amd.scriptLoaders.push(new NodeScriptLoader());
+    let nodeLoader=new NodeScriptLoader();
+    try{
+        await import('os')
+    }catch(e){
+        nodeLoader.useLegacyRequire=true;
+    }
+    define.amd.scriptLoaders.push(nodeLoader);
     //XXX: UMD module may incorrectly use AMD "define" in node module loading,
     //So we hook the node loader and delete "define" temporarily when load module in "(npmdeps)/node_modules" directory.
     //Maybe we can find better solution?
