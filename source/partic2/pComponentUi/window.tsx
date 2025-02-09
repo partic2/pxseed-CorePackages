@@ -23,7 +23,8 @@ interface WindowComponentProps{
 interface WindowComponentStats{
     activeTime:number,
     folded:boolean,
-    layout:{left:number,top:number,width?:number,height?:number}
+    layout:{left:number,top:number,width?:number,height?:number},
+    errorOccured:Error|null,
 }
 
 import {getIconUrl} from 'partic2/pxseedMedia1/index1'
@@ -36,13 +37,18 @@ export class WindowComponent extends React.Component<WindowComponentProps,Window
         title:'untitled',
         position:'initial center'
     }
-    layerTransformer=new TransformHelper();
-    rref={
-        container:new ReactRefEx<HTMLDivElement>()
+    static getDerivedStateFromError(error: any): object | null {
+        return {errorOccured:error};
     }
+    rref={
+        container:new ReactRefEx<HTMLDivElement>(),
+        contentDiv:new ReactRefEx<HTMLDivElement>()
+    }
+    protected fixContentSize=false;
+
     constructor(props:WindowComponentProps,ctx:any){
         super(props,ctx);
-        this.setState({activeTime:-1,folded:false,layout:{left:0,top:0}});
+        this.setState({activeTime:-1,folded:false,layout:{left:0,top:0},errorOccured:null});
     }
     async makeCenter(){
         //wait for layout complete?     
@@ -74,9 +80,8 @@ export class WindowComponent extends React.Component<WindowComponentProps,Window
         let left=(wndWidth-width)>>1;
         let top=(wndHeight-height)>>1;
         await new Promise((resolve)=>{
-            this.setState({layout:{left:left,top:top,width:width,height:height}},()=>resolve(null))
+            this.setState({layout:{left:left,top:top}},()=>resolve(null))
         });
-        //check if scroll bar still appear?
     }
     renderIcon(url:string|null,onClick:()=>void){
         if(url==null){
@@ -200,8 +205,11 @@ export class WindowComponent extends React.Component<WindowComponentProps,Window
             }}>
                 {this.renderTitle()}
                 {[
-                    <div style={{overflow:'auto',...contentDivStyle}}>
-                        {this.props.children}
+                    <div style={{overflow:'auto',...contentDivStyle}} ref={this.rref.contentDiv}>
+                        {this.state.errorOccured==null?this.props.children:<pre style={{backgroundColor:'white',color:'black'}}>
+                            {this.state.errorOccured.message}
+                            {this.state.errorOccured.stack}
+                        </pre>}
                     </div>,
                     this.state.folded?null:<img src={getIconUrl('arrow-down-right.svg')} 
                     style={{
@@ -237,11 +245,15 @@ let floatWindowContainer:HTMLDivElement|null=null;
 function ensureFloatWindowContainer(){
     if(floatWindowContainer==null){
         floatWindowContainer=document.createElement('div');
+        floatWindowContainer.style.position='absolute';
+        floatWindowContainer.style.left='0px';
+        floatWindowContainer.style.top='0px';
         document.body.appendChild(floatWindowContainer);
     }
     return floatWindowContainer;
 }
 let floatWindowVNodes:React.VNode[]=[];
+
 export function appendFloatWindow(window:React.VNode,active?:boolean){
     active=active??true;
     let ref2=new ReactRefEx<WindowComponent>().forward([window.ref].filter(v=>v!=undefined) as React.Ref<any>[]);

@@ -28,11 +28,18 @@ class AddCard extends React.Component<{},{
             name:tname
         })
     }
+    decodeURISafe(s:string){
+        try{
+            return decodeURIComponent(s);
+        }catch(e){
+            return '';
+        }
+    }
     protected parseRpcChain(url:string){
         let url1=new URL(url);
         assert(url1.protocol==='iooverpxprpc:')
         let chain1=url1.pathname.split('/');
-        return chain1.map(t1=>decodeURIComponent(t1));
+        return chain1.map(t1=>this.decodeURISafe(t1));
     }
     getAddClientInfo(){
         return {
