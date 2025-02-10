@@ -1,6 +1,6 @@
 import * as fs from 'fs/promises'
 import {spawn} from 'child_process'
-import {constants} from 'fs'
+import {constants,accessSync} from 'fs'
 import {dirname,sep,basename,join as pathJoin, relative} from 'path'
 import {glob} from 'tinyglobby'
 import { readJson, runCommand } from './util'
@@ -126,7 +126,8 @@ export let pxseedBuiltinLoader={
         let json =(await import('@rollup/plugin-json')).default;
         let terser =(await import('@rollup/plugin-terser')).default;
         let replacer=(await import('@rollup/plugin-replace')).default
-        for(let mod of config.entryModules){
+        for(let i1=0;i1<config.entryModules.length && i1<0xffff;i1++){
+            let mod=config.entryModules[i1];
             let existed=false;
             try{
                 await fs.access(pathJoin(outputDir,mod+'.js'),constants.R_OK);
@@ -135,6 +136,7 @@ export let pxseedBuiltinLoader={
                 existed=false
             }
             if(!existed){
+                console.info(`create bundle for ${mod}`)
                 let task=await rollup({
                     input:[mod],
                     plugins:[
@@ -149,6 +151,12 @@ export let pxseedBuiltinLoader={
                     ],
                     external:(source: string, importer: string | undefined, isResolved: boolean):boolean|null => {
                         if((globalThis as any).requirejs.__nodeenv.require.resolve.paths(source)==null){
+                            return true;
+                        }
+                        if(source!=mod && !/^[\/\.]/.test(source) && !/^[a-zA-Z]:\\/.test(source)){
+                            if(!config.entryModules.includes(source)){
+                                config.entryModules.push(source);
+                            }
                             return true;
                         }
                         return false;
