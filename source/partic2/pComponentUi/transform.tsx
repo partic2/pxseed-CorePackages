@@ -1,6 +1,7 @@
-import { GenerateRandomString, clone } from 'partic2/jsutils1/base';
+import { GenerateRandomString, Ref2, clone } from 'partic2/jsutils1/base';
 import { DynamicPageCSSManager } from 'partic2/jsutils1/webutils';
 import * as React from 'preact'
+import { ReactRefEx } from './domui';
 
 
 export class PointTrace{
@@ -44,8 +45,8 @@ export class PointTrace{
             ev.preventDefault();
         }
     }
-    start(initClientPosition:{x:number,y:number},stopOnUp?:boolean){
-        this.startPos={...initClientPosition};
+    start(initClientPosition?:{x:number,y:number},stopOnUp?:boolean){
+        this.startPos={...this.startPos,...initClientPosition};
         document.addEventListener('mousemove',this.__onMouseMove,{passive:false})
         document.addEventListener('touchmove',this.__onTouchMove,{passive:false})
         if(stopOnUp===true){
@@ -214,6 +215,60 @@ export class DraggableAndScalable extends TransformHelper{
         super.detach();
         for(let k in this.listener){
             this.eventElem!.removeEventListener(k,this.listener[k]);
+        }
+    }
+}
+
+export class DragController{
+    dragged:{
+        newPos?:(pos:{left:number,top:number})=>void
+        curPos?:()=>{left:number,top:number}
+    }={}
+    positionInitialized=false;
+    moved=false;
+    draggedRef<T2 extends HTMLElement>(initPos?:{left:number,top:number}){
+        let ref=new ReactRefEx<T2>();
+        this.dragged.curPos=()=>{
+            let elem=ref.current;
+            if(elem==null)return {left:0,top:0};
+            return {left:Number(elem.style.left.replace(/px/,'')),top:Number(elem.style.top.replace(/px/,''))}
+        }
+        this.dragged.newPos=(pos)=>{
+            let elem=ref.current;
+            if(elem!=null){
+                elem.style.left=pos.left+'px';
+                elem.style.top=pos.top+'px';
+            }
+        }
+        if(initPos!=undefined&&!this.positionInitialized){
+            this.positionInitialized=true;
+            ref.waitValid().then((elem)=>{
+                elem.style.left=initPos.left+'px';
+                elem.style.top=initPos.top+'px';
+            });
+        }
+        return ref;
+    }
+    //Usually used for click handle
+    checkIsMovedSinceLastCheck(){
+        let moved=this.moved;
+        this.moved=false;
+        return moved;
+    }
+    protected _moveTrace=new PointTrace({
+        onMove:(curr,start)=>{
+            this.dragged.newPos?.({left:curr.x-start.x,top:curr.y-start.y});
+            this.moved=true;
+        }
+    });
+    trigger={
+        onMouseDown:(ev:MouseEvent)=>{
+            let {left,top}=this.dragged.curPos?.()??{left:0,top:0};
+            this._moveTrace.start({x:ev.clientX-left,y:ev.clientY-top},true);
+        },
+        onTouchStart:(ev:TouchEvent)=>{
+            let {left,top}=this.dragged.curPos?.()??{left:0,top:0};
+            this._moveTrace.start({x:ev.touches[0].clientX-left,y:ev.touches[0].clientY-top},true);
         }
     }
 }
