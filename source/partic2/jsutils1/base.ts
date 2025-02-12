@@ -164,12 +164,6 @@ export class Task<T> {
     }
 }
 
-
-if(('Promise' in globalThis) && !('__awaitHook' in globalThis.Promise)){
-    //Should we setup empty await hook automatically?
-    (Promise as any).__awaitHook=()=>{}
-}
-
 export function throwIfAbortError(e:Error){
     if(e.name==='AbortError'){
         throw e;
@@ -216,7 +210,7 @@ export function FormatDate(date: Date, layout: string) {
         "hh": date.getHours()%12,
         "mm": date.getMinutes(),
         "ss": date.getSeconds(),
-        "SS": date.getMilliseconds()
+        "SSS": date.getMilliseconds()
     };
     outstr=outstr.replace(/yyyy/,date.getFullYear().toString().padStart(4,'0'));
     for (var k in o) {
@@ -238,7 +232,9 @@ export function ParseDate(dateStr: string, layout: string): Date {
     let minute = pos >= 0 ? Number.parseInt(dateStr.substring(pos, pos+2)) : 0;
     pos = layout.indexOf('ss');
     let second = pos >= 0 ? Number.parseInt(dateStr.substring(pos, pos+2)) : 0;
-    return new Date(year, month, date, hour, minute, second)
+    pos = layout.indexOf('SSS');
+    let millisecond = pos >= 0 ? Number.parseInt(dateStr.substring(pos, pos+3)) : 0;
+    return new Date(year, month, date, hour, minute, second,millisecond)
 }
 
 
@@ -379,8 +375,9 @@ export class ArrayWrap2<T>{
         return this.arr()[Symbol.iterator];
     }
     public static *IntSequence(start:number,end:number,step?:number){
-        step=step??1;
-        for(let t1=start;t1<end;t1+=step){
+        assert(step!==0);
+        step=step??(end>=start?1:-1);
+        for(let t1=start;(step>0)?(t1<end):(t1>end);t1+=step){
             yield t1;
         }
     }
@@ -512,6 +509,27 @@ export let requirejs = {
     getLocalRequireModule(localRequire:typeof require):string{
         //partic2-iamdee feature
         return (localRequire as any).localRequireModule
+    },
+    definingHook:null as ((defineParameter:{moduleId:string,dependencies:string[],defineFactory: Function})=>void)[]|null,
+    async addDefiningHook(hook:(defineParameter:{moduleId:string,dependencies:string[],defineFactory: Function})=>void){
+        //partic2-iamdee feature
+        if(this.definingHook===null){
+            this.definingHook=[];
+            let {onDefining}=await this.getConfig();
+            if(onDefining!=undefined){
+                this.definingHook.push(onDefining);
+            }
+            amdContext.requirejs.config({
+                onDefining:(defineParameter:{moduleId:string,dependencies:string[],defineFactory: Function})=>{
+                    if(this.definingHook!=null){
+                        for(let t1 of this.definingHook){
+                            t1(defineParameter);
+                        }
+                    }
+                }
+            })
+        }
+        this.definingHook.push(hook);
     }
 }
 
@@ -604,7 +622,7 @@ export function DateAdd(org:Date, add:{
     minutes?:number,
     seconds?:number,
     milliseconds?:number
-}|number,field?:'date' | 'month' | 'year' | 'hour' | 'minute' | 'second' | 'milliseconds'):Date{
+}|number,field?:'date' | 'month' | 'year' | 'hour' | 'minute' | 'second' | 'millisecond'):Date{
     if(typeof add==='number'){
         assert(field!=undefined);
         switch(field){
@@ -615,7 +633,7 @@ export function DateAdd(org:Date, add:{
             case 'hour':
             case 'minute':
             case 'second':
-            case 'milliseconds':
+            case 'millisecond':
                 return DateAdd(org,{[field+'s']:add});
         }
     }else{

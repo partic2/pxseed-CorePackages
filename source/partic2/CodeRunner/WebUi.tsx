@@ -15,12 +15,14 @@ export var css={
     outputCell:GenerateRandomString(),
 }
 
-interface CodeCellProps{
+export interface CodeCellProps{
     codeContext:RunCodeContext,
-    customBtns?:{label:string,cb:()=>Promise<void>}[],
+    customBtns?:{label:string,cb:()=>Promise<any>}[],
     onRun?:()=>void,
     onClearOutputs?:()=>void,
 
+    //How to run code with key shortcut, default value:'Ctl+Ent'. use Ctrl+Enter for new line in 'Enter' mode.
+    runCodeKey?:'Ctl+Ent'|'Enter'
     //To be used in code cell list.
     onFocusChange?:(focusin:boolean)=>void,
     focusin:boolean|'auto'
@@ -35,6 +37,7 @@ interface CodeCellStats{
 }
 
 DynamicPageCSSManager.PutCss('.'+css.outputCell,['overflow:auto'])
+
 
 
 export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
@@ -62,18 +65,28 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
             let err=e as Error
             this.setState({cellOutput:{message:err.message,stack:err.stack}});
         }
+        this.props.onRun?.();
         this.setState({codeCompleteCandidate:[]})
     }
-    requestCodeComplete=new DelayOnceCall(async ()=>{
+    protected requestCodeComplete=new DelayOnceCall(async ()=>{
         this.setState({
             codeCompleteCandidate:await this.props.codeContext.codeComplete(
                 this.getCellInput(),
                 this.rref.codeInput.current!.getTextCaretOffset())
         });
     },300);
-    onCellKeyDown(ev: React.JSX.TargetedKeyboardEvent<HTMLDivElement>){
-        if(ev.code==='Enter'&&ev.ctrlKey){
-            this.onBtnRun();
+    protected __tempDisableEnter2RunCode=false;
+    protected onCellKeyDown(ev: React.JSX.TargetedKeyboardEvent<HTMLDivElement>){
+        if(ev.code==='Enter'){
+            if((this.props.runCodeKey==undefined || this.props.runCodeKey==='Ctl+Ent') && ev.ctrlKey){
+                this.onBtnRun();
+            }
+            if(this.props.runCodeKey=='Enter' && ev.ctrlKey){
+                //prevent trigger input('\n').Is there better way?
+                this.__tempDisableEnter2RunCode=true;
+                this.rref.codeInput.current?.insertText('\n');
+                setTimeout(()=>this.__tempDisableEnter2RunCode=false,50);
+            }
         }else if(ev.code=='Tab'){
             if(this.state.codeCompleteCandidate!=null){
                 if(this.state.codeCompleteCandidate.length>0){
@@ -83,7 +96,7 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
             ev.preventDefault();
         }
     }
-    onCellInput(editor:TextEditor,inputData: { char: string | null; text: string | null; type:string}){
+    protected onCellInput(editor:TextEditor,inputData: { char: string | null; text: string | null; type:string}){
         if(inputData.char!=null&&inputData.char.search(/[a-zA-Z_\.\/]/)>=0){
             this.requestCodeComplete.call();
         }
@@ -105,7 +118,10 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
                 }
                 editor.insertText(leadingSpace)
             }
-            
+            if(this.props.runCodeKey=='Enter' && !this.__tempDisableEnter2RunCode){
+                this.rref.codeInput.current?.deleteText(1);
+                this.runCode();
+            }
         }
     }
     getCellInput(){
@@ -121,13 +137,13 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
     setCellOutput(output:any,resultVariable?:string|null){
         this.setState({cellOutput:output,resultVariable});
     }
-    insertCodeComplete(cc:CodeCompletionItem){
+    protected insertCodeComplete(cc:CodeCompletionItem){
         let caret=this.rref.codeInput.current!.getTextCaretOffset();
         let delCount=caret-cc.replaceRange[0];
         this.rref.codeInput.current!.deleteText(delCount);
         this.rref.codeInput.current!.insertText(cc.candidate);
     }
-    renderCodeComplete(){
+    protected renderCodeComplete(){
         if(this.state.codeCompleteCandidate!=null && this.state.focusin){
             return <div style={{display:'flex',flexDirection:'row',flexWrap:'wrap'}}>
                 {this.state.codeCompleteCandidate.map(v=>{
@@ -160,7 +176,6 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
         }
     }
     protected async onBtnRun(){
-        this.props.onRun?.();
         this.runCode();
     }
     protected async onBtnClearOutputs(){
@@ -181,7 +196,7 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
                     result.push(<a href="javascript:;" onClick={()=>t1.cb()}>{t1.label}</a>)
                 }
             }
-            result.push(<a href="javascript:;" onClick={()=>this.onBtnRun()}>Run(Ctl+Ent)</a>)
+            result.push(<a href="javascript:;" onClick={()=>this.onBtnRun()}>Run({this.props.runCodeKey})</a>)
             result.push(<a href="javascript:;" onClick={()=>this.onBtnClearOutputs()}>ClearOutputs</a>)
         }
         result=result.map(v=>[<span>&nbsp;&nbsp;</span>,v,<span>&nbsp;&nbsp;</span>])
@@ -230,6 +245,9 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
 export class DefaultCodeCellList extends React.Component<
         {
             codeContext:RunCodeContext,
+            onRun?:(cellKey:string)=>void,
+            onCellListChange?:()=>void,
+            cellProps?:{runCodeKey?:'Ctl+Ent'|'Enter'}
         },{
             list:{ref:ReactRefEx<CodeCell>,key:string}[],
             consoleOutput:{[cellKey:string]:{content:string}},
@@ -256,8 +274,17 @@ export class DefaultCodeCellList extends React.Component<
     async newCell(afterCellKey:string){
         let pos=this.state.list.findIndex(v=>v.key==afterCellKey);
         if(pos<0)pos=this.state.list.length-1;
-        this.state.list.splice(pos+1,0,{ref:new ReactRefEx<CodeCell>(),key:GenerateRandomString()})
-        this.forceUpdate();
+        let newKey=GenerateRandomString();
+        this.state.list.splice(pos+1,0,{ref:new ReactRefEx<CodeCell>(),key:newKey});
+        await new Promise<void>(resolve=>this.forceUpdate(resolve));
+        this.props.onCellListChange?.();
+        return newKey;
+    }
+    async setCurrentEditing(cellKey:string){
+        let cell2=this.state.list.find(v=>v.key==cellKey);
+        if(cell2!=undefined && cell2.ref.current!=undefined){
+            await cell2.ref.current.setAsEditTarget()
+        }
     }
     async deleteCell(cellKey:string){
         let pos=this.state.list.findIndex(v=>v.key==cellKey);
@@ -266,8 +293,9 @@ export class DefaultCodeCellList extends React.Component<
         }catch(e){};
         if(pos>=0){
             this.state.list.splice(pos,1);
-            this.forceUpdate();
+            await new Promise<void>(resolve=>this.forceUpdate(resolve));
         }
+        this.props.onCellListChange?.();
     }
     async runCell(cellKey:string){
         let cell=this.state.list.find(v=>v.key==cellKey);
@@ -295,6 +323,9 @@ export class DefaultCodeCellList extends React.Component<
         });
         this.forceUpdate();
     }
+    getCellList(){
+        return this.state.list;
+    }
     render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined; }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChild {
         this.beforeRender();
         return (this.state.codeContext!=null && this.state.error==null)?<div style={{width:'100%',overflowX:'auto'}}>
@@ -304,9 +335,10 @@ export class DefaultCodeCellList extends React.Component<
                     {label:'New',cb:()=>this.newCell(v.key)},
                     {label:'Del',cb:()=>this.deleteCell(v.key)}
                 ]} onClearOutputs={()=>this.clearConsoleOutput(v.key)}
-                    onRun={async ()=>{this.lastRunCellKey=v.key;}}
+                    onRun={async ()=>{this.lastRunCellKey=v.key;this.props.onRun?.(v.key)}}
                     onFocusChange={(focusin)=>{if(focusin)this.setState({lastFocusCellKey:v.key})}}
                     focusin={this.state.lastFocusCellKey==v.key}
+                    {...this.props.cellProps}
                 />];
                 if(v.key in this.state.consoleOutput){
                     r.push(<pre>{this.state.consoleOutput[v.key].content}</pre>)
@@ -371,7 +403,7 @@ export class DefaultCodeCellList extends React.Component<
             this.setState({error:e.message+'\n'+(e.stack??'')})
         }
     }
-    onConsoleData=(event:CodeContextEvent<ConsoleDataEventData>)=>{
+    protected onConsoleData=(event:CodeContextEvent<ConsoleDataEventData>)=>{
         let index=this.state.list.findIndex(v=>v.key===this.lastRunCellKey);
         if(index<0)index=0;
         let cell=this.state.list[index];

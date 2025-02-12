@@ -55,9 +55,11 @@ export class IJSNBFileHandler extends FileTypeHandlerBase{
 }
 
 
-class RunCodeView extends React.Component<{tab:RunCodeTab},{}>{
+class RunCodeView extends React.Component<{tab:RunCodeTab}>{
     valueCollection=new ReactInputValueCollection();
-    
+    constructor(prop:any,ctx:any){
+        super(prop,ctx);
+    }
     actionBar=new ReactRefEx<DefaultActionBar>();
     onKeyDown(ev: React.JSX.TargetedKeyboardEvent<HTMLElement>){
         this.actionBar.current?.processKeyEvent(ev);
@@ -90,7 +92,6 @@ class RunCodeView extends React.Component<{tab:RunCodeTab},{}>{
             }
             </div>
     }
-
 }
 
 export class RunCodeTab extends TabInfoBase{
@@ -98,7 +99,7 @@ export class RunCodeTab extends TabInfoBase{
     fs?:SimpleFileSystem
     path:string=''
     rpc?:ClientInfo
-    rref={ccl:new ReactRefEx<CodeCellList>(),view:new ReactRefEx<RunCodeView>()};
+    rref={ccl:new ReactRefEx<CodeCellList>(),replccl:new ReactRefEx<RunCodeReplView>(),view:new ReactRefEx<RunCodeView>()};
     action={} as Record<string,()=>Promise<void>>
     inited=new future<boolean>();
     async useCodeContext(codeContext:'local window'|ClientInfo|RemoteRunCodeContext|LocalRunCodeContext|null){
@@ -219,5 +220,19 @@ throw new Error('Only worker can reload');
     }
     renderPage() {
         return <RunCodeView ref={this.rref.view} tab={this}/>
+    }
+}
+
+
+export class RunCodeReplView extends React.Component<{codeContext:RunCodeContext}>{
+    rref={
+        list:new ReactRefEx<CodeCellList>()
+    }
+    async onCellRun(cellKey:string){
+        let nextCell=await (await this.rref.list.waitValid()).newCell(cellKey);
+        (await this.rref.list.waitValid()).setCurrentEditing(nextCell);
+    }
+    render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined; }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChild {
+        return <CodeCellList codeContext={this.props.codeContext} onRun={(key)=>this.onCellRun(key)} ref={this.rref.list} cellProps={{runCodeKey:'Enter'}}/>
     }
 }

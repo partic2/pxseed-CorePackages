@@ -59,7 +59,7 @@ export interface RunCodeContext{
 
     //use pipe for faster communication, avoid code compiling.
     //return null if no such pipe.
-    //Code runing in context can create pipe server by calling _ENV.servePipe with type (name:string)=>Promise<Io>
+    //Code runing in context can create pipe server by calling _ENV.servePipe in type (name:string)=>Promise<Io>
     connectPipe(name:string):Promise<Io|null>
 }
 //RunCodeContext.jsExec run code like this
@@ -279,12 +279,14 @@ export class LocalRunCodeContext implements RunCodeContext{
             }
         });
         let lastStat=result.body[result.body.length-1];
-        if(lastStat.type.indexOf('Expression')>=0){
-            replacePlan.push({
-                start:lastStat.start,
-                end:lastStat.start,
-                newString:' return '
-            });
+        if(lastStat!=undefined){
+            if(lastStat.type.indexOf('Expression')>=0){
+                replacePlan.push({
+                    start:lastStat.start,
+                    end:lastStat.start,
+                    newString:' return '
+                });
+            }
         }
         let modified:string[]=[];
         let start=0;
