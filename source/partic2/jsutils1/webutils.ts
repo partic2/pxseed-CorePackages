@@ -633,3 +633,47 @@ if('document' in globalThis){
         lifecycle.dispatchEvent(new Event('exit'));
     });
 }
+
+
+export class GlobalInputStateTracer{
+    pressingKey=new Set<string>();
+    mouseState={x:0,y:0,left:false,right:false,center:false};
+    touchsPosition=new Array<{x:number,y:number,id:number}>();
+    protected keyDownHandler=(ev:KeyboardEvent)=>{
+        this.pressingKey.add(ev.key);
+    }
+    protected keyUpHandler=(ev:KeyboardEvent)=>{
+        this.pressingKey.delete(ev.key);
+    }
+    protected mouseHandler=(ev:MouseEvent)=>{
+        this.mouseState.x=ev.clientX;
+        this.mouseState.y=ev.clientY;
+        this.mouseState.left=(ev.buttons&1)!=0;
+        this.mouseState.right=(ev.buttons&2)!=0;
+        this.mouseState.center=(ev.buttons&3)!=0;
+    }
+    protected touchHandler=(ev:TouchEvent)=>{
+        ev.touches.item(0)
+        this.touchsPosition.splice(0,this.touchsPosition.length);
+        for(let t1=0;t1<ev.touches.length;t1++){
+            let t2=ev.touches.item(t1)!;
+            this.touchsPosition.push({x:t2.clientX,y:t2.clientY,id:t2.identifier});
+        }
+    }
+    enabled=false;
+    enable(){
+        if(!this.enabled){
+            this.enabled=true;
+            window.addEventListener('keydown',this.keyDownHandler);
+            window.addEventListener('keyup',this.keyUpHandler);
+            window.addEventListener('mousemove',this.mouseHandler);
+            window.addEventListener('mouseup',this.mouseHandler);
+            window.addEventListener('mousedown',this.mouseHandler);
+            window.addEventListener('touchstart',this.touchHandler);
+            window.addEventListener('touchmove',this.touchHandler);
+            window.addEventListener('touchend',this.touchHandler);
+            window.addEventListener('touchcancel',this.touchHandler);
+        }
+    }
+}
+export var globalInputState=new GlobalInputStateTracer();
