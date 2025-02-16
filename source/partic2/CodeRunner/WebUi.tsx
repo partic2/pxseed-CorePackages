@@ -50,6 +50,7 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
         this.setState({codeCompleteCandidate:null,focusin:false})
     }
     async runCode(){
+        this.props.onRun?.();
         try{
             this.setState({cellOutput:'Running...'});
             let resultVariable=this.state.resultVariable??('__result_'+GenerateRandomString());
@@ -65,7 +66,6 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
             let err=e as Error
             this.setState({cellOutput:{message:err.message,stack:err.stack}});
         }
-        this.props.onRun?.();
         this.setState({codeCompleteCandidate:[]})
     }
     protected requestCodeComplete=new DelayOnceCall(async ()=>{
@@ -76,12 +76,15 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
         });
     },300);
     protected __tempDisableEnter2RunCode=false;
+    protected getRunCodeKey(){
+        return this.props.runCodeKey??'Ctl+Ent';
+    }
     protected onCellKeyDown(ev: React.JSX.TargetedKeyboardEvent<HTMLDivElement>){
         if(ev.code==='Enter'){
-            if((this.props.runCodeKey==undefined || this.props.runCodeKey==='Ctl+Ent') && ev.ctrlKey){
+            if((this.getRunCodeKey()==undefined || this.getRunCodeKey()==='Ctl+Ent') && ev.ctrlKey){
                 this.onBtnRun();
             }
-            if(this.props.runCodeKey=='Enter' && ev.ctrlKey){
+            if(this.getRunCodeKey()=='Enter' && ev.ctrlKey){
                 //prevent trigger input('\n').Is there better way?
                 this.__tempDisableEnter2RunCode=true;
                 this.rref.codeInput.current?.insertText('\n');
@@ -118,7 +121,7 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
                 }
                 editor.insertText(leadingSpace)
             }
-            if(this.props.runCodeKey=='Enter' && !this.__tempDisableEnter2RunCode){
+            if(this.getRunCodeKey()=='Enter' && !this.__tempDisableEnter2RunCode){
                 this.rref.codeInput.current?.deleteText(1);
                 this.runCode();
             }
@@ -196,7 +199,7 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
                     result.push(<a href="javascript:;" onClick={()=>t1.cb()}>{t1.label}</a>)
                 }
             }
-            result.push(<a href="javascript:;" onClick={()=>this.onBtnRun()}>Run({this.props.runCodeKey})</a>)
+            result.push(<a href="javascript:;" onClick={()=>this.onBtnRun()}>Run({this.getRunCodeKey()})</a>)
             result.push(<a href="javascript:;" onClick={()=>this.onBtnClearOutputs()}>ClearOutputs</a>)
         }
         result=result.map(v=>[<span>&nbsp;&nbsp;</span>,v,<span>&nbsp;&nbsp;</span>])

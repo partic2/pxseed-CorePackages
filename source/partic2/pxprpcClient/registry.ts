@@ -224,7 +224,7 @@ export async function getConnectionFromUrl(url:string):Promise<Io|null>{
         let firstSlash=url2.pathname.indexOf('/');
         let firstRpcName=decodeURIComponent(url2.pathname.substring(0,firstSlash));
         let restRpcPath=url2.pathname.substring(firstSlash+1);
-        let cinfo=getRegistered(firstRpcName);
+        let cinfo=await getPersistentRegistered(firstRpcName);
         if(cinfo==null){
             cinfo=await addClient(firstRpcName,firstRpcName);
         }

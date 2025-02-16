@@ -34,7 +34,7 @@ export let WsServer={
         }
         
     },
-    router:{} as {[path:string]:(io:NodeWsIo,url:string|undefined,headers:IncomingHttpHeaders)=>void}
+    router:{} as {[path:string]:(io:NodeWsIo,url:string|undefined,headers?:IncomingHttpHeaders)=>void}
 }
 
 
@@ -49,6 +49,7 @@ let pxseedFilesServer=koaFiles(dirname(dirname(__dirname)));
 export interface PxseedServer2023StartupConfig{
     pxseedBase?:string,
     pxprpcPath?:string,
+    wsPipePath?:string
     listenOn?:{host:string,port:number},
     initModule?:string[],
     pxprpcCheckOrigin?:string[]|false,
@@ -70,6 +71,7 @@ export interface PxseedServer2023StartupConfig{
 export let config:PxseedServer2023StartupConfig={
     pxseedBase:'/pxseed',
     pxprpcPath:'/pxprpc/0',
+    wsPipePath:'/ws/pipe',
     listenOn:{host:'127.0.0.1',port:8088},
     initModule:[],
     pxprpcCheckOrigin:['localhost','127.0.0.1','[::1]'],
@@ -91,6 +93,69 @@ export function nodeRun(moduleName:string,args:string[]):ChildProcess{
     return spawn(process.execPath,[noderunJs,moduleName,...args],{
         stdio:'inherit'
     });
+}
+
+export function pxprpcHandler(io:NodeWsIo,url:string|undefined,headers?:IncomingHttpHeaders){
+    let pass=false;
+    if(config.pxprpcCheckOrigin===false || headers?.origin==undefined){
+        pass=true;
+    }else if(headers.origin!=undefined){
+        let originUrl=new URL(headers.origin);
+        for(let t1 of [config.listenOn!.host,...(config.pxprpcCheckOrigin as string[])]){
+            if(originUrl.hostname===t1){
+                pass=true;
+            };
+        }
+    }
+    if(!pass){
+        io.close();
+        return;
+    }
+    pass=false;
+    if(config.pxprpcKey===null){
+        pass=true;
+    }else{
+        if(decodeURIComponent(GetUrlQueryVariable2(url??'','key')??'')===config.pxprpcKey){
+            pass=true;
+        }else{
+            pass=false;
+        }
+    }
+    if(pass){
+        let serv=new RpcExtendServer1(new PxprpcBaseServer(io));
+        //mute error
+        serv.serve().catch(()=>{});
+    }else{
+        io.close();
+    }
+}
+
+export let wsPipe=new Map<string,Set<Io>>();
+export async function wsPipeHandler(io:NodeWsIo,url:string|undefined,headers?:IncomingHttpHeaders){
+    if(url==undefined)return;
+    let id=GetUrlQueryVariable2(url,'id');
+    if(id==undefined)return;
+    let pipes=wsPipe.get(id);
+    if(pipes==undefined){
+        pipes=new Set<Io>();
+        wsPipe.set(id,pipes);
+    }
+    pipes.add(io);
+    try{
+        while(true){
+            let msg=await io.receive();
+            for(let t1 of pipes){
+                if(t1!=io){
+                    await t1.send([msg]);
+                }
+            }
+        }
+    }catch(e){
+        pipes.delete(io);
+        if(pipes.size==0){
+            wsPipe.delete(id);
+        }
+    }
 }
 
 export let ensureInit=new future<number>();
@@ -153,40 +218,8 @@ export let ensureInit=new future<number>();
         
         koaServ.use(koaRouter.middleware())
         console.log(JSON.stringify(config,undefined,2));
-        WsServer.router[config.pxseedBase!+config.pxprpcPath]=(io,url,headers)=>{
-            let pass=false;
-            if(config.pxprpcCheckOrigin===false || headers.origin==undefined){
-                pass=true;
-            }else if(headers.origin!=undefined){
-                let originUrl=new URL(headers.origin);
-                for(let t1 of [config.listenOn!.host,...(config.pxprpcCheckOrigin as string[])]){
-                    if(originUrl.hostname===t1){
-                        pass=true;
-                    };
-                }
-            }
-            if(!pass){
-                io.close();
-                return;
-            }
-            pass=false;
-            if(config.pxprpcKey===null){
-                pass=true;
-            }else{
-                if(decodeURIComponent(GetUrlQueryVariable2(url??'','key')??'')===config.pxprpcKey){
-                    pass=true;
-                }else{
-                    pass=false;
-                }
-            }
-            if(pass){
-                let serv=new RpcExtendServer1(new PxprpcBaseServer(io));
-                //mute error
-                serv.serve().catch(()=>{});
-            }else{
-                io.close();
-            }
-        }
+        WsServer.router[config.pxseedBase!+config.pxprpcPath]=pxprpcHandler;
+        WsServer.router[config.pxseedBase!+config.wsPipePath]=wsPipeHandler;
         function doExit(){
             console.info('exiting...');
             lifecycle.dispatchEvent(new Event('pause'));

@@ -19,27 +19,6 @@ acorn.defaultOptions.sourceType='module'
 const __name__=requirejs.getLocalRequireModule(require);
 
 
-export function addAwaitHook(source:string){
-    let replacePlan=[] as {start:number,end:number,newString:string}[];
-    ancestor(acorn.parse(source,{ecmaVersion:'latest'}),{
-        AwaitExpression:(node)=>{
-            if(!source.substring(node.argument.start,node.argument.end).startsWith('Promise.__awaitHook(')){
-                replacePlan.push({start:node.argument.start,end:node.argument.start,newString:'Promise.__awaitHook('});
-                replacePlan.push({start:node.argument.end,end:node.argument.end,newString:')'});
-            }
-        }
-    });
-    let modified:string[]=[];
-    let start=0;
-    replacePlan.sort((a,b)=>a.start-b.start)
-    replacePlan.forEach(plan=>{
-        modified.push(source.substring(start,plan.start));
-        modified.push(plan.newString);
-        start=plan.end
-    });
-    modified.push(source.substring(start));
-    return modified.join('');
-}
 
 export interface RunCodeContext{
     //resultVariable=resultVariable??'_'
@@ -146,8 +125,10 @@ export class LocalRunCodeContext implements RunCodeContext{
         __priv_jsExecLib:jsExecLib,
         //custom source processor for 'runCode' _ENV.__priv_processSource, run before built in processor.
         __priv_processSource:null as null|((s:string)=>string),
+        servePipe:this.servePipe.bind(this),
         event:this.event,
-        servePipe:this.servePipe.bind(this)
+        //Will be close when LocalRunCodeContext is closing.
+        autoClosable:{} as Record<string,{close?:()=>void}>,
     };
     localScopeProxy;
     protected onConsoleLogListener=(e:Event)=>{
@@ -214,6 +195,12 @@ export class LocalRunCodeContext implements RunCodeContext{
         ensureFunctionProbe(console,'info').removeEventListener(FuncCallEventType,this.onConsoleLogListener);
         ensureFunctionProbe(console,'warn').removeEventListener(FuncCallEventType,this.onConsoleLogListener);
         ensureFunctionProbe(console,'error').removeEventListener(FuncCallEventType,this.onConsoleLogListener);
+        this.event.dispatchEvent(new CodeContextEvent('close'));
+        for(let [k1,v1] of Object.entries(this.localScope.autoClosable as Record<string,{close?:()=>void}>)){
+            if(v1.close!=undefined){
+                v1.close();
+            }
+        }
     }
     async jsExec(code:string): Promise<string> {
         let r=new Function('lib','codeContext',`return (async ()=>{${code}})();`)(jsExecLib,this)
@@ -322,8 +309,13 @@ export class LocalRunCodeContext implements RunCodeContext{
         let withBlockBegin='with(_ENV){';
         let code=new Function('_ENV',withBlockBegin+
         'return (async ()=>{'+source+'\n})();}');
-        let r=await code(this.localScopeProxy);
-        return r;
+        let scopeProxy=this.localScopeProxy;
+        //TODO: Custom await scheduler and stack tracer, to avoid Task context missing after "await"
+        let r=jsutils1.Task.fork(function*(){
+            jsutils1.Task.locals()![__name__]={_ENV:scopeProxy};
+            return (yield code(scopeProxy)) as any;
+        }).run();
+        return await r;
     }
     completionHandlers=[
         ...defaultCompletionHandlers
@@ -399,8 +391,9 @@ export var jsExecLib={
 }
 
 type OnlyAsyncFunctionProp<Mod>={
-    [P in keyof Mod]:Mod[P] extends (...args:any[])=>Promise<any>?Mod[P]:never
+    [P in (keyof Mod & string)]:Mod[P] extends (...args:any[])=>Promise<any>?Mod[P]:never
 }
+
 
 class RemotePipe extends RemoteReference implements Io{
     context?:RunCodeContext
@@ -441,14 +434,15 @@ export class RemoteEventTarget extends EventTarget{
     protected remotePrepared=new jsutils1.future<string>();
     protected async enableRemoteEvent(type:string){
         await this.remotePrepared.get();
-        await this.codeContext!.jsExec(`codeContext.localScope['${this.remoteQueueName}'].addPullEventType('${type}')`)
+        await this.codeContext!.jsExec(`codeContext.localScope.autoClosable['${this.remoteQueueName}'].addPullEventType('${type}')`)
     }
     protected async pullInterval(){
         await this.codeContext!.jsExec(
-            `codeContext.localScope['${this.remoteQueueName}']=lib.CreateEventQueue(codeContext.localScope${this.remote!.accessPath.map(t1=>`['${t1}']`).join('')})`)
+`codeContext.localScope.autoClosable['${this.remoteQueueName}']=lib.CreateEventQueue(codeContext.localScope${this.remote!.accessPath.map(t1=>`['${t1}']`).join('')})`)
+        
         this.remotePrepared.setResult('');
         while(!closed){
-            let msg=await this.codeContext!.jsExec(`return await codeContext.localScope['${this.remoteQueueName}'].next()`);
+            let msg=await this.codeContext!.jsExec(`return await codeContext.localScope.autoClosable['${this.remoteQueueName}'].next()`);
             let ev=fromSerializableObject(JSON.parse(msg),{});
             this.dispatchEvent(new CodeContextEvent(ev.type,{data:ev.data}));
         }
@@ -459,7 +453,8 @@ export class RemoteEventTarget extends EventTarget{
     }
     close(){
         this.closed=true;
-        this.codeContext!.jsExec(`codeContext.localScope['${this.remoteQueueName}'].close()`)
+        this.codeContext!.jsExec(`codeContext.localScope.autoClosable['${this.remoteQueueName}'].close();
+            delete codeContext.localScope.autoClosable['${this.remoteQueueName}']`)
     }
 }
 
@@ -498,13 +493,13 @@ export class CodeContextShell{
         }
     }
     async createRemotePipe(){
-        let remotePipe=new RemotePipe([`__pipe_${jsutils1.GenerateRandomString()}`]);
+        let remotePipe=new RemotePipe(['autoClosable',`__pipe_${jsutils1.GenerateRandomString()}`]);
         remotePipe.context=this.codeContext
-        let result=await this.codeContext.runCode(`_ENV.${remotePipe.accessPath[0]}=await _ENV.servePipe('${remotePipe.accessPath[0]}')`);
+        let result=await this.codeContext.runCode(`_ENV.${remotePipe.accessPath.join('.')}=await _ENV.servePipe('${remotePipe.accessPath[1]}')`);
         if(result.err!=null){
             throw new Error(result.err.message+'\n'+(result.err.stack??''));
         };
-        remotePipe.local=(await this.codeContext.connectPipe(remotePipe.accessPath[0] as string))!
+        remotePipe.local=(await this.codeContext.connectPipe(remotePipe.accessPath[1] as string))!
         return remotePipe
     }
     async importModule<T>(mod:string,asName:string){
@@ -515,21 +510,33 @@ export class CodeContextShell{
         let shell=this;
                   
         let r={
-            cached:{} as Partial<OnlyAsyncFunctionProp<T>>,
-            getFunc<N extends keyof OnlyAsyncFunctionProp<T>>(name:N):T[N]{
+            asName,
+            cached:{} as Record<string,any>,
+            getFunc<N extends (keyof OnlyAsyncFunctionProp<T>)&string>(name:N):T[N]{
                 if(!(name in this.cached)){
                     this.cached[name]=shell.getRemoteFunction(`${asName}.${name as string}`) as OnlyAsyncFunctionProp<T>[N]
                 }
                 return this.cached[name]!;
             },
+            getRemoteReference<N extends (keyof T) & string>(name:N):RemoteReference{
+                return new RemoteReference([asName,name])
+            },
+            async getRemmoteEventTarget<N extends (keyof T) & string>(name:N):Promise<RemoteEventTarget>{
+                if(!(name in this.cached)){
+                    let et=new RemoteEventTarget();
+                    et.codeContext=shell.codeContext;
+                    await et.useRemoteReference(this.getRemoteReference(name));
+                    et.start();
+                    this.cached[name]=et;
+                }
+                return this.cached[name];
+            },
             toModuleProxy():OnlyAsyncFunctionProp<T>{
                 let that=this;
                 return new Proxy(this.cached,{
                     get(target,p){
-                        if(!(p in target)){
-                            return that.getFunc(p as keyof T);
-                        }else{
-                            return that.cached[p as keyof T];
+                        if(typeof p==='string'){
+                            return that.getFunc(p as any);
                         }
                     }
                 }) as OnlyAsyncFunctionProp<T>;

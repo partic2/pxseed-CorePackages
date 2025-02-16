@@ -44,7 +44,6 @@ export async function getServerConfig():Promise<null|{root:PxseedServer2023Start
     }
 }
 
-
 export async function restartSubprocessSelf(){
     let {current,root}=(await getServerConfig())!;
     assert(current.subprocessIndex!=undefined)
