@@ -114,19 +114,24 @@ export class RunCodeTab extends TabInfoBase{
             }else if(codeContext instanceof ClientInfo){
                 await codeContext.ensureConnected();
                 await (await codeContext.jsServerLoadModule(RemoteCodeContextName)).free();
-                //init worker context
-                await (await codeContext.jsServerLoadModule('partic2/JsNotebook/workerinit')).free();
                 this.rpc=codeContext;
                 this.codeContext=new RemoteRunCodeContext(codeContext.client!);
+                //init worker context
+                await this.codeContext.runCode(`return await (async ()=>{
+                    let workerinit=await import('partic2/JsNotebook/workerinit')
+                    return await workerinit.ensureInited.get()})()`)
             }else if(codeContext instanceof RemoteRunCodeContext){
                 let foundRpc=findRpcClientInfoFromClient(codeContext.client1);
                 if(foundRpc===null){
                     await alert('RemoteRunCodeContext must attached to a registered RpcClientInfo.');
                     return;
                 }
-                await (await foundRpc.jsServerLoadModule('partic2/JsNotebook/workerinit')).free();
                 this.rpc=foundRpc;
                 this.codeContext=codeContext;
+                //init worker context
+                await this.codeContext.runCode(`return await (async ()=>{
+                    let workerinit=await import('partic2/JsNotebook/workerinit')
+                    return await workerinit.ensureInited.get()})()`)
             }else if(codeContext instanceof LocalRunCodeContext){
                 this.codeContext=codeContext
             }else{
