@@ -3,6 +3,7 @@ import { RpcExtendClient1, RpcExtendClientCallable, RpcExtendClientObject } from
 import type { PxseedServer2023StartupConfig } from "./entry";
 import { Client } from "pxprpc/base";
 import { WebSocketIo } from "pxprpc/backend";
+import { IoOverPxprpc } from 'partic2/pxprpcClient/registry'
 
 
 let boundRpcFunctions=Symbol('boundRpcFunctions')
@@ -20,6 +21,9 @@ export class PxseedServer2023Function{
     async subprocessRestartOnExit(index:number){
         return await this.funcs[3].call(index) as RpcExtendClientObject
     }
+    async connectWsPipe(id:string){
+        return new IoOverPxprpc(await this.funcs[4].call(id) as RpcExtendClientObject)
+    }
     funcs:RpcExtendClientCallable[]=[];
     async init(client1:RpcExtendClient1){
         if(boundRpcFunctions in client1){
@@ -29,6 +33,7 @@ export class PxseedServer2023Function{
             this.funcs.push((await client1.getFunc('pxseedServer2023.subprocess.waitExitCode'))!.typedecl('i->i'));
             this.funcs.push((await client1.getFunc('pxseedServer2023.subprocess.restart'))!.typedecl('i->'));
             this.funcs.push((await client1.getFunc('pxseedServer2023.subprocess.restartOnExit'))!.typedecl('i->o'));
+            this.funcs.push((await client1.getFunc('pxseedServer2023.connectWsPipe'))!.typedecl('s->o'));
             (client1 as any).boundRpcFunctions=this.funcs;
         }
     }

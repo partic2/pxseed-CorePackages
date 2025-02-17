@@ -20,6 +20,7 @@ import { ChildProcess, spawn } from 'child_process';
 export let __name__='pxseedServer2023/entry';
 import {WebSocketServer } from 'ws'
 import { NodeWsIo } from 'partic2/nodehelper/nodeio';
+import { createIoPipe } from 'partic2/pxprpcClient/registry';
 
 export let WsServer={
     ws:new WebSocketServer({noServer:true}),
@@ -135,6 +136,11 @@ export async function wsPipeHandler(io:NodeWsIo,url:string|undefined,headers?:In
     if(url==undefined)return;
     let id=GetUrlQueryVariable2(url,'id');
     if(id==undefined)return;
+    id=decodeURIComponent(id);
+    await serveWsPipe(io,id);
+}
+
+export async function serveWsPipe(io:Io,id:string){
     let pipes=wsPipe.get(id);
     if(pipes==undefined){
         pipes=new Set<Io>();
@@ -316,6 +322,11 @@ export let ensureInit=new future<number>();
                 sleep(3000).then(()=>task.abort());
             }}
         }).typedecl('i->o');
+        defaultFuncMap['pxseedServer2023.connectWsPipe']=new RpcExtendServerCallable(async (id:string)=>{
+            let pipe1=createIoPipe();
+            serveWsPipe(pipe1[0],id);
+            return pipe1[1];
+        }).typedecl('s->o');
     }
 })();
 
