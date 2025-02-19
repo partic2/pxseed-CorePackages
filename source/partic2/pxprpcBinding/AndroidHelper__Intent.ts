@@ -68,6 +68,11 @@ export class Invoker{
   let __v2=await __v1!.call(path) as any;
   return __v2;
  }
+ async getUriForFile(path:string):Promise<string>{
+  let __v1=await this.ensureFunc('getUriForFile','s->s');
+  let __v2=await __v1!.call(path) as any;
+  return __v2;
+ }
  async requestSystemAlertWindowPermission():Promise<boolean>{
   let __v1=await this.ensureFunc('requestSystemAlertWindowPermission','->c');
   let __v2=await __v1!.call() as any;

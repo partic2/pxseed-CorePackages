@@ -69,6 +69,11 @@ export class Invoker{
   let __v2=await __v1!.call() as any;
   return __v2;
  }
+ async dumpBundle(b:RpcExtendClientObject):Promise<Uint8Array>{
+  let __v1=await this.ensureFunc('dumpBundle','o->b');
+  let __v2=await __v1!.call(b) as any;
+  return __v2;
+ }
  async close():Promise<void>{
   let __v1=await this.ensureFunc('close','->');
   let __v2=await __v1!.call();

@@ -17,10 +17,6 @@ export class Invoker{
   }
   return __v1;
  }
- async onReceive(context:RpcExtendClientObject,intent:RpcExtendClientObject):Promise<void>{
-  let __v1=await this.ensureFunc('onReceive','oo->');
-  let __v2=await __v1!.call(context,intent);
- }
  async accuireCpuWakeLock():Promise<void>{
   let __v1=await this.ensureFunc('accuireCpuWakeLock','->');
   let __v2=await __v1!.call();

@@ -34,6 +34,19 @@ export class Invoker{
   let __v2=await __v1!.call(timeoutSec) as any;
   return __v2;
  }
+ async eventDispatcher():Promise<RpcExtendClientObject>{
+  let __v1=await this.ensureFunc('eventDispatcher','->o');
+  let __v2=await __v1!.call() as any;
+  return __v2;
+ }
+ async startListenEvent(action:string):Promise<void>{
+  let __v1=await this.ensureFunc('startListenEvent','s->');
+  let __v2=await __v1!.call(action);
+ }
+ async stopListenEvent(action:string):Promise<void>{
+  let __v1=await this.ensureFunc('stopListenEvent','s->');
+  let __v2=await __v1!.call(action);
+ }
 }
 let defaultInvoker:Invoker|null=null;
 export async function getDefault(){
