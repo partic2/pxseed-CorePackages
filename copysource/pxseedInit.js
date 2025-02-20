@@ -66,8 +66,7 @@ __pxseedInit.serviceWorker.cacheFetch=function(url){
     if(globalThis.document!=undefined && globalThis.window!=undefined){
         //browser
         __pxseedInit.env='window'
-        var jsls = document.scripts;
-        var jspath=jsls[jsls.length - 1].src;
+        var jspath=document.currentScript.src;
         __pxseedInit.wwwroot=jspath.substring(0,jspath.lastIndexOf('/'));
         var script = document.createElement('script');
         script.onload=function(ev){
