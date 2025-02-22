@@ -1,12 +1,12 @@
 
 import * as React from 'preact'
-import { css } from './domui';
+import { css, ReactRefEx } from './domui';
 import {Ref2, copy} from 'partic2/jsutils1/base'
 
 export interface TabInfo{
     id:string,
     title:string,
-    tabView:Ref2<TabView|null>,
+    container:Ref2<{forceUpdate:(callback:()=>void)=>void}|null>,
     renderPage:()=>React.ComponentChild,
     onRendered?:()=>void
     onClose():Promise<boolean>,
@@ -21,12 +21,20 @@ export abstract class TabInfoBase implements TabInfo{
     }
     id: string='';
     title: string='';
-    tabView=new Ref2<TabView|null>(null);
+    container=new Ref2<{forceUpdate:(callback:()=>void)=>void}|null>(null);
     async init(initval:Partial<TabInfo>){
         for(let k in initval){
             (this as any)[k]=(initval as any)[k]
         }
         return this;
+    }
+    async requestPageViewUpdate(){
+        let tabView=this.container.get();
+        if(tabView!=null){
+            return new Promise<void>(r=>tabView.forceUpdate(r));
+        }else{
+            return new Promise<void>(r=>r())
+        }
     }
 }
 
@@ -37,10 +45,10 @@ export class TabView extends React.Component<{onTabActive?:(tabId:string)=>void}
     addTab(tabInfo:TabInfo){
         let foundIndex=this.state.tabs.findIndex(v=>v.id==tabInfo.id);
         if(foundIndex<0){
-            tabInfo.tabView.set(this);
+            tabInfo.container.set(this);
             this.state.tabs.push(tabInfo);
         }else{
-            tabInfo.tabView.set(this);
+            tabInfo.container.set(this);
             this.state.tabs.splice(foundIndex,1,tabInfo)
         }
         this.forceUpdate()

@@ -164,6 +164,21 @@ export async function serveWsPipe(io:Io,id:string){
     }
 }
 
+export async function createNewEntryUrlWithPxprpcKey(jsentry:string,urlarg?:string){
+    let accessHost=config.listenOn!.host;
+        if(accessHost=='0.0.0.0'){
+            accessHost='127.0.0.1';
+        }
+    let launcherUrl=`http://${accessHost}:${config.listenOn!.port}${config.pxseedBase}/www/index.html?__jsentry=pxseedServer2023%2fwebentry&__redirectjsentry=${encodeURIComponent(jsentry)}`
+    if(config.pxprpcKey!=null){
+        launcherUrl+=`&__pxprpcKey=${encodeURIComponent(config.pxprpcKey)}`;
+    }
+    if(urlarg!=undefined){
+        launcherUrl+='&'+urlarg;
+    }
+    return launcherUrl;
+}
+
 export let ensureInit=new future<number>();
 ;(async()=>{
     if(!('__workerId' in globalThis)){
@@ -260,14 +275,7 @@ export let ensureInit=new future<number>();
         ensureInit.setResult(0);
         
         console.info(`pxseed server entry url:`)
-        let accessHost=config.listenOn!.host;
-        if(accessHost=='0.0.0.0'){
-            accessHost='127.0.0.1';
-        }
-        let launcherUrl=`http://${accessHost}:${config.listenOn!.port}${config.pxseedBase}/www/index.html?__jsentry=pxseedServer2023%2fwebentry`
-        if(config.pxprpcKey!=null){
-            launcherUrl+='&__pxprpcKey='+encodeURIComponent(config.pxprpcKey)
-        }
+       let launcherUrl=await createNewEntryUrlWithPxprpcKey('partic2/packageManager/webui')
         console.info(launcherUrl);
 
         lifecycle.addEventListener('exit',()=>{
@@ -282,9 +290,14 @@ export let ensureInit=new future<number>();
         defaultFuncMap['pxseedServer2023.restart']=new RpcExtendServerCallable(async ()=>{
             doRestart();
         }).typedecl('->');
+        defaultFuncMap['pxseedServer2023.connectWsPipe']=new RpcExtendServerCallable(async (id:string)=>{
+            let pipe1=createIoPipe();
+            serveWsPipe(pipe1[0],id);
+            return pipe1[1];
+        }).typedecl('s->o');
     }
     Promise.allSettled(config.initModule!.map(mod=>requirejs.promiseRequire(mod)));
-    if(config.deamonMode!.enabled){
+    if(!('__workerId' in globalThis) && config.deamonMode!.enabled){
         let subprocs:ChildProcess[]=[]
         for(let t1=0;t1<config.deamonMode!.subprocessConfig.length;t1++){
             let subprocess=nodeRun(__name__,['--subprocess',String(t1)]);
@@ -322,11 +335,6 @@ export let ensureInit=new future<number>();
                 sleep(3000).then(()=>task.abort());
             }}
         }).typedecl('i->o');
-        defaultFuncMap['pxseedServer2023.connectWsPipe']=new RpcExtendServerCallable(async (id:string)=>{
-            let pipe1=createIoPipe();
-            serveWsPipe(pipe1[0],id);
-            return pipe1[1];
-        }).typedecl('s->o');
     }
 })();
 

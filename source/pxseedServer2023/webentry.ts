@@ -1,6 +1,6 @@
 import { GenerateRandomString, GetCurrentTime, Task, requirejs } from "partic2/jsutils1/base";
 import { BuildUrlFromJsEntryModule, GetJsEntry, GetUrlQueryVariable, GetUrlQueryVariable2 } from "partic2/jsutils1/webutils";
-import { ServerHostRpcName, addClient, getPersistentRegistered, getRegistered, persistent } from "partic2/pxprpcClient/registry";
+import { ServerHostRpcName, addClient, getPersistentRegistered, getRegistered, persistent, removeClient } from "partic2/pxprpcClient/registry";
 import { WebSocketIo } from "pxprpc/backend";
 import { Io, Serializer } from "pxprpc/base";
 
@@ -17,85 +17,12 @@ export async function getPxseedUrl(){
     return {pxseedBaseUrl,pxprpcUrl,wsPipeUrl};
 }
 
-//To be standardized BEGIN
-export async function wsPipeConnectDirectly(id:string):Promise<Io>{
-    let {wsPipeUrl}=await getPxseedUrl();
-    return new WebSocketIo().connect(wsPipeUrl+`?id=${id}`);
-}
-export async function wsPipeConnectPxprpc(id:string):Promise<Io>{
-    let { PxseedServer2023Function } =await import("./clientFunction")
-    let fn=new PxseedServer2023Function();
-    await fn.init(await (await getPersistentRegistered(ServerHostRpcName))!.ensureConnected())
-    let pipe2=await fn.connectWsPipe(id);
-    return pipe2;
-}
-
-export let wsPipeApi={
-    connect:wsPipeConnectDirectly
-};
-
-export function wsPipeServe(serverName:string,onConnection:(io:Io)=>Generator<Promise<any>,void,any>):Task<void>{
-    return Task.fork(function*(){
-        let servIo:Io=yield* Task.yieldWrap(wsPipeApi.connect('/server/'+serverName));
-        let ser=new Serializer().prepareSerializing(16);
-        let serveTime=GetCurrentTime().getTime();
-        let serveAnnounce=ser.putString('serve').putLong(BigInt(serveTime)).build();
-        servIo.send([serveAnnounce]);
-        try{
-            while(Task.getAbortSignal()!=undefined){
-                let msg=yield* Task.yieldWrap(servIo.receive());
-                ser=new Serializer().prepareUnserializing(msg);
-                let command=ser.getString();
-                if(command=='serve'){
-                    let serveOn=ser.getLong();
-                    if(serveOn>serveTime){
-                        yield servIo.send([serveAnnounce])
-                    }else{
-                        servIo.close()
-                        throw new Error('Server name already used.');
-                    }
-                }else if(command=='connect'){
-                    ser.getLong(); //connect time
-                    let connectionName=ser.getString();
-                    let connIo=yield* Task.yieldWrap(wsPipeApi.connect('/connection/'+connectionName));
-                    yield connIo.send([new Serializer().prepareSerializing(16).putString('connect').putString(serverName).build()]);
-                    Task.fork(onConnection(connIo)).run();
-                }
-            }
-        }finally{
-            servIo.close();
-        }
-    }).run();
-}
-
-export async function wsPipeConnect(serverName:string){
-    let connectionId=GenerateRandomString();
-    let needClose=new Set<Io>();
-    try{
-        let connIo=await wsPipeApi.connect('/connection/'+connectionId);
-        needClose.add(connIo)
-        let servIo=await wsPipeApi.connect('/server/'+serverName);
-        needClose.add(servIo);
-        let ser=new Serializer().prepareSerializing(16);
-        let connectTime=GetCurrentTime().getTime();
-        let connectRequest=ser.putString('connect').putLong(BigInt(connectTime)).putString(connectionId).build();
-        await servIo.send([connectRequest]);
-        ser=new Serializer().prepareUnserializing(await connIo.receive());
-        while(!(ser.getString()=='connect' && ser.getString()==serverName)){
-            ser=new Serializer().prepareUnserializing(await connIo.receive());
-        }
-        needClose.delete(connIo);
-        return connIo;
-    }finally{
-        for(let t1 of needClose){
-            t1.close();
-        }
-    }
-}
-//To be standardized END
 
 export async function updatePxseedServerConfig(){
     await persistent.load();
+    if(getRegistered(ServerHostRpcName)!=null){
+        await removeClient(ServerHostRpcName);
+    }
     let {pxprpcUrl}=await getPxseedUrl();
     let key=GetUrlQueryVariable('__pxprpcKey');
     if(key!=null){
@@ -107,8 +34,16 @@ export async function updatePxseedServerConfig(){
         wstest.close();
         await addClient(pxprpcUrl,ServerHostRpcName);
     }catch(e){}
-    
-    await persistent.save()
+}
+
+export async function createNewEntryUrlWithPxprpcKey(jsentry:string,urlarg?:string){
+    let clientInfo=await getPersistentRegistered(ServerHostRpcName);
+    let key:string|null=null;
+    if(clientInfo!=null){
+        key=GetUrlQueryVariable2(clientInfo.url,'key');
+    }
+    let url2=BuildUrlFromJsEntryModule(__name__,`__redirectjsentry=${encodeURIComponent(jsentry)}&__pxprpcKey=${key}`+(urlarg?'&'+urlarg:''));
+    return new URL(url2,window.location.toString()).toString();
 }
 
 

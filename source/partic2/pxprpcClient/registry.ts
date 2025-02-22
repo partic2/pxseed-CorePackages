@@ -1,4 +1,4 @@
-import { ArrayBufferConcat, ArrayWrap2, GenerateRandomString, future, requirejs } from "partic2/jsutils1/base";
+import { ArrayBufferConcat, ArrayWrap2, GenerateRandomString, future, mutex, requirejs } from "partic2/jsutils1/base";
 import { GetPersistentConfig, SavePersistentConfig,IWorkerThread, CreateWorkerThread, lifecycle, GetUrlQueryVariable } from "partic2/jsutils1/webutils";
 import { WebMessage, WebSocketIo } from "pxprpc/backend";
 import { Client, Io, Server } from "pxprpc/base";
@@ -88,18 +88,24 @@ export class ClientInfo{
         let fn=await getAttachedRemoteRigstryFunction(this.client!);
         return fn.loadModule(name);
     }
+    protected connecting=new mutex();
     async ensureConnected():Promise<RpcExtendClient1>{
-        if(this.client!==null && this.client.conn.isRunning()){
-            return this.client
-        }else{
-            let io1=await getConnectionFromUrl(this.url.toString());
-            if(io1==null){
-                let purl=new URL(this.url);
-                throw new Error('No protocol handler for '+purl.protocol);
+        try{
+            await this.connecting.lock();
+            if(this.client!==null && this.client.conn.isRunning()){
+                return this.client
+            }else{
+                let io1=await getConnectionFromUrl(this.url.toString());
+                if(io1==null){
+                    let purl=new URL(this.url);
+                    throw new Error('No protocol handler for '+purl.protocol);
+                }
+                this.client=new RpcExtendClient1(new Client(io1));
+                await this.client.init();
+                return this.client;
             }
-            this.client=new RpcExtendClient1(new Client(io1));
-            await this.client.init();
-            return this.client;
+        }finally{
+            await this.connecting.unlock();
         }
     }
 }

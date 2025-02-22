@@ -94,7 +94,7 @@ export class MediaFileViewerTab extends TabInfoBase{
         let data=await this.fs!.readAll(this.path!);
         data=data??new Uint8Array(0);
         this.dataUrl=URL.createObjectURL(new Blob([data]));
-        this.tabView.get()?.forceUpdate();
+        this.requestPageViewUpdate();
     }
     async onClose(): Promise<boolean> {
         if(this.dataUrl!=undefined){

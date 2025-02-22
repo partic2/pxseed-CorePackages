@@ -81,7 +81,7 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
     }
     protected onCellKeyDown(ev: React.JSX.TargetedKeyboardEvent<HTMLDivElement>){
         if(ev.code==='Enter'){
-            if((this.getRunCodeKey()==undefined || this.getRunCodeKey()==='Ctl+Ent') && ev.ctrlKey){
+            if(this.getRunCodeKey()==='Ctl+Ent' && ev.ctrlKey){
                 this.onBtnRun();
             }
             if(this.getRunCodeKey()=='Enter' && ev.ctrlKey){
@@ -104,26 +104,30 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
             this.requestCodeComplete.call();
         }
         if(inputData.char=='\n'){
-            let backwardText=editor.getPlainText().substring(0,editor.getTextCaretOffset()).split('\n');
+            let fullText=editor.getPlainText();
+            let backwardText=fullText.substring(0,editor.getTextCaretOffset()).split('\n');
+            function countBracket(s:string){
+                let bracketMatch=0;
+                bracketMatch+=(s.match(/\{/g)?.length??0)-(s.match(/\}/g)?.length??0);
+                bracketMatch+=(s.match(/\(/g)?.length??0)-(s.match(/\)/g)?.length??0);
+                bracketMatch+=(s.match(/\[/g)?.length??0)-(s.match(/\]/g)?.length??0);
+                return bracketMatch;
+            }
             if(backwardText.length>1){
                 let lastLine=backwardText.at(-2)!;
                 let leadingSpace=lastLine.match(/^ */)?.at(0)??'';
                 //count braket
-                let bracketMatch=0;
-                if(bracketMatch==0){
-                    bracketMatch=(lastLine.match(/\{/g)?.length??0)-(lastLine.match(/\}/g)?.length??0);
-                }
-                if(bracketMatch==0){
-                    bracketMatch=(lastLine.match(/\(/g)?.length??0)-(lastLine.match(/\)/g)?.length??0);
-                }
-                if(bracketMatch>0){
+                if(countBracket(lastLine)>0){
                     leadingSpace+='  '
                 }
                 editor.insertText(leadingSpace)
             }
             if(this.getRunCodeKey()=='Enter' && !this.__tempDisableEnter2RunCode){
-                this.rref.codeInput.current?.deleteText(1);
-                this.runCode();
+                //Code validation
+                if(countBracket(fullText)==0){
+                    this.rref.codeInput.current?.deleteText(1);
+                    this.runCode();
+                }
             }
         }
     }

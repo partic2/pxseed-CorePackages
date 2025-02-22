@@ -1,4 +1,4 @@
-import { assert, DateDiff, GetCurrentTime, logger, sleep } from 'partic2/jsutils1/base';
+import { ArrayWrap2, assert, DateDiff, GetCurrentTime, logger, sleep } from 'partic2/jsutils1/base';
 import { RemoteRunCodeContext } from 'partic2/CodeRunner/RemoteCodeContext';
 import { CodeContextShell } from 'partic2/CodeRunner/CodeContext';
 
@@ -101,5 +101,31 @@ export async function ensureCodeUpdated(opt:{reload?:boolean}){
                 window.location.reload();
             }
         }
+    }
+}
+
+export async function processDirectoryContainFile(file:string):Promise<{sourceRoot:string,outputRoot:string}>{
+    if(globalThis.process?.versions?.node!=undefined){
+        let {dirname,join} = await import('path');
+        let {access}=await import('fs/promises');
+        let { processDirectory } =await import('pxseedBuildScript/buildlib');
+        let sourceDir=join(dirname(dirname(dirname(__dirname))),'source');
+        let splitPath=file.split(/[\\\/]/);
+        let pkgPath:string|null=null;
+        for(let t1 of ArrayWrap2.IntSequence(splitPath.length,-1)){
+            try{
+                await access(join(...splitPath.slice(0,t1),'pxseed.config.json'));
+                pkgPath=join(...splitPath.slice(0,t1));
+                break;
+            }catch(e:any){
+            }
+        }
+        if(pkgPath!=null){
+            await processDirectory(pkgPath);
+        }
+        return {sourceRoot:sourceDir,outputRoot:join(dirname(sourceDir),'www')};
+    }else{
+        let {misc}=await getServerShell();
+        return await misc.processDirectoryContainFile(file);
     }
 }

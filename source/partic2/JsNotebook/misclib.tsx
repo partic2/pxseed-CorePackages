@@ -7,7 +7,7 @@ import { ReactRefEx, ReactRender } from 'partic2/pComponentUi/domui';
 import { RegistryUI } from 'partic2/pxprpcClient/ui';
 import { LocalRunCodeContext, RunCodeContext, registry } from 'partic2/CodeRunner/CodeContext';
 import { RemoteRunCodeContext } from 'partic2/CodeRunner/RemoteCodeContext';
-import { alert } from 'partic2/pComponentUi/window';
+import { alert, appendFloatWindow, removeFloatWindow, WindowComponent } from 'partic2/pComponentUi/window';
 import { sleep } from 'partic2/jsutils1/base';
 
 
@@ -27,8 +27,6 @@ export class DefaultActionBar extends React.Component<{action:{[name:string]:()=
                 btn.push({id:name,label:'Save(Ctrl+S)'})
             }else if(name==='reload'){
                 btn.push({id:name,label:'Reload'})
-            }else if(name==='reloadCodeWorker'){
-                btn.push({id:name,label:'Reload Code Worker'})
             }else{
                 btn.push({id:name,label:name})
             }
@@ -81,4 +79,23 @@ export class CodeContextChooser extends React.Component<{onChoose:(rpc:ClientInf
         </div>
         </div>
     }
+}
+
+
+export async function openCodeContextChooser(){
+    return new Promise<ClientInfo|'local window'|RemoteRunCodeContext|LocalRunCodeContext|null>((resolve,reject)=>{
+        let wnd2=<WindowComponent onClose={()=>{
+            removeFloatWindow(wnd2);
+            resolve(null);
+        }} title='choose code context' >
+            <div style={{backgroundColor:'white',padding:'1px'}}>
+            <CodeContextChooser onChoose={(rpc)=>{
+                resolve(rpc);
+                removeFloatWindow(wnd2);
+            }}/>
+            </div>
+        </WindowComponent>
+        appendFloatWindow(wnd2);
+    })
+    
 }
