@@ -2,12 +2,12 @@
 //To initialize node environment. For these don't want to start http server, just import this module.
 import './workerInit'
 
-import { config, loadConfig } from './workerInit';
+import { config, loadConfig, rootConfig, saveConfig } from './workerInit';
 
 export let __name__='pxseedServer2023/entry';
 
 import { future, requirejs, sleep, Task } from 'partic2/jsutils1/base';
-import {Io} from 'pxprpc/base'
+import {Client, Io} from 'pxprpc/base'
 import {Duplex, EventEmitter, Readable} from 'stream'
 import { IncomingHttpHeaders, IncomingMessage, Server, ServerResponse } from 'http';
 import {dirname,join as pathJoin} from 'path'
@@ -20,7 +20,11 @@ import { ChildProcess, spawn } from 'child_process';
 import {WebSocketServer } from 'ws'
 import { NodeWsIo } from 'partic2/nodehelper/nodeio';
 import { createIoPipe } from 'partic2/pxprpcClient/registry';
-import { defaultFuncMap, RpcExtendServer1, RpcExtendServerCallable } from 'pxprpc/extend';
+import { defaultFuncMap, RpcExtendClient1, RpcExtendServer1, RpcExtendServerCallable } from 'pxprpc/extend';
+import { WebSocketIo } from 'pxprpc/backend';
+
+
+export {config}
 
 export let ensureInit=new future<number>();
 
@@ -142,6 +146,49 @@ export async function createNewEntryUrlWithPxprpcKey(jsentry:string,urlarg?:stri
     return launcherUrl;
 }
 
+function doExit(){
+    console.info('exiting...');
+    lifecycle.dispatchEvent(new Event('pause'));
+    lifecycle.dispatchEvent(new Event('exit'));
+    setTimeout(()=>process.exit(),3000);
+}
+defaultFuncMap['pxseedServer2023.exit']=new RpcExtendServerCallable(async ()=>{
+    doExit();
+}).typedecl('->');
+defaultFuncMap['pxseedServer2023.connectWsPipe']=new RpcExtendServerCallable(async (id:string)=>{
+    let pipe1=createIoPipe();
+    serveWsPipe(pipe1[0],id);
+    return pipe1[1];
+}).typedecl('s->o');
+async function runCommand(cmd:string,cwd?:string){
+    let process=spawn(cmd,{shell:true,stdio:'inherit',cwd});
+    return new Promise((resolve=>{
+        process.on('close',resolve);
+    }))
+}
+defaultFuncMap['pxseedServer2023.serverCommand']=new RpcExtendServerCallable(async (cmd:string)=>{
+    if(cmd=='buildEnviron'){
+        await runCommand(`${process.execPath} ${pathJoin(getWWWRoot(),'..','script','buildEnviron.js')}`)
+        return 'done';
+    }else if(cmd=='buildPackages'){
+        await runCommand(`${process.execPath} ${pathJoin(getWWWRoot(),'..','script','buildPackages.js')}`)
+        return 'done'
+    }else if(cmd=='rebuildPackages'){
+        await runCommand(`${process.execPath} ${pathJoin(getWWWRoot(),'..','script','cleanPackages.js')}`)
+        await runCommand(`${process.execPath} ${pathJoin(getWWWRoot(),'..','script','buildPackages.js')}`)
+        return 'done'
+    }else if(cmd=='getConfig'){
+        await loadConfig();
+        return JSON.stringify(config);
+    }else if(cmd.startsWith('saveConfig ')){
+        let startAt=cmd.indexOf(' ')+1;
+        await saveConfig(JSON.parse(cmd.substring(startAt)));
+        await loadConfig();
+        return 'done'
+    }
+    return '';
+}).typedecl('s->s')
+
 //Should move to another file?
 export async function startServer(){
     //(await import('inspector')).open(9229,'127.0.0.1',true);
@@ -187,10 +234,7 @@ export async function startServer(){
         console.info('exiting...');
         lifecycle.dispatchEvent(new Event('pause'));
         lifecycle.dispatchEvent(new Event('exit'));
-        setTimeout(()=>process.exit(),3000);
-    }
-    function doRestart(){
-        console.info('TODO: restart is not implemented');
+        setTimeout(()=>process.exit(),1000);
     }
     let blockFilesMatchReg=(config.blockFilesMatch??[]).map(exp=>new RegExp(exp));
     for(let dir1 of config.serveDirectory??[]){
@@ -225,18 +269,8 @@ export async function startServer(){
         httpServ.close((err)=>{
             console.info('http server closed');
         });
-    })
-    defaultFuncMap['pxseedServer2023.exit']=new RpcExtendServerCallable(async ()=>{
-        doExit();
-    }).typedecl('->');
-    defaultFuncMap['pxseedServer2023.restart']=new RpcExtendServerCallable(async ()=>{
-        doRestart();
-    }).typedecl('->');
-    defaultFuncMap['pxseedServer2023.connectWsPipe']=new RpcExtendServerCallable(async (id:string)=>{
-        let pipe1=createIoPipe();
-        serveWsPipe(pipe1[0],id);
-        return pipe1[1];
-    }).typedecl('s->o');
+    });
+    
     Promise.allSettled(config.initModule!.map(mod=>requirejs.promiseRequire(mod)));
     if(config.deamonMode!.enabled){
         let subprocs:ChildProcess[]=[]
@@ -255,27 +289,23 @@ export async function startServer(){
         }).typedecl('i->i');
         defaultFuncMap['pxseedServer2023.subprocess.restart']=new RpcExtendServerCallable(async (index:number)=>{
             if(subprocs[index].exitCode==null){
+                let subCfg=rootConfig.deamonMode!.subprocessConfig[index];
+                let client1=new RpcExtendClient1(new Client(await new WebSocketIo().connect(
+                    `ws://127.0.0.1:${subCfg.listenOn!.port}${subCfg.pxseedBase??config.pxseedBase}${subCfg.pxprpcPath??config.pxprpcPath}`)))
+                await client1.init();
+                let {PxseedServer2023Function}=await import('./clientFunction');
+                let func=new PxseedServer2023Function();
+                await func.init(client1);
+                await func.exit();
+                await sleep(1500);
+            }
+            if(subprocs[index].exitCode==null){
                 subprocs[index].kill();
-                await sleep(1000);
+                await sleep(500);
             }
             let subprocess=nodeRun(__name__,['--subprocess',String(index)]);
             subprocs[index]=subprocess;
         }).typedecl('i->');
-        //Usually to used to restart process self.
-        defaultFuncMap['pxseedServer2023.subprocess.restartOnExit']=new RpcExtendServerCallable(async (index:number)=>{
-            console.info('restart',index)
-            let task=Task.fork(function*(){
-                while(subprocs[index].exitCode==null){
-                    yield sleep(1000);
-                }
-                let subprocess=nodeRun(__name__,['--subprocess',String(index)]);
-                subprocs[index]=subprocess; 
-            }).run();
-            return {close:()=>{
-                //To avoid abort restart
-                sleep(3000).then(()=>task.abort());
-            }}
-        }).typedecl('i->o');
     }
 }
 

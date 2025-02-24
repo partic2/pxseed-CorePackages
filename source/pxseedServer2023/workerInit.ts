@@ -2,31 +2,21 @@
 
 
 import { setupEnv } from 'partic2/nodehelper/env';
-import { rpcWorkerInitModule } from 'partic2/pxprpcClient/registry';
 import { RpcExtendServerCallable, defaultFuncMap } from 'pxprpc/extend';
 
+
 //init for any worker of pxseedServer2023, usually setup helper and pxprpc server
+setupEnv();
+
 
 export var __name__='pxseedServer2023/workerInit'
 
+import { rpcWorkerInitModule } from 'partic2/pxprpcClient/registry';
 if(!rpcWorkerInitModule.includes(__name__)){
     rpcWorkerInitModule.push(__name__);
 }
 
-import {cleanBuildStatus, processDirectory, sourceDir} from 'pxseedBuildScript/buildlib'
 
-
-export async function runPxseedBuildScript(){
-    await processDirectory(sourceDir)
-}
-export async function runPxseedCleanScript(){
-    await cleanBuildStatus(sourceDir);
-}
-
-defaultFuncMap[__name__+'.runPxseedBuildScript']=new RpcExtendServerCallable(runPxseedBuildScript).typedecl('->');
-defaultFuncMap[__name__+'.runPxseedCleanScript']=new RpcExtendServerCallable(runPxseedCleanScript).typedecl('->');
-
-setupEnv();
 
 
 export interface PxseedServer2023StartupConfig{
@@ -40,7 +30,7 @@ export interface PxseedServer2023StartupConfig{
     //DON'T expose the config file to public, if pxprpc is accessible from public. 
     pxprpcKey?:string|null
     deamonMode?:{
-        enabled:false,
+        enabled:boolean,
         subprocessConfig:PxseedServer2023StartupConfig[]
     }
     subprocessIndex?:number
@@ -94,4 +84,7 @@ export async function loadConfig(){
         console.log(`config file not found, write to ${getWWWRoot()+'/pxseedServer2023/config.json'}`)
         await fs.writeFile(getWWWRoot()+'/pxseedServer2023/config.json',new TextEncoder().encode(JSON.stringify(config)))
     }
+}
+export async function saveConfig(newConfig:PxseedServer2023StartupConfig){
+    await fs.writeFile(getWWWRoot()+'/pxseedServer2023/config.json',JSON.stringify(newConfig));
 }
