@@ -105,6 +105,14 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
         }
         if(inputData.char=='\n'){
             let fullText=editor.getPlainText();
+            if(this.getRunCodeKey()=='Enter' && !this.__tempDisableEnter2RunCode){
+                //Code validation
+                if(countBracket(fullText)==0){
+                    this.rref.codeInput.current?.deleteText(1);
+                    this.runCode();
+                    return;
+                }
+            }
             let backwardText=fullText.substring(0,editor.getTextCaretOffset()).split('\n');
             function countBracket(s:string){
                 let bracketMatch=0;
@@ -121,13 +129,6 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
                     leadingSpace+='  '
                 }
                 editor.insertText(leadingSpace)
-            }
-            if(this.getRunCodeKey()=='Enter' && !this.__tempDisableEnter2RunCode){
-                //Code validation
-                if(countBracket(fullText)==0){
-                    this.rref.codeInput.current?.deleteText(1);
-                    this.runCode();
-                }
             }
         }
     }
