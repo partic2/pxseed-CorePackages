@@ -1,6 +1,7 @@
 
 import * as fs from 'fs/promises'
-import { GenerateRandomString ,Base64ToArrayBuffer,ArrayBufferToBase64} from 'partic2/jsutils1/base';
+import {join} from 'path'
+import { GenerateRandomString ,Base64ToArrayBuffer,ArrayBufferToBase64, BytesToHex} from 'partic2/jsutils1/base';
 
 import {CKeyValueDb, IKeyValueDb, setKvStoreBackend} from 'partic2/jsutils1/webutils'
 
@@ -91,11 +92,32 @@ export class FsBasedKvDbV1 implements IKeyValueDb{
 }
 
 
+import * as path from 'path'
+
 export function setupImpl(){
     setKvStoreBackend(async (dbname)=>{
+        let dbMap:Record<string,string>={};
+        //deprecate base64 to be filesystem independent.
+        let filename=btoa(dbname);
+        try{
+            dbMap=JSON.parse(new TextDecoder().decode(await fs.readFile(path.join(__dirname,'data','meta-dbMap'))));
+        }catch(e){};
+        if(dbname in dbMap){
+            filename=dbname;
+        }
+        try{
+            await fs.access(path.join(__dirname,'data',filename));
+            if(!(dbname in dbMap)){
+                dbMap[dbname]=filename;
+            }
+        }catch(e){
+            filename=GenerateRandomString();
+            dbMap[dbname]=filename;
+        }
+        await fs.writeFile(path.join(__dirname,'data','meta-dbMap'),JSON.stringify(dbMap));
         let db=new FsBasedKvDbV1();
-        await fs.mkdir(__dirname+'/data/'+btoa(dbname),{recursive:true});
-        await db.init(__dirname+'/data/'+btoa(dbname));
+        await fs.mkdir(path.join(__dirname,'data',filename),{recursive:true});
+        await db.init(path.join(__dirname,'data',filename));
         return db;
     });
 }
