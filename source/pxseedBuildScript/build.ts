@@ -2,7 +2,7 @@ import * as fs from 'fs/promises'
 import {constants as fsConst} from 'fs'
 import {dirname,sep,basename,join as pathJoin, relative} from 'path'
 import { pxseedBuiltinLoader } from './loaders';
-import { processDirectory,cleanBuildStatus, sourceDir } from './buildlib';
+import { processDirectory,cleanBuildStatus, sourceDir, cleanJsFiles, outputDir } from './buildlib';
 
 
 
@@ -34,6 +34,9 @@ import { processDirectory,cleanBuildStatus, sourceDir } from './buildlib';
         }
     }else if(command=='clean'){
         await cleanBuildStatus(sourceDir)
+        if(process.argv.includes('--js')){
+            await cleanJsFiles(outputDir);
+        }
     }else{
         console.error(`unknown command ${command}`)
     }

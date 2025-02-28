@@ -125,3 +125,19 @@ export async function cleanBuildStatus(dir:string){
     }
 }
 
+export async function cleanJsFiles(dir:string){
+    let children=await fs.readdir(dir,{withFileTypes:true});
+    for(let t1 of children){
+        if(t1.isDirectory() && !t1.isSymbolicLink()){
+            await cleanJsFiles(pathJoin(dir,t1.name));
+        }else if(t1.name.endsWith('.js') || t1.name.endsWith('.js.map')){
+            await fs.rm(pathJoin(dir,t1.name))
+        }
+    }
+    children=await fs.readdir(dir,{withFileTypes:true});
+    try{
+        if(children.length==0){
+            await fs.rmdir(dir);
+        }
+    }catch(e){}
+}

@@ -1,0 +1,9 @@
+{
+    "loaders": [
+      {
+        "name": "typescript",
+        "transpileOnly":true
+      }
+    ],
+    "name": "pxseedBuildScript"
+  }
