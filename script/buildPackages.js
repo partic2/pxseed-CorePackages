@@ -13,7 +13,7 @@ async function runCommand(cmd,cwd){
 ;(async ()=>{
     let existed=false;
     try{
-        await fs.access(path.join(__dirname,'www','pxseedBuildScript','build.js'))
+        await fs.access(path.join(__dirname,'..','www','pxseedBuildScript','build.js'))
         existed=true;
     }catch(e){
         if(e.toString().indexOf('no such file or directory')<0){
