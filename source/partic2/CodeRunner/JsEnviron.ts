@@ -1,5 +1,5 @@
 
-import { ArrayWrap2, GenerateRandomString, GetCurrentTime, assert, future, requirejs, throwIfAbortError } from "partic2/jsutils1/base";
+import { ArrayBufferConcat, ArrayWrap2, GenerateRandomString, GetCurrentTime, assert, future, requirejs, throwIfAbortError } from "partic2/jsutils1/base";
 import { CKeyValueDb, getWWWRoot, kvStore, path } from "partic2/jsutils1/webutils";
 import type {} from '@txikijs/types/src/index'
 import { ClientInfo } from "partic2/pxprpcClient/registry";
@@ -11,6 +11,8 @@ import type { LocalRunCodeContext } from "./CodeContext";
 export interface FileEntry{
     name:string
     type:'dir'|'file',
+    size?:number,
+    mtime:number,
     children?:FileEntry[],
     dataKey?:string
 }
@@ -28,11 +30,11 @@ export interface SimpleFileSystem{
     mkdir(path:string):Promise<void>;
     rename(path:string,newPath:string):Promise<void>;
     dataDir():Promise<string>;
+    stat(path:string):Promise<{atime:Date,mtime:Date,ctime:Date,birthtime:Date,size:number}>;
 }
 
 
 export class TjsSfs implements SimpleFileSystem{
-    
     
     impl?:typeof tjs
     pxprpc?:ClientInfo
@@ -162,6 +164,10 @@ export class TjsSfs implements SimpleFileSystem{
             fh.close();
         }
     }
+    async stat(path:string){
+        let statRes=await this.impl!.stat(path);
+        return {atime:statRes.atim,mtime:statRes.mtim,ctime:statRes.ctim,birthtime:statRes.birthtim,size:statRes.size};
+    }
 }
 
 export class LocalWindowSFS implements SimpleFileSystem{
@@ -180,7 +186,7 @@ export class LocalWindowSFS implements SimpleFileSystem{
             this.db=await kvStore(this.dbname)
             this.root=await this.db.getItem('lwsfs/1');
             if(this.root==undefined){
-                this.root={name:'',type:'dir',children:[]}
+                this.root={name:'',type:'dir',children:[],mtime:GetCurrentTime().getTime()}
                 await this.saveChange();
             }
             this.lastModified=(await this.db!.getItem('lwsfs/modifiedAt')??0) as number;
@@ -206,7 +212,7 @@ export class LocalWindowSFS implements SimpleFileSystem{
                 let t1=curobj.children!.find(v=>v.name===name);
                 if(t1===undefined){
                     if(opt.createParentDirectories){
-                        t1={type:'dir',children:[],name};
+                        t1={type:'dir',children:[],name,mtime:GetCurrentTime().getTime()};
                         curobj.children!.push(t1);
                     }else{
                         throw new Error(path2.slice(0,i1).join('/')+' is not a directory')
@@ -225,10 +231,13 @@ export class LocalWindowSFS implements SimpleFileSystem{
         let found=parent.children!.find(v=>v.name===path2[path2.length-1]);
         let dataKey=GenerateRandomString();
         if(found==undefined){
-            parent.children!.push({type:'file',name:path2[path2.length-1],dataKey})
+            found={type:'file',name:path2[path2.length-1],dataKey,mtime:GetCurrentTime().getTime()}
+            parent.children!.push(found)
         }else{
+            found.mtime=GetCurrentTime().getTime();
             dataKey=found.dataKey!;
         }
+        found.size=data.length;
         await this.db!.setItem(dataKey,data);
         await this.saveChange();
     }
@@ -328,6 +337,17 @@ export class LocalWindowSFS implements SimpleFileSystem{
         await this.writeAll(path,buf);
         return buf.byteLength;
     }
+    async stat(path: string): Promise<{ atime: Date; mtime: Date; ctime: Date; birthtime: Date; size: number; }> {
+        let path2=this.pathSplit(path);
+        let parent=await this.lookupPathDir(path2.slice(0,path2.length-1),{createParentDirectories:true});
+        let found=parent.children!.find(v=>v.name===path2[path2.length-1]);
+        if(found==undefined){
+            throw new Error(`${path} can't be read.`);
+        }else{
+            let mtimDat=new Date(found.mtime);
+            return {atime:mtimDat,mtime:mtimDat,ctime:mtimDat,birthtime:mtimDat,size:found.size??0};
+        }
+    }
 }
 
 import type * as nodefsmodule from 'fs/promises'
@@ -335,6 +355,7 @@ import type * as nodepathmodule from 'path'
 import { type CodeCompletionContext } from "./Inspector";
 
 class NodeSimpleFileSystem implements SimpleFileSystem{
+    
     pxprpc?: ClientInfo | undefined;
     nodefs?:typeof nodefsmodule;
     nodepath?:typeof nodepathmodule;
@@ -427,7 +448,10 @@ class NodeSimpleFileSystem implements SimpleFileSystem{
         let fh=await this.nodefs!.open(path,'r+');
         let r=await fh.write(buf,0,buf.byteLength,offset);
         return r.bytesWritten;
-    }   
+    }
+    async stat(path: string): Promise<{ atime: Date; mtime: Date; ctime: Date; birthtime: Date; size: number; }> {
+        return this.nodefs!.stat(path);
+    }
 }
 
 

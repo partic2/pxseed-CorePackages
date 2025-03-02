@@ -136,6 +136,29 @@ class FileHandle {
     
 }
 
+interface StatResult {
+    dev: number;
+    mode: number;
+    nlink: number;
+    uid: number;
+    gid: number;
+    rdev: number;
+    ino: number;
+    size: number;
+    blksize: number;
+    blocks: number;
+    atim: Date;
+    mtim: Date;
+    ctim: Date;
+    birthtim: Date;
+    isBlockDevice: boolean;
+    isCharacterDevice: boolean;
+    isDirectory: boolean;
+    isFIFO: boolean;
+    isFile: boolean;
+    isSocket: boolean;
+    isSymbolicLink: boolean;
+}
 
 /**
 * Gets file status information.
@@ -146,8 +169,25 @@ class FileHandle {
 async function stat(path: string): Promise<StatResult>{
     let [type,size,mtime]=await jseio.stat(path);
         let r={
+            dev:0,
+            mode:0o777,
+            nlink:0,
+            uid:0,
+            gid:0,
+            rdev:0,
+            ino:0,
+            blksize:0,
+            blocks:0,
             size:Number(size),
-            mtim: new Date(Number(mtime)), 
+            atim:new Date(Number(mtime)),
+            mtim:new Date(Number(mtime)), 
+            ctim:new Date(Number(mtime)),
+            birthtim:new Date(Number(mtime)),
+            isBlockDevice: false,
+            isCharacterDevice: false,
+            isFIFO: false,
+            isSocket: false,
+            isSymbolicLink: false,
             isDirectory:type==='dir', 
             isFile:type==='file'}
         return r;
@@ -370,12 +410,6 @@ function homedir(){
 
 }
 
-interface StatResult {
-    size: number;
-    mtim: Date;
-    isDirectory: boolean;
-    isFile: boolean;
-}
 
 
 
