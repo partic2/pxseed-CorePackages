@@ -149,35 +149,6 @@ export class CodeContextRemoteObjectFetcher implements RemoteObjectFetcher{
                 ))`);
         return JSON.parse(resp);
     }
-    async iterator(accessPath:(string|number)[],iteratorName:string): Promise<void> {
-        let accessChain=accessPath.map(v=>typeof(v)==='string'?`['${v}']`:`[${v}]`).join('')
-        let result=await this.codeContext!.jsExec(`if(Symbol.iterator in codeContext.localScope${accessChain}){
-            codeContext.localScope.${iteratorName}=codeContext.localScope${accessChain}[Symbol.iterator]()
-        }else if(Symbol.asyncIterator in codeContext){
-            codeContext.localScope.${iteratorName}=codeContext.localScope${accessChain}[Symbol.asyncIterator]()
-        }else{
-            return 'Not iteratable'
-        }
-        return 'ok';
-        `) as string;
-        if(result!='ok'){
-            throw new Error(result);
-        }
-    }
-    async iteratorFetch(iteratorName:string,count:number,opt: Partial<
-        typeof DefaultSerializingOption
-    >):Promise<any[]>{
-        let resp=await this.codeContext!.jsExec(`
-            return JSON.stringify(lib.toSerializableObject(
-                    await lib.iteratorNext(
-                    codeContext.localScope.${iteratorName},${count}),
-                    ${JSON.stringify(opt)}))`);
-        return JSON.parse(resp);
-    }
-    async deleteName(name: string): Promise<void> {
-        await this.codeContext!.jsExec(`
-            delete codeContext.localScope.${name}`)
-    }
 }
 
 
@@ -201,7 +172,6 @@ export class UnidentifiedObject{
     }
 }
 export class UnidentifiedArray extends UnidentifiedObject{
-    iterTimeout=600000;
     toJSON(key?:string){
         let objectJson=super.toJSON(key);
         objectJson.isArray=true;
@@ -320,7 +290,11 @@ export function fromSerializableObject(v:any,opt:{
         }else{
             let r1={} as any;
             for(let k1 in v){
-                r1[k1]=fromSerializableObject(v[k1],{...opt,accessPath:[...opt.accessPath!,k1]})
+                let opt2={...opt};
+                if(opt2.accessPath!=undefined){
+                    opt2.accessPath=[...opt.accessPath,k1];
+                }
+                r1[k1]=fromSerializableObject(v[k1],opt2);
             }
             return r1;
         }

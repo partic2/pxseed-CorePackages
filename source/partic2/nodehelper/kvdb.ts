@@ -3,7 +3,7 @@ import * as fs from 'fs/promises'
 import {join} from 'path'
 import { GenerateRandomString ,Base64ToArrayBuffer,ArrayBufferToBase64, BytesToHex} from 'partic2/jsutils1/base';
 
-import {CKeyValueDb, IKeyValueDb, setKvStoreBackend} from 'partic2/jsutils1/webutils'
+import {CKeyValueDb, getWWWRoot, IKeyValueDb, setKvStoreBackend} from 'partic2/jsutils1/webutils'
 
 
 var __name__='partic2/JsNotebookServer/entry';
@@ -94,19 +94,22 @@ export class FsBasedKvDbV1 implements IKeyValueDb{
 
 import * as path from 'path'
 
+let cachePath=path.join(getWWWRoot(),__name__,'..');
+
 export function setupImpl(){
     setKvStoreBackend(async (dbname)=>{
         let dbMap:Record<string,string>={};
         //deprecate base64 to be filesystem independent.
         let filename=btoa(dbname);
+        await fs.mkdir(path.join(cachePath,'data'),{recursive:true});
         try{
-            dbMap=JSON.parse(new TextDecoder().decode(await fs.readFile(path.join(__dirname,'data','meta-dbMap'))));
+            dbMap=JSON.parse(new TextDecoder().decode(await fs.readFile(path.join(cachePath,'data','meta-dbMap'))));
         }catch(e){};
         if(dbname in dbMap){
             filename=dbname;
         }
         try{
-            await fs.access(path.join(__dirname,'data',filename));
+            await fs.access(path.join(cachePath,'data',filename));
             if(!(dbname in dbMap)){
                 dbMap[dbname]=filename;
             }
@@ -114,10 +117,10 @@ export function setupImpl(){
             filename=GenerateRandomString();
             dbMap[dbname]=filename;
         }
-        await fs.writeFile(path.join(__dirname,'data','meta-dbMap'),JSON.stringify(dbMap));
+        await fs.writeFile(path.join(cachePath,'data','meta-dbMap'),JSON.stringify(dbMap));
         let db=new FsBasedKvDbV1();
-        await fs.mkdir(path.join(__dirname,'data',filename),{recursive:true});
-        await db.init(path.join(__dirname,'data',filename));
+        await fs.mkdir(path.join(cachePath,'data',filename),{recursive:true});
+        await db.init(path.join(cachePath,'data',filename));
         return db;
     });
 }
