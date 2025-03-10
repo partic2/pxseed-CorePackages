@@ -53,7 +53,7 @@ export let pxseedBuiltinLoader={
     },
     typescript:async function(dir:string,config:{include?:string[],exclude?:string[],transpileOnly?:boolean},status:PxseedStatus){
         if(config.transpileOnly===true){
-            let ts=await import('typescript');
+            let ts=(await import('typescript')).default;
             let include=config.include??["./**/*.ts","./**/*.tsx"];
             let files=await glob(include,{cwd:dir});
             for(let t1 of files){
@@ -119,7 +119,7 @@ export let pxseedBuiltinLoader={
             if(returnCode!==0)status.currentBuildError.push('tsc failed.');
         }
     },
-    rollup:async function(dir:string,config:{entryModules:string[]}){
+    rollup:async function(dir:string,config:{entryModules:string[],compressed?:boolean}){
         let rollup=(await import('rollup')).rollup;
         let nodeResolve =(await import('@rollup/plugin-node-resolve')).default;
         let commonjs =(await import('@rollup/plugin-commonjs')).default;
@@ -136,19 +136,22 @@ export let pxseedBuiltinLoader={
                 existed=false
             }
             if(!existed){
-                console.info(`create bundle for ${mod}`)
+                console.info(`create bundle for ${mod}`);
+                let plugins=[
+                    nodeResolve({modulePaths:[pathJoin(outputDir,'node_modules')],browser:true}),
+                    commonjs(),
+                    json(),
+                    //Slow the rollup, But "React" need this.
+                    replacer({
+                        'process.env.NODE_ENV': JSON.stringify('production')
+                    })
+                ];
+                if(config.compressed!==false){
+                    plugins.push(terser());
+                }
                 let task=await rollup({
                     input:[mod],
-                    plugins:[
-                        nodeResolve({modulePaths:[pathJoin(outputDir,'node_modules')],browser:true}),
-                        commonjs(),
-                        json(),
-                        terser(),
-                        //Slow the rollup, But "React" need this.
-                        replacer({
-                            'process.env.NODE_ENV': JSON.stringify('production')
-                        })
-                    ],
+                    plugins,
                     external:(source: string, importer: string | undefined, isResolved: boolean):boolean|null => {
                         if((globalThis as any).requirejs.__nodeenv.require.resolve.paths(source)==null){
                             return true;
