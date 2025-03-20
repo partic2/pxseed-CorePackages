@@ -1,25 +1,32 @@
-import * as sqlite from 'tjs:sqlite'
-
 
 
 import { DateDiff, GetCurrentTime, requirejs} from 'partic2/jsutils1/base';
+import type {} from '@txikijs/types/src/index'
 import { Io } from 'pxprpc/base';
 
 var __name__='partic2/tjsonpxp/jsenv';
 
 
+import { GenerateRandomString } from 'partic2/jsutils1/base';
+
+import {getWWWRoot, IKeyValueDb, path, setKvStoreBackend} from 'partic2/jsutils1/webutils'
+
+
 let remoteModuleLoaderState:{
     rootUrl:string|null
     networkError:Error|null
-    lastFailedTime:Date
+    lastFailedTime:Date,
+    updateLocal?:boolean
 }={
     rootUrl:null,
     networkError:null,
-    lastFailedTime:new Date(0)
+    lastFailedTime:new Date(0),
+    updateLocal:true
 }
 
-export function enableRemoteModuleLoader(rootUrl:string){
+export function enableRemoteModuleLoader(rootUrl:string,opts:{updateLocal?:boolean}){
     remoteModuleLoaderState.rootUrl=rootUrl;
+    Object.assign(remoteModuleLoaderState,opts)
 }
 
 
@@ -39,7 +46,20 @@ const TxikiJSFetchModuleProvider=async (modName:string,url:string):Promise<strin
             if(!resp.ok){
                 throw new Error('fetch module file failed. server response '+resp.status+' '+await resp.text())
             }
-            return await resp.text();
+            let data=await resp.text();
+            if(remoteModuleLoaderState.updateLocal===true){
+                let modFile=`${getWWWRoot()}/${modName}`;
+                if(!modFile.endsWith('.js')){
+                    modFile+='.js'
+                }
+                let fh=await tjs.open(modFile,'w');
+                try{
+                    await fh.write(new TextEncoder().encode(modFile));
+                }catch(e){
+                    await fh.close();
+                }
+            }
+            return data;
         }catch(err:any){
             remoteModuleLoaderState.networkError=err;
             remoteModuleLoaderState.lastFailedTime=GetCurrentTime();
@@ -48,11 +68,6 @@ const TxikiJSFetchModuleProvider=async (modName:string,url:string):Promise<strin
     }
 }
 
-
-
-import { GenerateRandomString } from 'partic2/jsutils1/base';
-
-import {getWWWRoot, IKeyValueDb, path, setKvStoreBackend} from 'partic2/jsutils1/webutils'
 
 
 var __name__=requirejs.getLocalRequireModule(require);
@@ -151,7 +166,6 @@ export class FsBasedKvDbV1 implements IKeyValueDb{
 
 
 let cachePath=path.join(getWWWRoot(),__name__,'..');
-console.info(cachePath)
 
 export function setupImpl(){
     requirejs.addResourceProvider(TxikiJSFetchModuleProvider);

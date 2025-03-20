@@ -1,13 +1,10 @@
 import * as fs from 'fs/promises'
-import {spawn} from 'child_process'
-import {constants,accessSync} from 'fs'
+import {constants} from 'fs'
 import {dirname,sep,basename,join as pathJoin, relative} from 'path'
 import {glob} from 'tinyglobby'
 import { readJson, runCommand } from './util'
 import {type PxseedStatus} from './buildlib'
 
-//typescript need this
-import 'os'
 
 
 export let sourceDir=pathJoin(dirname(dirname(__dirname)),'source');
@@ -53,7 +50,8 @@ export let pxseedBuiltinLoader={
     },
     typescript:async function(dir:string,config:{include?:string[],exclude?:string[],transpileOnly?:boolean},status:PxseedStatus){
         if(config.transpileOnly===true){
-            let ts=(await import('typescript')).default;
+            let ts=(await import('typescript'));
+            ts=(ts.default??ts) as any;
             let include=config.include??["./**/*.ts","./**/*.tsx"];
             let files=await glob(include,{cwd:dir});
             for(let t1 of files){

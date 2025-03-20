@@ -6,7 +6,7 @@ import type {} from '@txikijs/types/src/index'
 import {LocalRunCodeContext} from 'partic2/CodeRunner/CodeContext'
 import { CodeContextRemoteObjectFetcher, fromSerializableObject, inspectCodeContextVariable, toSerializableObject } from 'partic2/CodeRunner/Inspector';
 import { requirejs } from 'partic2/jsutils1/base';
-import { GetPersistentConfig, SavePersistentConfig } from 'partic2/jsutils1/webutils';
+import { GetPersistentConfig, getWWWRoot, SavePersistentConfig } from 'partic2/jsutils1/webutils';
 
 
 let codeContext=new LocalRunCodeContext();
@@ -26,7 +26,8 @@ async function executeJs(jscode:string){
             await tjs.stdout.write(new TextEncoder().encode(JSON.stringify(remoteObj,undefined,2)));
         }
     }catch(err:any){
-        await tjs.stderr.write(new TextEncoder().encode(JSON.stringify({message:err.message,stack:err.stack},undefined,2)));
+        await tjs.stderr.write(new TextEncoder().encode(err.message));
+        await tjs.stderr.write(new TextEncoder().encode(err.stack));
     }
     await tjs.stdout.write(new TextEncoder().encode('\n>'));
 }
@@ -43,6 +44,10 @@ async function cliMain(){
         codeContext.close();
         tjs.exit(code);
     }
+    try{
+        let autorun=await tjs.readFile(`${getWWWRoot()}/partic2/tjsonpxp/tjscli-autorun.js`);
+        codeContext.runCode(new TextDecoder().decode(autorun));
+    }catch(err){};
     tjs.stdout.write(new TextEncoder().encode('>'));
     while(loop){
         let count=await tjs.stdin.read(new Uint8Array(buf.buffer,offset,4096-offset));
