@@ -137,7 +137,6 @@ export class RunCodeTab extends TabInfoBase{
     async init(initval:Partial<RunCodeTab>){
         await super.init(initval)
         this.rref.ccl.addEventListener('change',(ev:RefChangeEvent<any>)=>{
-            console.info(ev);
             (window as any).log2=[...((window as any).log2??[]),ev]
         })
         if(this.fs==undefined){
