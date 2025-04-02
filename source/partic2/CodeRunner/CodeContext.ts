@@ -134,15 +134,18 @@ export class LocalRunCodeContext implements RunCodeContext{
     protected onConsoleLogListener=(e:Event)=>{
         let e2=e as FuncCallEvent;
         let name=e2.originalFunction!.name;
+        let outputTexts:string[]=[];
+        for(let t1 of e2.argv){
+            if(typeof t1=='object'){
+                outputTexts.push(JSON.stringify(toSerializableObject(t1,{})));
+            }else{
+                outputTexts.push(t1);
+            }
+        }
         let evt=new CodeContextEvent<ConsoleDataEventData>('console.data',{
             data:{
                 level:name,
-                message:e2.argv.map(v=>{
-                    if(typeof v=='object'){
-                        return JSON.stringify(v)
-                    }else{
-                        return String(v);
-                    }}).join()
+                message:outputTexts.join(' ')
             }
         });
         this.event.dispatchEvent(evt);
@@ -265,9 +268,9 @@ export class LocalRunCodeContext implements RunCodeContext{
                 }
             }
         });
-        let lastStat=result.body[result.body.length-1];
+        let lastStat=result.body.at(-1);
         if(lastStat!=undefined){
-            if(lastStat.type.indexOf('Expression')>=0){
+            if(lastStat.type.includes('Expression')){
                 replacePlan.push({
                     start:lastStat.start,
                     end:lastStat.start,

@@ -5,7 +5,7 @@ import { CodeContextEvent, ConsoleDataEventData, RunCodeContext } from './CodeCo
 import * as React from 'preact'
 import { DynamicPageCSSManager } from 'partic2/jsutils1/webutils';
 import { TextEditor } from 'partic2/pComponentUi/texteditor';
-import { DelayOnceCall,CodeContextRemoteObjectFetcher, fromSerializableObject, inspectCodeContextVariable, CodeCompletionItem } from './Inspector';
+import { DelayOnceCall,CodeContextRemoteObjectFetcher, fromSerializableObject, inspectCodeContextVariable, CodeCompletionItem, toSerializableObject } from './Inspector';
 import { ObjectViewer } from './Component1';
 
 
@@ -378,10 +378,10 @@ export class DefaultCodeCellList extends React.Component<
             })),
             consoleOutput:this.state.consoleOutput
         }
-        return JSON.stringify(saved);
+        return JSON.stringify(toSerializableObject(saved,{}));
     }
     protected async validLoadFromData(data:string):Promise<any>{
-        let loaded=JSON.parse(data);
+        let loaded=JSON.parse(fromSerializableObject(data,{}));
         for(let t1 of loaded.cellList){
             assert(typeof(t1.cellInput)==='string');
             assert(t1.cellOutput.length==2);

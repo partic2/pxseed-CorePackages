@@ -25,13 +25,13 @@ export class PxseedServer2023Function{
         return await this.funcs[5]!.call(cmd) as string;
     }
     async buildEnviron(){
-        this.serverCommand('buildEnviron');
+        return this.serverCommand('buildEnviron');
     }
     async buildPackages(){
-        this.serverCommand('buildPackages');
+        return this.serverCommand('buildPackages');
     }
     async rebuildPackages(){
-        this.serverCommand('rebuildPackages');
+        return this.serverCommand('rebuildPackages');
     }
     async getConfig(){
         return JSON.parse(await this.serverCommand('getConfig')) as PxseedServer2023StartupConfig

@@ -6,10 +6,13 @@ import {RegistryUI} from 'partic2/pxprpcClient/ui'
 import type {PxseedServer2023StartupConfig} from './workerInit'
 import {TextEditor} from 'partic2/pComponentUi/texteditor'
 import { DomRootComponent, ReactRefEx,ReactRender,css } from 'partic2/pComponentUi/domui'
+import { alert,prompt } from 'partic2/pComponentUi/window'
 import { getPersistentRegistered, ServerHostRpcName } from 'partic2/pxprpcClient/registry'
 import { PxseedServer2023Function } from './clientFunction'
 import { requirejs } from 'partic2/jsutils1/base'
 import { GetJsEntry } from 'partic2/jsutils1/webutils'
+
+import {} from 'partic2/jsutils1/webutils'
 
 export class PxseedServerAdministrateTool extends React.Component<{},{serverConfig?:PxseedServer2023StartupConfig}>{
     rref={
@@ -39,16 +42,20 @@ export class PxseedServerAdministrateTool extends React.Component<{},{serverConf
         this.rpcFunc!.saveConfig(JSON.parse((await this.rref.configView.waitValid()).getPlainText()))
     }
     async buildEnviron(){
-        return await this.rpcFunc!.buildEnviron();
+        let resp=await this.rpcFunc!.buildEnviron();
+        prompt(<pre>{resp}</pre>);
     }
     async buildPackage(){
-        return await this.rpcFunc!.buildPackages();
+        let resp=await this.rpcFunc!.buildPackages();
+        prompt(<pre>{resp}</pre>);
     }
     async forceRebuildPackages(){
-        return await this.rpcFunc!.rebuildPackages();
+        let resp=await this.rpcFunc!.rebuildPackages();
+        prompt(<pre>{resp}</pre>);
     }
     async restartSubprocess(index:number){
-        return await this.rpcFunc!.subprocessRestart(index);
+        await this.rpcFunc!.subprocessRestart(index);
+        await alert('restart done');
     }
     render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined; }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChild {
         return <div className={css.flexColumn}>

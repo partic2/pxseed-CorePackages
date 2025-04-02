@@ -105,6 +105,8 @@ export function toSerializableObject(v:any,opt:Partial<typeof DefaultSerializing
             }
         }else if(getRemoteReference in v){
             return {[serializingEscapeMark]:'RemoteReference',accessPath:v[getRemoteReference]().accessPath}
+        }else if(v instanceof Error){
+            return {constructor:'Error',message:v.message,stack:v.stack,...(v as any)};
         }else{
             let r={} as Record<string,any>;
             let keys=listProps(v);
