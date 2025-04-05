@@ -1,0 +1,17 @@
+{
+    "compilerOptions": {
+      "allowJs": false,
+      "target": "es2020",
+      "module": "ESNext",
+      "lib": ["es5", "dom","es2020"],
+      "sourceMap": false,
+      "outDir": "dist",
+      "rootDir": "./src",
+      "alwaysStrict": false,
+      "declaration": true,
+      "typeRoots": ["./node_modules/@types"],
+      "strict": true,
+      "moduleResolution": "node"
+    },
+    "include": ["./src/**/*.ts"]
+}

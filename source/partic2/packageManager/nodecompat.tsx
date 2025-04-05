@@ -10,7 +10,7 @@ import { getPersistentRegistered } from 'partic2/pxprpcClient/registry';
 
 //node compatible fs, To used in isomorphic-git
 
-class NodeFsCompatDirent implements Dirent{
+class NodeFsCompatDirent{
     constructor(public fileType:string,public name:string,public path:string){};
     isFile(): boolean {return this.fileType=='file'}
     isDirectory(): boolean {return this.fileType=='dir'}

@@ -1,7 +1,8 @@
-import { Readable } from "stream";
+import { Readable,Writable } from "stream";
 import {ArrayBufferConcat, ArrayWrap2, assert, CanceledError, future, requirejs} from 'partic2/jsutils1/base'
 import { Io } from "pxprpc/base";
 import { Server, Socket } from "net";
+import type {} from '@txikijs/types/src/index'
 
 
 export var wrappedStreams=Symbol('wrappedStreams');
@@ -19,7 +20,8 @@ export function wrapReadable(r:Readable):ReadStream4NodeIo{
     return wrapped.readStream
 }
 
-class ReadStream4NodeIo{
+//tjs.Reader
+class ReadStream4NodeIo implements tjs.Reader{
     protected chunkQueue=new ArrayWrap2<Buffer|null>([]);
     constructor(protected nodeInput:Readable){
         nodeInput.on('data',(chunk)=>{
@@ -32,7 +34,8 @@ class ReadStream4NodeIo{
     protected remainbuf:Buffer|null=null;
     protected endOfStream=false;
     protected remainoff:number=0;
-    async read(buf:Uint8Array,offset:number){
+    async read(buf:Uint8Array,offset?:number){
+        offset=offset??0;
         if(this.endOfStream)return null;
         if(this.remainbuf===null){
             this.remainbuf=await this.chunkQueue.queueBlockShift();
@@ -178,7 +181,7 @@ export async function createIoPxseedJsUrl(url:string){
 }
 
 
-import {WebSocket } from 'ws'
+import { WebSocket } from 'ws'
 export class NodeWsIo implements Io{
     priv__cached=new ArrayWrap2<Uint8Array>([])
     closed:boolean=false;
@@ -224,3 +227,36 @@ export class NodeWsIo implements Io{
 }
 
 globalThis.WebSocket=WebSocket as any;
+
+export class NodeReadableDataSource implements UnderlyingDefaultSource<any>{
+	constructor(public nodeReadable:Readable){}
+	async pull(controller: ReadableStreamDefaultController<any>): Promise<void>{
+        let errorHandler:((...args:any[])=>void)|null=null;
+        let resolveHandler:((...args:any[])=>void)|null=null;
+        try{
+            let chunk=await new Promise((resolve,reject)=>{
+                errorHandler=reject;
+                this.nodeReadable.on('error',errorHandler);
+                resolveHandler=resolve;
+                this.nodeReadable.on('data',resolveHandler);
+            });
+            controller.enqueue(chunk);
+        }finally{
+            if(errorHandler!=null){
+                this.nodeReadable.off('error',errorHandler);
+            }
+            if(resolveHandler!=null){
+                this.nodeReadable.off('data',resolveHandler);
+            }
+        }
+		
+	}
+}
+
+export class NodeWritableDataSink implements UnderlyingSink<Uint8Array>{
+	constructor(public nodeWritable:Writable){}
+	async write(chunk: Uint8Array, controller: WritableStreamDefaultController): Promise<void>{
+		this.nodeWritable.write(chunk)
+	}
+}
+

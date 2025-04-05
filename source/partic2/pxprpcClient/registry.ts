@@ -27,6 +27,23 @@ export interface RemoteRegistryFunction{
     anyToString(obj:RpcExtendClientObject):Promise<string>;
 }
 
+let attachedRemoteFunction = Symbol('AttachedRemoteRigstryFunction');
+
+export async function getRpcFunctionOn(client:RpcExtendClient1,funcName:string,typ:string):Promise<RpcExtendClientCallable|null>{
+    let attachedFunc:Record<string,RpcExtendClientCallable|null>={};
+    if(attachedRemoteFunction in client){
+        attachedFunc=(client as any)[attachedRemoteFunction];
+    }else{
+        (client as any)[attachedRemoteFunction]=attachedFunc;
+    }
+    if(!(funcName in attachedFunc)){
+        let fn=await client.getFunc(funcName);
+        if(fn!=null)fn.typedecl(typ);
+        attachedFunc[funcName]=fn;
+    }
+    return attachedFunc[funcName];
+}
+
 
 export class RpcWorker{
     initDone=new future<boolean>();
@@ -161,7 +178,6 @@ export function createIoPipe():[Io,Io]{
     return [oneSide(a2b,b2a),oneSide(b2a,a2b)];
 }
 
-let attachedRemoteFunction = Symbol('AttachedRemoteRigstryFunction');
 
 class RemoteRegistryFunctionImpl implements RemoteRegistryFunction{
     funcs:(RpcExtendClientCallable|undefined)[]=[]

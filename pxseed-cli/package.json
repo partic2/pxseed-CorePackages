@@ -1,0 +1,30 @@
+{
+  "name": "@partic2/pxseed-cli",
+  "version": "1.0.0",
+  "description": "pxseed cli tool",
+  "main": "dist/index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "tsc"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/partic2/pxseed-CorePackages.git"
+  },
+  "keywords": [
+    "pxseed"
+  ],
+  "author": "partic2",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/partic2/pxseed-CorePackages/issues"
+  },
+  "type": "module",
+  "bin": {
+    "pxseed-cli": "dist/index.js"
+  },
+  "homepage": "https://github.com/partic2/pxseed-CorePackages#readme",
+  "devDependencies": {
+    "@types/node": "^22.14.0"
+  }
+}

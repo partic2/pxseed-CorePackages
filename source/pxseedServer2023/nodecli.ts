@@ -1,49 +1,47 @@
 
-
-
-
 import './workerInit'
-import {LocalRunCodeContext} from 'partic2/CodeRunner/CodeContext'
-import { CodeContextRemoteObjectFetcher, fromSerializableObject, inspectCodeContextVariable, toSerializableObject } from 'partic2/CodeRunner/Inspector';
+
+import type {} from '@txikijs/types/src/index'
+
 import { requirejs } from 'partic2/jsutils1/base';
+import { SimpleCli } from 'partic2/CodeRunner/simplecli'
+
+import {NodeReadableDataSource,NodeWritableDataSink} from 'partic2/nodehelper/nodeio'
 
 
-let codeContext=new LocalRunCodeContext();
-let remoteObjectFetcher=new CodeContextRemoteObjectFetcher(codeContext);
-let remoteObjectFetchConfig={maxDepth:3,maxKeyCount:50,enumerateMode:'for in' as 'for in'}
-
-
-
-async function executeJs(jscode:string){
-    try{
-        let result=await codeContext.runCode(jscode,'_');
-        if(result.err!=null){
-            process.stderr.write(new TextEncoder().encode(JSON.stringify(result,undefined,2)));
-        }else if(result.stringResult!=null){
-            process.stdout.write(new TextEncoder().encode(result.stringResult));
-        }else{
-            let remoteObj=await inspectCodeContextVariable(remoteObjectFetcher,['_'],remoteObjectFetchConfig);
-            process.stdout.write(new TextEncoder().encode(JSON.stringify(remoteObj,undefined,2)));
-        }
-    }catch(err:any){
-        process.stderr.write(new TextEncoder().encode(JSON.stringify({message:err.message,stack:err.stack},undefined,2)));
-    }
-    process.stdout.write(new TextEncoder().encode('\n>'));
-}
-
-let __name__=requirejs.getLocalRequireModule(require);
+let __name__=requirejs.getLocalRequireModule(require)
 
 async function cliMain(){
-    //(await import('inspector')).open(9229,'127.0.0.1');
-    codeContext.localScope.exit=function(code:number){
-        codeContext.close();
-        process.exit(code);
+    let stdin=new ReadableStream<Uint8Array>(new NodeReadableDataSource(process.stdin)).getReader();
+    let stdout=new WritableStream<Uint8Array>(new NodeWritableDataSink(process.stdout)).getWriter();
+    let stderr=new WritableStream<Uint8Array>(new NodeWritableDataSink(process.stdout)).getWriter();
+    let cli=new SimpleCli(stdin,stdout,stderr);
+    await cli.initEnv()
+    cli.codeContext.localScope.exit=(exitCode?:number)=>{
+        cli.codeContext.close();
+        process.exit(exitCode??0);
     }
-    process.stdout.write(new TextEncoder().encode('>'))
-    process.stdin.on('data',(buf)=>{
-        let jscode=new TextDecoder().decode(buf);
-        executeJs(jscode);
-    })
+    let args=[...process.argv];
+    let found=false;
+    for(let t1=1;t1<args.length;t1++){
+        if(args[t1]===__name__){
+            args=args.slice(t1);
+            found=true;
+            break;
+        }
+    }
+    if(found){
+        if(args.length>1){
+            for(let t1 of args.slice(1)){
+                await cli.codeContext.runCode(t1);
+            }
+            await cli.codeContext.runCode('exit()');
+        }else{
+            cli.repl();
+        }
+    }
+
 }
+
 
 cliMain();
