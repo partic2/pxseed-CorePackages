@@ -9,6 +9,7 @@ import { inspectCodeContextVariable, toSerializableObject, fromSerializableObjec
     RemoteReference, defaultCompletionHandlers, CodeCompletionItem, getRemoteReference} from './Inspector';
 import { Io } from 'pxprpc/base';
 import { createIoPipe } from 'partic2/pxprpcClient/registry';
+import { addAsyncHook, JsSourceReplacePlan, setupAsyncHook } from './pxseedLoader';
 
 
 acorn.defaultOptions.allowAwaitOutsideFunction=true;
@@ -19,6 +20,7 @@ acorn.defaultOptions.sourceType='module'
 const __name__=requirejs.getLocalRequireModule(require);
 
 
+setupAsyncHook();
 
 export interface RunCodeContext{
     //resultVariable=resultVariable??'_'
@@ -87,6 +89,14 @@ interface ICodeContextProp{
     funcCallProbe?:CFuncCallProbe
 }
 
+export async function enableDebugger(){
+    try{
+        if(globalThis?.process?.versions?.node!=undefined){
+            (await import('inspector')).open(9229);
+        }
+    }catch(err){};
+}
+
 function ensureFunctionProbe<T>(o:T,p:keyof T):CFuncCallProbe{
     let func=o[p] as any;
     let p2:ICodeContextProp;
@@ -129,6 +139,7 @@ export class LocalRunCodeContext implements RunCodeContext{
         event:this.event,
         //Will be close when LocalRunCodeContext is closing.
         autoClosable:{} as Record<string,{close?:()=>void}>,
+        enableDebugger
     };
     localScopeProxy;
     protected onConsoleLogListener=(e:Event)=>{
@@ -216,14 +227,15 @@ export class LocalRunCodeContext implements RunCodeContext{
         return '';
     }
     processSource(source:string):{modifiedSource:string,declaringVariableNames:string[]}{
-        let result=acorn.parse(source,{allowAwaitOutsideFunction:true,ecmaVersion:'latest',allowReturnOutsideFunction:true})
+        let replacePlan=new JsSourceReplacePlan(source);
+        let result=acorn.parse(source,{allowAwaitOutsideFunction:true,ecmaVersion:'latest',allowReturnOutsideFunction:true});
+        replacePlan.parsedAst=result
         let foundDecl=[] as string[];
-        let replacePlan=[] as {start:number,end:number,newString:string}[]
         ancestor(result,{
             VariableDeclaration(node,state,ancetors){
                 if(ancetors.find(v=>v.type==='FunctionExpression'))return;
                 if(ancetors.find(v=>v.type==='BlockStatement')!==undefined && node.kind==='let')return;
-                replacePlan.push({start:node.start,end:node.start+3,newString:' '})
+                replacePlan.plan.push({start:node.start,end:node.start+3,newString:' '})
                 node.declarations.forEach(v=>{
                     if(v.id.type==='Identifier'){
                         foundDecl.push(v.id.name);
@@ -235,21 +247,31 @@ export class LocalRunCodeContext implements RunCodeContext{
                 });
             },
             FunctionDeclaration(node,state,ancetors){
-                if(node.expression || ancetors.find(v=>v.type==='FunctionExpression')){
+                if(node.expression || 
+                    ancetors.find(v=>v.type==='FunctionExpression')!=undefined){
                     return;
                 }
                 if(node.id==null)return;
                 foundDecl.push(node.id.name);
                 let funcType1=source.substring(node.start,node.id.start);
-                replacePlan.push({start:node.start,end:node.id.end,newString:node.id.name+'='+funcType1})
+                replacePlan.plan.push({start:node.start,end:node.id.end,newString:node.id.name+'='+funcType1});
+            },
+            ClassDeclaration(node,state,ancetors){
+                if(ancetors.find(v=>v.type==='FunctionExpression')!=undefined){
+                    return;
+                }
+                if(node.id==null)return;
+                foundDecl.push(node.id.name);
+                let clsType1=source.substring(node.start,node.id.start);
+                replacePlan.plan.push({start:node.start,end:node.id.end,newString:node.id.name+'='+clsType1});
             },
             ImportExpression(node,state,ancetors){
-                replacePlan.push({start:node.start,end:node.start+6,newString:'_ENV.__priv_import'})
+                replacePlan.plan.push({start:node.start,end:node.start+6,newString:'_ENV.__priv_import'})
             },
             ImportDeclaration(node,state,ancestor){
                 if(node.specifiers.length===1 && node.specifiers[0].type==='ImportNamespaceSpecifier'){
                     let spec=node.specifiers[0];
-                    replacePlan.push({start:node.start,end:node.end,newString:`${spec.local.name}=await _ENV.__priv_import('${node.source.value}');`})
+                    replacePlan.plan.push({start:node.start,end:node.end,newString:`${spec.local.name}=await _ENV.__priv_import('${node.source.value}');`})
                     foundDecl.push(spec.local.name)
                 }else if(node.specifiers.length>0 && node.specifiers[0].type==='ImportSpecifier'){
                     let specs=node.specifiers as acorn.ImportSpecifier[];
@@ -258,38 +280,31 @@ export class LocalRunCodeContext implements RunCodeContext{
                         importStat.push(`${spec.local.name}=(await _ENV.__priv_import('${node.source.value}')).${(spec.imported as acorn.Identifier).name};`)
                         foundDecl.push(spec.local.name)
                     }
-                    replacePlan.push({start:node.start,end:node.end,newString:importStat.join('')});
+                    replacePlan.plan.push({start:node.start,end:node.end,newString:importStat.join('')});
                 }else if(node.specifiers.length===1 && node.specifiers[0].type==='ImportDefaultSpecifier'){
                     let spec=node.specifiers[0];
-                    replacePlan.push({start:node.start,end:node.end,newString:`${spec.local.name}=(await _ENV.__priv_import('${node.source.value}')).default;`})
+                    replacePlan.plan.push({start:node.start,end:node.end,newString:`${spec.local.name}=(await _ENV.__priv_import('${node.source.value}')).default;`})
                     foundDecl.push(spec.local.name)
                 }else{
-                    replacePlan.push({start:node.start,end:node.end,newString:``});
+                    replacePlan.plan.push({start:node.start,end:node.end,newString:``});
                 }
             }
         });
         let lastStat=result.body.at(-1);
+        addAsyncHook(replacePlan);
         if(lastStat!=undefined){
             if(lastStat.type.includes('Expression')){
-                replacePlan.push({
+                replacePlan.plan.push({
                     start:lastStat.start,
                     end:lastStat.start,
                     newString:' return '
                 });
             }
         }
-        let modified:string[]=[];
-        let start=0;
-        replacePlan.sort((a,b)=>a.start-b.start)
-        replacePlan.forEach(plan=>{
-            modified.push(source.substring(start,plan.start));
-            modified.push(plan.newString);
-            start=plan.end
-        });
-        modified.push(source.substring(start));
+        let modifiedSource=replacePlan.apply();
         return {
-            modifiedSource:modified.join(''),
-            declaringVariableNames:foundDecl
+            declaringVariableNames:foundDecl,
+            modifiedSource
         }
     }
     async runCode(source:string,resultVariable?:string){
@@ -312,6 +327,7 @@ export class LocalRunCodeContext implements RunCodeContext{
         let withBlockBegin='with(_ENV){';
         let code=new Function('_ENV',withBlockBegin+
         'return (async ()=>{'+source+'\n})();}');
+        
         let scopeProxy=this.localScopeProxy;
         //TODO: Custom await scheduler and stack tracer, to avoid Task context missing after "await"
         let r=jsutils1.Task.fork(function*(){

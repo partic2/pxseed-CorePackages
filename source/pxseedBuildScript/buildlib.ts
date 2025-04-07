@@ -85,6 +85,7 @@ export async function processDirectory(dir:string){
                         await mod[funcName](dir,loaderConfig,pstat);
                     }catch(e:any){
                         pstat.currentBuildError.push(`Failed to load module with message ${e.toString()}`);
+                        throw e;
                     };
                 }else{
                     await pxseedBuiltinLoader[loaderConfig.name](dir,loaderConfig,pstat);
@@ -97,7 +98,7 @@ export async function processDirectory(dir:string){
             for(let t1 of pstat.subpackages){
                 await processDirectory(pathJoin(dir,t1));
             }
-            //Don't save to file.
+            //Don't save ".subpackages" to file.
             pstat.subpackages=[];
         }
         pstat.lastBuildTime=new Date().getTime();

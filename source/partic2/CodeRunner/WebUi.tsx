@@ -38,7 +38,13 @@ interface CodeCellStats{
 
 DynamicPageCSSManager.PutCss('.'+css.outputCell,['overflow:auto'])
 
-
+function countBracket(s:string){
+    let bracketMatch=0;
+    bracketMatch+=(s.match(/\{/g)?.length??0)-(s.match(/\}/g)?.length??0);
+    bracketMatch+=(s.match(/\(/g)?.length??0)-(s.match(/\)/g)?.length??0);
+    bracketMatch+=(s.match(/\[/g)?.length??0)-(s.match(/\]/g)?.length??0);
+    return bracketMatch;
+}
 
 export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
     rref={
@@ -79,16 +85,26 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
     protected getRunCodeKey(){
         return this.props.runCodeKey??'Ctl+Ent';
     }
-    protected onCellKeyDown(ev: React.JSX.TargetedKeyboardEvent<HTMLDivElement>){
+    protected async onCellKeyDown(ev: React.JSX.TargetedKeyboardEvent<HTMLDivElement>){
         if(ev.code==='Enter'){
             if(this.getRunCodeKey()==='Ctl+Ent' && ev.ctrlKey){
                 this.onBtnRun();
             }
-            if(this.getRunCodeKey()=='Enter' && ev.ctrlKey){
-                //prevent trigger input('\n').Is there better way?
-                this.__tempDisableEnter2RunCode=true;
-                this.rref.codeInput.current?.insertText('\n');
-                setTimeout(()=>this.__tempDisableEnter2RunCode=false,50);
+            if(this.getRunCodeKey()=='Enter'){
+                if(ev.ctrlKey){
+                    //prevent trigger input('\n').Is there better way?
+                    this.__tempDisableEnter2RunCode=true;
+                    this.rref.codeInput.current?.insertText('\n');
+                    setTimeout(()=>this.__tempDisableEnter2RunCode=false,50);
+                }else{
+                    let fullText=(await this.rref.codeInput.waitValid()).getPlainText();
+                    if(countBracket(fullText)==0){
+                        await new Promise(resolve=>requestAnimationFrame(resolve));
+                        this.rref.codeInput.current?.deleteText(1);
+                        this.runCode();
+                        return;
+                    }
+                }
             }
         }else if(ev.code=='Tab'){
             if(this.state.codeCompleteCandidate!=null){
@@ -105,22 +121,7 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
         }
         if(inputData.char=='\n'){
             let fullText=editor.getPlainText();
-            if(this.getRunCodeKey()=='Enter' && !this.__tempDisableEnter2RunCode){
-                //Code validation
-                if(countBracket(fullText)==0){
-                    this.rref.codeInput.current?.deleteText(1);
-                    this.runCode();
-                    return;
-                }
-            }
             let backwardText=fullText.substring(0,editor.getTextCaretOffset()).split('\n');
-            function countBracket(s:string){
-                let bracketMatch=0;
-                bracketMatch+=(s.match(/\{/g)?.length??0)-(s.match(/\}/g)?.length??0);
-                bracketMatch+=(s.match(/\(/g)?.length??0)-(s.match(/\)/g)?.length??0);
-                bracketMatch+=(s.match(/\[/g)?.length??0)-(s.match(/\]/g)?.length??0);
-                return bracketMatch;
-            }
             if(backwardText.length>1){
                 let lastLine=backwardText.at(-2)!;
                 let leadingSpace=lastLine.match(/^ */)?.at(0)??'';
