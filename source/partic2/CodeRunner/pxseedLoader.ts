@@ -3,9 +3,10 @@
 
 import * as acorn from 'acorn'
 import {ancestor} from 'acorn-walk'
-import { Task, assert, throwIfAbortError } from 'partic2/jsutils1/base';
+import { Task, assert, requirejs, throwIfAbortError } from 'partic2/jsutils1/base';
 import type { PxseedStatus } from 'pxseedBuildScript/buildlib';
 
+const __name__=requirejs.getLocalRequireModule(require);
 
 export class JsSourceReplacePlan{
     plan:{start:number,end:number,newString:string}[]=[];
@@ -124,6 +125,25 @@ export function setupAsyncHook(){
     }
 }
 
+setupAsyncHook();
+
+export async function ensureModuleImported(replacePlan:JsSourceReplacePlan,moduleName:string){
+    //Only support top most AMD declare
+    for(let t1 of replacePlan.ast().body){
+        if(t1.type==='ExpressionStatement' && t1.expression.type==='CallExpression' &&
+            t1.expression.callee.type==='Identifier' && t1.expression.callee.name==='define'
+        ){
+            let t2=t1.expression.arguments;
+            let t3=t2[0].type==='ArrayExpression'?t2[0]:t2[1];
+            let deps=JSON.parse(replacePlan.source.substring(t3.start,t3.end)) as string[];
+            if(!deps.includes(moduleName)){
+                deps.push(moduleName)
+                replacePlan.plan.push({start:t3.start,end:t3.end,newString:JSON.stringify(deps)});
+            }
+        }
+    }
+}
+
 export async function addAsyncHookPxseedLoader(dir:string,config:{include?:string[]},status:PxseedStatus){
     const {sourceDir,outputDir}=await import('pxseedBuildScript/loaders');
     const {glob}=await import('tinyglobby');
@@ -146,3 +166,4 @@ export async function addAsyncHookPxseedLoader(dir:string,config:{include?:strin
         }
     }
 }
+

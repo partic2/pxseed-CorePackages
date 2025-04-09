@@ -160,9 +160,6 @@ function doExit(){
     lifecycle.dispatchEvent(new Event('exit'));
     setTimeout(()=>process.exit(),3000);
 }
-defaultFuncMap['pxseedServer2023.exit']=new RpcExtendServerCallable(async ()=>{
-    doExit();
-}).typedecl('->');
 defaultFuncMap['pxseedServer2023.connectWsPipe']=new RpcExtendServerCallable(async (id:string)=>{
     let pipe1=createIoPipe();
     serveWsPipe(pipe1[0],id);
@@ -256,12 +253,7 @@ export async function startServer(){
     console.log(JSON.stringify(config,undefined,2));
     WsServer.router[config.pxseedBase!+config.pxprpcPath]=pxprpcHandler;
     WsServer.router[config.pxseedBase!+config.wsPipePath]=wsPipeHandler;
-    function doExit(){
-        console.info('exiting...');
-        lifecycle.dispatchEvent(new Event('pause'));
-        lifecycle.dispatchEvent(new Event('exit'));
-        setTimeout(()=>process.exit(),1000);
-    }
+    
     let blockFilesMatchReg=(config.blockFilesMatch??[]).map(exp=>new RegExp(exp));
     for(let dir1 of config.serveDirectory??[]){
         koaRouter.get(config.pxseedBase+`/${dir1}/:filepath(.+)`,async (ctx,next)=>{
