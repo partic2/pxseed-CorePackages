@@ -50,7 +50,7 @@ export class TjsSfs implements SimpleFileSystem{
             throw new Error('call from() first.');
         }
         try{
-            await this.impl.stat('c:\\');
+            await this.impl.stat('C:\\');
             this.winbasepath=true;
         }catch(e){}
     }
@@ -100,7 +100,7 @@ export class TjsSfs implements SimpleFileSystem{
     async listdir(path: string): Promise<{ name: string; type: string; }[]> {
         if((path==='/' || path==='') && this.winbasepath){
             if(this.dummyRootDir.length===0){
-                for(let t1 of 'cdefghijklmn'){
+                for(let t1 of 'CDEFGHIJKMN'){
                     try{
                         this.dummyRootDir.push([t1+':',await this.impl!.stat(t1+':\\')]);
                     }catch(e){

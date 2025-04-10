@@ -1,13 +1,14 @@
 
 import * as React from 'preact'
-import {DomRootComponent, ReactRefEx, ReactRender, css} from 'partic2/pComponentUi/domui'
+import {DomComponentGroup, DomRootComponent, ReactRefEx, ReactRender, css} from 'partic2/pComponentUi/domui'
 import { RemoteRunCodeContext } from 'partic2/CodeRunner/RemoteCodeContext'
 import {getRegistered,persistent,ServerHostRpcName,ServerHostWorker1RpcName} from 'partic2/pxprpcClient/registry'
-import { GenerateRandomString, GetBlobArrayBufferContent, assert, future, requirejs } from 'partic2/jsutils1/base'
+import { GenerateRandomString, GetBlobArrayBufferContent, Task, assert, future, requirejs } from 'partic2/jsutils1/base'
 import { BuildUrlFromJsEntryModule, GetJsEntry, RequestDownload, selectFile, useDeviceWidth } from 'partic2/jsutils1/webutils'
 import {JsonForm} from 'partic2/pComponentUi/input'
-import {alert, appendFloatWindow, confirm, prompt, WindowComponent} from 'partic2/pComponentUi/window'
+import {alert, appendFloatWindow, confirm, prompt, removeFloatWindow, WindowComponent} from 'partic2/pComponentUi/window'
 var registryModuleName='partic2/packageManager/registry';
+import {TaskLocalRef,Singleton} from 'partic2/CodeRunner/jsutils2'
 
 export var __name__=requirejs.getLocalRequireModule(require);
 //remote code context
@@ -42,18 +43,7 @@ if(navigator.language.split('-').includes('zh')){
     i18n.uninstall='卸载'
 }
 
-class singleton<T>{
-    constructor(public init:()=>Promise<T>){}
-    i:T|null=null;
-    async get(){
-        if(this.i===null){
-            this.i=await this.init()
-        }
-        return this.i;
-    }
-}
-
-let codeCellShell=new singleton(async ()=>{
+let codeCellShell=new Singleton(async ()=>{
     await persistent.load();
     let rpc=getRegistered(ServerHostWorker1RpcName);
     assert(rpc!=null);
@@ -252,8 +242,11 @@ class PackagePanel extends React.Component<{},{
                     if(pkg.options!=undefined && registryModuleName in pkg.options){
                         let opt=pkg.options[registryModuleName] as registryModType.PackageManagerOption;
                         if(opt.webui!=undefined){
-                            cmd.push({label:i18n.webui,click:()=>{
-                                window.open(BuildUrlFromJsEntryModule(opt.webui!.entry),'_blank')
+                            cmd.push({label:i18n.webui,click:async ()=>{
+                                let entryModule=await import(opt.webui!.entry);
+                                if(typeof entryModule.main==='function'){
+                                    Task.fork(entryModule.main('webui')).run();
+                                }
                             }});
                         }
                     }

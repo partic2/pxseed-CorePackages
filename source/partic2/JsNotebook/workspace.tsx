@@ -212,6 +212,7 @@ export class Workspace extends React.Component<{rpc?:ClientInfo,fs?:SimpleFileSy
         await this.doOpenFileRequest(notebookFile);
         for(let tab of  (await this.rref.tv.waitValid()).getTabs()){
             if(tab instanceof RunCodeTab && tab.path===notebookFile){
+                tab.ignoreRpcConfigOnLoading=true;
                 await tab.inited.get();
                 await tab.useCodeContext(supportedContext);
             }

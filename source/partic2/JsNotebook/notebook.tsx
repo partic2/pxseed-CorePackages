@@ -105,7 +105,7 @@ export class RunCodeTab extends TabInfoBase{
     codeContext?:RunCodeContext
     fs?:SimpleFileSystem
     path?:string;
-    rpc?:ClientInfo
+    rpc?:ClientInfo|'local window'
     rref={
         ccl:new ReactRefEx<CodeCellList>(),
         replccl:new ReactRefEx<RunCodeReplView>(),
@@ -152,7 +152,7 @@ export class RunCodeTab extends TabInfoBase{
         this.action.save=async()=>{
             if(this.fs!=undefined && this.path!=undefined){
                 let cells=(await this.getCurrentCellList()).saveTo();
-                let saved=JSON.stringify({ver:1,rpc:(this.rpc?.name)??'__local',path:this.path,cells})
+                let saved=JSON.stringify({ver:1,rpc:this.getRpcStringRepresent(),path:this.path,cells})
                 await this.fs!.writeAll(this.path,new TextEncoder().encode(saved));
             }
         }
@@ -175,6 +175,7 @@ export class RunCodeTab extends TabInfoBase{
     async getCurrentCellList(){
         return await this.rref.ccl.waitValid();
     }
+    ignoreRpcConfigOnLoading=false;
     async doLoad(){
         if(this.fs!=undefined && this.path!=undefined){
             let t1=await this.fs.readAll(this.path);
@@ -184,13 +185,15 @@ export class RunCodeTab extends TabInfoBase{
                 let t1=data.indexOf(0);
                 if(t1>=0)data=data.slice(0,t1);
                 let {ver,rpc,cells}=JSON.parse(new TextDecoder().decode(data)) as {ver?:string,rpc?:string,cells?:string};
-                if(rpc==='__local'){
-                    this.rpc=undefined;
-                }else if(rpc!=undefined){
-                    await persistent.load()
-                    this.rpc=getRegistered(rpc);
+                if(!this.ignoreRpcConfigOnLoading){
+                    if(rpc==='local window'){
+                        this.rpc='local window';
+                    }else if(rpc!=undefined){
+                        await persistent.load()
+                        this.rpc=getRegistered(rpc);
+                    }
+                    await this.useCodeContext(this.rpc??'local window');
                 }
-                await this.useCodeContext(this.rpc??'local window');
                 if(cells!=undefined){
                     (await this.getCurrentCellList()).loadFrom(cells);
                 }
@@ -200,11 +203,20 @@ export class RunCodeTab extends TabInfoBase{
     onKeyDown(ev: React.JSX.TargetedKeyboardEvent<HTMLElement>){
         this.rref.actionBar.current?.processKeyEvent(ev);
     }
+    protected getRpcStringRepresent(){
+        let rpc:ClientInfo|string='local window';
+        if(typeof this.rpc==='string'){
+            rpc=this.rpc
+        }else if(this.rpc !=undefined){
+            rpc=this.rpc.name;
+        }
+        return rpc;
+    }
     renderPage() {
         return <div style={{width:'100%',overflow:'auto'}} onKeyDown={(ev)=>this.onKeyDown(ev)}>
         <div>
         <a href="javascript:;" onClick={()=>this.openCodeContextChooser()}>
-            Code Context:{(this.rpc?.name)??'local window'}
+            Code Context:{this.getRpcStringRepresent()}
         </a><span>&nbsp;&nbsp;</span><DefaultActionBar action={this.action} ref={this.rref.actionBar}/></div>
         {(this.codeContext!=undefined)?
             <CodeCellList codeContext={this.codeContext} ref={this.rref.ccl} />:

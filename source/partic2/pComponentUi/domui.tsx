@@ -1,6 +1,6 @@
 
 import * as React from 'preact'
-import { ArrayWrap2, clone, future, GenerateRandomString, sleep } from 'partic2/jsutils1/base';
+import { ArrayWrap2, clone, future, GenerateRandomString, Ref2, sleep } from 'partic2/jsutils1/base';
 import { DynamicPageCSSManager } from 'partic2/jsutils1/webutils';
 var ReactDOM=React
 
@@ -106,7 +106,7 @@ class CDomRootComponent extends DomComponentGroup{
     }
 }
 
-export var DomRootComponent=new CDomRootComponent();
+export var DomRootComponent=new Ref2<CDomRootComponent>(new CDomRootComponent());
 
 
 export abstract class ReactEventTarget<P={},S={}> extends React.Component<P,S> implements EventTarget{
@@ -296,11 +296,13 @@ export class FloatLayerComponent<
 }
 
 
-export function ReactRender(vnode:React.ComponentChild,container:HTMLElement|DomComponentGroup|'create'){
+export function ReactRender<T1 extends DomComponentGroup|HTMLElement>(vnode:React.ComponentChild,container:HTMLElement|DomComponentGroup|'create'|Ref2<T1>){
     if(container instanceof HTMLElement){
         React.render(vnode,container);
     }else if(container instanceof DomComponentGroup){
         React.render(vnode,container.getDomElement()!);
+    }else if(container instanceof Ref2){
+        ReactRender(vnode,container.get());
     }else if(container=='create'){
         let div1=document.createElement('div');
         React.render(vnode,div1);
@@ -313,15 +315,15 @@ export async function SetComponentFullScreen(comp:DomComponent):Promise<{onExit:
         exit:function(){if(!this.onExit.done){document.exitFullscreen()}}
     }
     if(!document.body.contains(comp.getDomElement()!)){
-        DomRootComponent.addHiddenComponent(comp);
+        DomRootComponent.get().addHiddenComponent(comp);
     }
     await comp.getDomElement()!.requestFullscreen();
-    DomRootComponent.hiddenDiv!.style.display='block';
+    DomRootComponent.get().hiddenDiv!.style.display='block';
     var fsCb=function(ev:Event){
         if(document.fullscreenElement!==comp.getDomElement()){
             comp.getDomElement()!.removeEventListener('fullscreenchange',fsCb);
             ctl.onExit.setResult(true);
-            DomRootComponent.hiddenDiv!.style.display='none';
+            DomRootComponent.get().hiddenDiv!.style.display='none';
         }
     }
     comp.getDomElement()!.addEventListener('fullscreenchange',fsCb);

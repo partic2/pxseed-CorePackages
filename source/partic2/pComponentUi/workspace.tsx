@@ -1,7 +1,35 @@
 
 import * as React from 'preact'
 import { css, ReactRefEx } from './domui';
-import {Ref2, copy} from 'partic2/jsutils1/base'
+import {Ref2, copy, future} from 'partic2/jsutils1/base'
+import { appendFloatWindow, removeFloatWindow, WindowComponent } from './window';
+
+
+interface OpenNewWindopwOption{
+    title?:string
+}
+interface NewWindowHandle{
+    onClose:()=>Promise<void>,
+    close:()=>void
+}
+export let openNewWindow=async function(contentVNode:React.VNode,options?:OpenNewWindopwOption){
+    let closeFuture=new future<boolean>();
+    let windowVNode=<WindowComponent onClose={()=>closeFuture.setResult(true)} title={options?.title}>{contentVNode}</WindowComponent>;
+    appendFloatWindow(windowVNode,true);
+    return {
+        onClose:async function(){
+            await closeFuture.get();
+            this.close()
+            return
+        },
+        close:function(){removeFloatWindow(windowVNode);}
+    }
+}
+
+export function setOpenNewWindowImpl(impl:(contentVNode:React.VNode,options?:OpenNewWindopwOption)=>Promise<NewWindowHandle>){
+    openNewWindow=impl;
+}
+
 
 export interface TabInfo{
     id:string,
@@ -31,7 +59,7 @@ export abstract class TabInfoBase implements TabInfo{
     async requestPageViewUpdate(){
         let tabView=this.container.get();
         if(tabView!=null){
-            return new Promise<void>(r=>tabView.forceUpdate(r));
+            return new Promise<void>(r=>tabView!.forceUpdate(r));
         }else{
             return new Promise<void>(r=>r())
         }
