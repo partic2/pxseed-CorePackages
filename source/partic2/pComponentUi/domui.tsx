@@ -106,7 +106,34 @@ class CDomRootComponent extends DomComponentGroup{
     }
 }
 
-export var DomRootComponent=new Ref2<CDomRootComponent>(new CDomRootComponent());
+class DomRootComponentProxy extends Ref2<CDomRootComponent>{
+    public async appendToNode(parent:HTMLElement){
+        return this.get().appendToNode(parent);
+    }
+    public async update(){
+        return this.get().update();
+    }
+    public addHiddenElement(e:HTMLElement){
+        return this.get().addHiddenElement(e);
+    }
+    public removeHiddenElement(e:HTMLElement){
+        return this.get().removeHiddenElement(e);
+    }
+    public async addHiddenComponent(comp:DomComponent){
+        return this.get().addHiddenComponent(comp);
+    }
+    public getChildren(){
+        return this.get().getChildren();
+    }
+    public async addChild(comp:DomComponent){
+        return this.get().addChild(comp);
+    }
+    public async removeChild(comp:DomComponent){
+        return this.get().removeChild(comp);
+    }
+}
+
+export var DomRootComponent=new DomRootComponentProxy(new CDomRootComponent());
 
 
 export abstract class ReactEventTarget<P={},S={}> extends React.Component<P,S> implements EventTarget{
