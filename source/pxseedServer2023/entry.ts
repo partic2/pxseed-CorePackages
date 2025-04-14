@@ -188,7 +188,10 @@ export let command={
         t1+=await runCommand(`${process.execPath} ${pathJoin(getWWWRoot(),'..','script','buildPackages.js')}`)
         return t1;
     },
-    subprocessRestart:null as any as (index:number)=>Promise<void>
+    subprocessRestart:null as any as (index:number)=>Promise<void>,
+    exit:async ()=>{
+        doExit();
+    }
 }
 
 defaultFuncMap['pxseedServer2023.serverCommand']=new RpcExtendServerCallable(async (cmd:string)=>{

@@ -3,26 +3,25 @@ import { RpcExtendClient1, RpcExtendClientCallable, RpcExtendClientObject } from
 import type { PxseedServer2023StartupConfig } from "./workerInit";
 import { Client, Io, Serializer } from "pxprpc/base";
 import { WebSocketIo } from "pxprpc/backend";
-import { IoOverPxprpc, ServerHostRpcName, getPersistentRegistered, getRegistered } from 'partic2/pxprpcClient/registry'
+import { IoOverPxprpc, ServerHostRpcName, getPersistentRegistered, getRegistered, getRpcFunctionOn } from 'partic2/pxprpcClient/registry'
 import { GetUrlQueryVariable2 } from "partic2/jsutils1/webutils";
 
-let boundRpcFunctions=Symbol('boundRpcFunctions')
 
 export class PxseedServer2023Function{
     async exit(){
-        await this.funcs[0]!.call();
+        await this.serverCommand('exit');
     }
     async subprocessWaitExitCode(index:number){
-        await this.funcs[1]!.call(index) as number;
+        return (await getRpcFunctionOn(this.client1!,'pxseedServer2023.subprocess.waitExitCode','i->i'))!.call(index);
     }
     async subprocessRestart(index:number){
-        await this.funcs[2]!.call(index);
+        (await getRpcFunctionOn(this.client1!,'pxseedServer2023.subprocess.restart','i->'))!.call(index);
     }
     async connectWsPipe(id:string){
-        return new IoOverPxprpc(await this.funcs[4]!.call(id) as RpcExtendClientObject)
+        return (await getRpcFunctionOn(this.client1!,'pxseedServer2023.connectWsPipe','s->o'))!.call(id);
     }
     async serverCommand(cmd:string){
-        return await this.funcs[5]!.call(cmd) as string;
+        return (await getRpcFunctionOn(this.client1!,'pxseedServer2023.serverCommand','s->s'))!.call(cmd);
     }
     async buildEnviron(){
         return this.serverCommand('buildEnviron');
@@ -39,19 +38,9 @@ export class PxseedServer2023Function{
     async saveConfig(cfg:PxseedServer2023StartupConfig){
         return await this.serverCommand(`saveConfig ${JSON.stringify(cfg)}`);
     }
-    funcs:(RpcExtendClientCallable|undefined)[]=[];
+    public client1?:RpcExtendClient1;
     async init(client1:RpcExtendClient1){
-        if(boundRpcFunctions in client1){
-            this.funcs=(client1 as any).boundRpcFunctions;
-        }else{
-            this.funcs.push((await client1.getFunc('pxseedServer2023.exit'))?.typedecl('->'));
-            this.funcs.push((await client1.getFunc('pxseedServer2023.subprocess.waitExitCode'))?.typedecl('i->i'));
-            this.funcs.push((await client1.getFunc('pxseedServer2023.subprocess.restart'))?.typedecl('i->'));
-            this.funcs.push(undefined);
-            this.funcs.push((await client1.getFunc('pxseedServer2023.connectWsPipe'))?.typedecl('s->o'));
-            this.funcs.push((await client1.getFunc('pxseedServer2023.serverCommand'))?.typedecl('s->s'));
-            (client1 as any).boundRpcFunctions=this.funcs;
-        }
+        this.client1=client1;
     }
 }
 
