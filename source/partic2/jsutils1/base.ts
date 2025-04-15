@@ -65,6 +65,10 @@ try{
     }
 })();
 
+interface TaskCallback<T>{
+    then(resolve:(result:T)=>void,reject:(reason:any)=>void):void
+}
+
 export class Task<T> {
     static currentTask: Task<any> | null = null;
     static locals() {
@@ -73,7 +77,7 @@ export class Task<T> {
     static getAbortSignal() {
         return Task.currentTask?.getAbortSignal();
     }
-    static fork<T2>(taskMain: Generator<Promise<any>, T2, any> | (() => Generator<Promise<any>, T2, any>)){
+    static fork<T2>(taskMain: Generator<TaskCallback<any>, T2, any> | (() => Generator<TaskCallback<any>, T2, any>)){
         if(Task.currentTask!=undefined){
             return Task.currentTask.fork(taskMain);
         }else{
@@ -87,7 +91,7 @@ export class Task<T> {
     static *yieldWrap<T2>(p: Promise<T2>) {
         return (yield p) as T2;
     }
-    constructor(taskMain: Generator<Promise<any>, T, any> | (() => Generator<Promise<any>, T, any>),
+    constructor(taskMain: Generator<TaskCallback<any>, T, any> | (() => Generator<TaskCallback<any>, T, any>),
         public name?: string) {
         this.__iter = (typeof taskMain === 'function') ? taskMain() : taskMain;
         let resolver: Partial<typeof this.__resolver> = [undefined, undefined, undefined];
@@ -101,7 +105,7 @@ export class Task<T> {
         });
     }
     __resolver?: [Promise<T>, ((value: T) => void), ((reason?: any) => void)]
-    __iter?: Generator<Promise<any>>;
+    __iter?: Generator<TaskCallback<any>>;
     __locals = {};
     __abortController = new AbortController();
     __step(tNext: any, error: any) {
@@ -146,7 +150,7 @@ export class Task<T> {
     __childrenTask = new Array<Task<any>>();
     //Fork a child task. 
     //The default behaviour: set the parent locals as prototype of child locals, propagate abort signal to children.
-    fork<T2>(taskMain: Generator<Promise<any>, T2, any> | (() => Generator<Promise<any>, T2, any>)) {
+    fork<T2>(taskMain: Generator<TaskCallback<any>, T2, any> | (() => Generator<TaskCallback<any>, T2, any>)) {
         let childTask = new Task(taskMain);
         Object.setPrototypeOf(childTask.__locals, this.locals());
         this.__childrenTask.push(childTask);
@@ -261,6 +265,8 @@ export function sleep<T>(milliSeconds: number, arg?: T): Promise<T> {
 
 export class future<T>{
     public done: boolean = false;
+    public result?: T;
+    public exception:any; 
     protected resolveCallback?:(value: T | PromiseLike<T>) => void;
     protected rejectCallback?:(reason?: any) => void;
     protected resultPromise:Promise<T>
@@ -276,22 +282,24 @@ export class future<T>{
     public setResult(result: T) {
         if (!this.done) {
             this.done = true;
+            this.result=result;
             this.resolveCallback!(result)
         }
     }
     public setException(exception: any) {
         if (!this.done) {
             this.done = true;
+            this.exception=exception;
             this.rejectCallback!(exception)
         }
     }
 }
 export class CanceledError extends Error{
+    name='Canceled'
     constructor(){
         super('canceled.')
     }
 }
-
 
 export class ArrayWrap2<T>{
     public wrapped:T[]=[]
@@ -533,19 +541,6 @@ export let requirejs = {
     }
 }
 
-
-export function ArrayEquals<T>(obj1: Array<T>, obj2: Array<T>) {
-    if (obj1.length != obj2.length) {
-        return false
-    }
-    for (var i = 0; i < obj1.length; i++) {
-        if (obj1[i] != obj2[i]) {
-            return false;
-        }
-    }
-    return true;
-}
-
 export function GenerateRandomString(maxRandLenX4?:number) {
     let s='rnd1';
     if(maxRandLenX4==undefined)maxRandLenX4=4
@@ -555,25 +550,6 @@ export function GenerateRandomString(maxRandLenX4?:number) {
         s+=part;
     }
     return s;
-}
-
-export let UidGenerator={
-    idnum:[0],
-    generate:function(){
-        let i=0;
-        for(i=0;i<this.idnum.length;i++){
-            if(this.idnum[i]<0x7fffffff){
-                this.idnum[i]++;
-                break;
-            }else{
-                this.idnum[i]=0;
-            }
-        }
-        if(i==this.idnum.length){
-            this.idnum.push(1);
-        }
-        return this.idnum.map(v=>v.toString(16)).join('-')
-    }
 }
 
 export class ErrorChain extends Error{
