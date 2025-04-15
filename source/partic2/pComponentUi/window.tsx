@@ -1,9 +1,8 @@
 
 import * as React from 'preact'
-import { css, DomRootComponent, FloatLayerComponent, ReactRefEx, ReactRender, RefChangeEvent } from './domui';
+import { css as cssBase, DomRootComponent, FloatLayerComponent, ReactRefEx, ReactRender, RefChangeEvent } from './domui';
 import { ArrayWrap2, future, GenerateRandomString, GetCurrentTime } from 'partic2/jsutils1/base';
 import { DynamicPageCSSManager } from 'partic2/jsutils1/webutils';
-import {css as cssBase} from './domui'
 import { PointTrace, TransformHelper } from './transform';
 
 
@@ -28,6 +27,12 @@ interface WindowComponentStats{
 }
 
 import {getIconUrl} from 'partic2/pxseedMedia1/index1'
+
+export let css={
+    windowContainer:GenerateRandomString()
+}
+
+DynamicPageCSSManager.PutCss('.'+css.windowContainer,['max-height:100vh','max-width:100vw']);
 
 export class WindowComponent extends React.Component<WindowComponentProps,WindowComponentStats>{
     static defaultProps:WindowComponentProps={
@@ -193,7 +198,7 @@ export class WindowComponent extends React.Component<WindowComponentProps,Window
         if(this.state.folded){
             contentDivStyle.display='none'
         }
-        return <div className={cssBase.flexColumn} style={windowDivStyle}
+        return <div className={[cssBase.flexColumn,css.windowContainer].join(' ')} style={windowDivStyle}
             ref={this.rref.container}
             onMouseDown={()=>{
                 if(this.state.activeTime>=0)
@@ -292,7 +297,7 @@ export async function alert(message:string,title?:string){
     title={title??i18n.caution} onClose={()=>result.setResult(null)}>
     <div style={{backgroundColor:'#FFF', minWidth:Math.min(window.innerWidth-10,300)}}>
         {message}
-        <div className={css.flexRow}>
+        <div className={cssBase.flexRow}>
             <input type='button' style={{flexGrow:'1'}} onClick={()=>result.setResult(null)} value={i18n.ok}/>
         </div>
     </div>
@@ -309,7 +314,7 @@ export async function confirm(message:string,title?:string){
         title={title??i18n.caution} onClose={()=>result.setResult('cancel')}>
         <div style={{backgroundColor:'#FFF', minWidth:Math.min(window.innerWidth-10,300)}}>
             {message}
-            <div className={css.flexRow}>
+            <div className={cssBase.flexRow}>
                 <input type='button' style={{flexGrow:'1'}} onClick={()=>result.setResult('ok')} value={i18n.ok}/>
                 <input type='button' style={{flexGrow:'1'}} onClick={()=>result.setResult('cancel')} value={i18n.cancel}/>
             </div>
@@ -324,9 +329,9 @@ export async function confirm(message:string,title?:string){
 export async function prompt(form:React.VNode,title?:string){
     let result=new future<'ok'|'cancel'>();
     let floatWindow1=<WindowComponent title={title??i18n.caution} onClose={()=>result.setResult('cancel')} key={GenerateRandomString()}>
-        <div className={css.flexColumn}>
+        <div className={cssBase.flexColumn}>
             {form}
-            <div className={css.flexRow}>
+            <div className={cssBase.flexRow}>
                 <input type='button' style={{flexGrow:'1'}} onClick={()=>result.setResult('ok')} value={i18n.ok}/>
                 <input type='button' style={{flexGrow:'1'}} onClick={()=>result.setResult('cancel')} value={i18n.cancel}/>
             </div>
