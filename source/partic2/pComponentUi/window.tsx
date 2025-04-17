@@ -11,12 +11,11 @@ interface WindowComponentProps{
     closeIcon?:string|null,
     foldIcon?:string|null,
     expandIcon?:string|null,
+    maximize?:string|null,
     title?:string,
     windowClassName?:string,
     onClose?:()=>void,
-    position?:'keep center'|'initial center'|'static',
-    //window uid used to persistent the window specified infomation.
-    windowUid?:string
+    position?:'keep center'|'initial center'|'static'
 }
 
 interface WindowComponentStats{
@@ -29,16 +28,20 @@ interface WindowComponentStats{
 import {getIconUrl} from 'partic2/pxseedMedia1/index1'
 
 export let css={
-    windowContainer:GenerateRandomString()
+    windowContainer:GenerateRandomString(),
+    defaultWindowClass:GenerateRandomString()
 }
 
 DynamicPageCSSManager.PutCss('.'+css.windowContainer,['max-height:100vh','max-width:100vw']);
+DynamicPageCSSManager.PutCss('.'+css.defaultWindowClass ,['background-color:white'])
 
 export class WindowComponent extends React.Component<WindowComponentProps,WindowComponentStats>{
     static defaultProps:WindowComponentProps={
         closeIcon:getIconUrl('x.svg'),
         foldIcon:getIconUrl('minus.svg'),
         expandIcon:getIconUrl('plus.svg'),
+        maximize:getIconUrl('maximize-2.svg'),
+        
         title:'untitled',
         position:'initial center'
     }
@@ -155,7 +158,9 @@ export class WindowComponent extends React.Component<WindowComponentProps,Window
                 <div style={{flexGrow:'1',cursor:'move',userSelect:'none'}} 
                 onMouseDown={this.__onTitleMouseDownHandler} onTouchStart={this.__onTitleTouchDownHandler} >
                 {(this.props.title??'').replace(/ /g,String.fromCharCode(160))}</div>&nbsp;
-                {this.state.folded?
+                {
+                    this.renderIcon(this.props.maximize!,()=>this.onMaximizeClick())
+                }{this.state.folded?
                     this.renderIcon(this.props.expandIcon!,()=>this.onExpandClick()):
                     this.renderIcon(this.props.foldIcon!,()=>this.onFoldClick())
                 }{
@@ -163,15 +168,24 @@ export class WindowComponent extends React.Component<WindowComponentProps,Window
                 }
         </div>
     }
-    onFoldClick(){
+    async onFoldClick(){
         this.setState({folded:true})
     }
-    onExpandClick(){
+    async onExpandClick(){
         this.setState({folded:false})
     }
-    onCloseClick(){
+    async onCloseClick(){
         this.hide();
         this.props.onClose?.();
+    }
+    async onMaximizeClick(){
+        if((this.state.layout.width??0)>=window.innerWidth-1 && (this.state.layout.height??0)>=window.innerHeight-1){
+            this.setState({layout:{left:0,top:0,width:undefined,height:undefined}});
+            await new Promise(resolve=>requestAnimationFrame(resolve));
+            this.makeCenter();
+        }else{
+            this.setState({layout:{left:0,top:0,width:window.innerWidth,height:window.innerHeight}});
+        }
     }
     doRelayout(){
         if(this.props.position==='keep center'){
@@ -181,9 +195,10 @@ export class WindowComponent extends React.Component<WindowComponentProps,Window
     renderWindowMain(){
         let windowDivStyle:React.JSX.CSSProperties={
             border:'solid black 1px',
+            boxSizing:'border-box',
             position:'absolute',
             left:this.state.layout.left+'px',
-            top:this.state.layout.top+'px',
+            top:this.state.layout.top+'px'
         };
         if(this.props.position==='static'){
             windowDivStyle.position='static'
@@ -210,7 +225,7 @@ export class WindowComponent extends React.Component<WindowComponentProps,Window
             }}>
                 {this.renderTitle()}
                 {[
-                    <div style={{overflow:'auto',...contentDivStyle}} ref={this.rref.contentDiv}>
+                    <div style={{overflow:'auto',...contentDivStyle}} className={this.props.windowClassName??css.defaultWindowClass} ref={this.rref.contentDiv}>
                         {this.state.errorOccured==null?this.props.children:<pre style={{backgroundColor:'white',color:'black'}}>
                             {this.state.errorOccured.message}
                             {this.state.errorOccured.stack}

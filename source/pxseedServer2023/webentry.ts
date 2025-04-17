@@ -18,15 +18,18 @@ export async function getPxseedUrl(){
 }
 
 
-export async function updatePxseedServerConfig(){
+export async function updatePxseedServerConfig(pxprpcKey?:string|null){
     await persistent.load();
+    if(pxprpcKey===undefined){
+        pxprpcKey=GetUrlQueryVariable('__pxprpcKey')
+    }
+    
     if(getRegistered(ServerHostRpcName)!=null){
         await removeClient(ServerHostRpcName);
     }
     let {pxprpcUrl}=await getPxseedUrl();
-    let key=GetUrlQueryVariable('__pxprpcKey');
-    if(key!=null){
-        pxprpcUrl+='?key='+key;
+    if(pxprpcKey!=null){
+        pxprpcUrl+='?key='+pxprpcKey;
     }
     let wstest:WebSocketIo
     try{

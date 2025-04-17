@@ -158,6 +158,25 @@ class PackagePanel extends React.Component<{},{
                         }
                       }
                     }
+                  },{
+                    "loaders": [
+                      {
+                        "name": "typescript"
+                      },{
+                        "name":"rollup",
+                        "entryModules":[
+                          "preact"
+                        ]
+                      }
+                    ],
+                    "name": "pxseedServer2023",
+                    "options":{
+                      "partic2/packageManager/registry":{
+                        "webui":{
+                          "entry":"pxseedServer2023/webui"
+                        }
+                      }
+                    }
                   }],
                 errorMessage:err.message
             });
@@ -262,7 +281,10 @@ class PackagePanel extends React.Component<{},{
                     cmd.push({label:i18n.webui,click:async ()=>{
                         let entryModule=await import(opt.webui!.entry);
                         if(typeof entryModule.main==='function'){
-                            Task.fork(entryModule.main('webui')).run();
+                            let r=entryModule.main('webui');
+                            if(Symbol.iterator in r){
+                                Task.fork(r).run();
+                            }
                         }
                     }});
                 }
