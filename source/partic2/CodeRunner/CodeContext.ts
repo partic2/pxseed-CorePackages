@@ -10,6 +10,7 @@ import { inspectCodeContextVariable, toSerializableObject, fromSerializableObjec
 import { Io } from 'pxprpc/base';
 import { createIoPipe } from 'partic2/pxprpcClient/registry';
 import { addAsyncHook, JsSourceReplacePlan, setupAsyncHook } from './pxseedLoader';
+import { TaskLocalRef } from './jsutils2';
 
 
 acorn.defaultOptions.allowAwaitOutsideFunction=true;
@@ -19,6 +20,7 @@ acorn.defaultOptions.sourceType='module'
 
 const __name__=requirejs.getLocalRequireModule(require);
 
+export let TaskLocalEnv=new TaskLocalRef<any>({__noenv:true});
 
 setupAsyncHook();
 
@@ -133,8 +135,8 @@ export class LocalRunCodeContext implements RunCodeContext{
         },
         //some utils provide by codeContext
         __priv_jsExecLib:jsExecLib,
-        //custom source processor for 'runCode' _ENV.__priv_processSource, run before built in processor.
-        __priv_processSource:null as null|((s:string)=>string),
+        //custom source processor for 'runCode' _ENV.__priv_processSource, run before builtin processor.
+        __priv_processSource:[] as ((processContext:{source:string,_ENV:any})=>PromiseLike<void>|void)[],
         servePipe:this.servePipe.bind(this),
         event:this.event,
         //Will be close when LocalRunCodeContext is closing.
@@ -309,9 +311,17 @@ export class LocalRunCodeContext implements RunCodeContext{
     }
     async runCode(source:string,resultVariable?:string){
         resultVariable=resultVariable??'_'
-        if(this.localScope.__priv_processSource!=null){
-            source=this.localScope.__priv_processSource(source)
-        }
+        let that=this;
+        let processContext={_ENV:this.localScope,source}
+        await jsutils1.Task.fork(function*(){
+            for(let processor of that.localScope.__priv_processSource){
+                let isAsync=processor(processContext);
+                if(isAsync!=undefined && 'then' in isAsync){
+                    yield isAsync;
+                }
+            }
+        }).run();
+        source=processContext.source;
         let proc1=this.processSource(source);
         try{
             let result=await this.runCodeInScope(proc1.modifiedSource);
@@ -328,11 +338,11 @@ export class LocalRunCodeContext implements RunCodeContext{
         let code=new Function('_ENV',withBlockBegin+
         'return (async ()=>{'+source+'\n})();}');
         
-        let scopeProxy=this.localScopeProxy;
+        let that=this;
         //TODO: Custom await scheduler and stack tracer, to avoid Task context missing after "await"
         let r=jsutils1.Task.fork(function*(){
-            jsutils1.Task.locals()![__name__]={_ENV:scopeProxy};
-            return (yield code(scopeProxy)) as any;
+            TaskLocalEnv.set(that.localScope);
+            return (yield code(that.localScopeProxy)) as any;
         }).run();
         return await r;
     }
