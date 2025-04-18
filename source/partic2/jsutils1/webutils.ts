@@ -4,7 +4,10 @@ import { ArrayBufferToBase64, GenerateRandomString, ToDataUrl, amdContext, futur
 export var __name__='partic2/jsutils1/webutils'
 
 export var config={
-    defaultStorePrefix:__name__
+    defaultStorePrefix:__name__,
+    //No garantee to contain all kvStorePrefix binding, But at least binding for current wwwroot.
+    //See useKvStorePrefix for detail.
+    kvStorePrefix:null as Record<string,string>|null
 }
 
 
@@ -45,7 +48,7 @@ class CIndexedDb {
             if (name == null) {
                 name = this.db!.name
             }
-            await this.db!.close();
+            this.db!.close();
         }
         return new Promise(function (resolve, reject) {
             var req = globalThis.indexedDB.deleteDatabase(name!);
@@ -348,10 +351,23 @@ var kvStoreBackend=async (dbname:string)=>{
 }
 export async function kvStore(dbname?:string){
     await kvdbinitmutex.lock();
-    if(dbname==undefined){
-        dbname=config.defaultStorePrefix+'/kv-1';
-    }
     try{
+        if(dbname==undefined){
+            dbname=config.defaultStorePrefix+'/kv-1';
+        }
+        if(config.kvStorePrefix==null){
+            let impl=await kvStoreBackend(config.defaultStorePrefix+'/kv-1');
+            let cfg=await impl.getItem(__name__+'/config');
+            if(cfg==undefined||cfg.kvStorePrefix==undefined){
+                config.kvStorePrefix={};
+            }else{
+                config.kvStorePrefix=cfg.kvStorePrefix;
+            }
+        }
+        let prefix=config.kvStorePrefix![getWWWRoot()];
+        if(prefix!=undefined){
+            dbname=prefix+dbname;
+        }
         if(!(dbname in kvdbmap)){
             let impl=await kvStoreBackend(dbname);
             kvdbmap[dbname]=new CKeyValueDb();
@@ -364,6 +380,26 @@ export async function kvStore(dbname?:string){
 }
 export function setKvStoreBackend(backend:(dbname:string)=>Promise<IKeyValueDb>){
     kvStoreBackend=backend;
+}
+//By default, kvStore pass 'dbname' parameter directly to kvStoreBackend.
+//But sometime, User may want a isolated kvStore namespace.
+//This function bind a kvStore 'prefix' to wwwroot persistently.
+//When this module is loaded with matched wwwroot, the correspond prefix will be added to 'dbname' before passing to kvStoreBackend.
+//Default value:wwwroot=getWWWRoot();prefix=wwwroot+'/';
+export async function useKvStorePrefix(wwwroot?:string,prefix?:string){
+    await kvdbinitmutex.lock();
+    try{
+        wwwroot=wwwroot??getWWWRoot();
+        prefix=prefix??(wwwroot+'/');
+        let impl=await kvStoreBackend(config.defaultStorePrefix+'/kv-1');
+        let cfg=await impl.getItem(__name__+'/config');
+        if(cfg==undefined)cfg={};
+        if(cfg.kvStorePrefix==undefined)cfg.kvStorePrefix={};
+        cfg.kvStorePrefix[wwwroot]=prefix;
+        await impl.setItem(__name__+'/config',cfg);
+    }finally{
+        await kvdbinitmutex.unlock();
+    }
 }
 
 var cachedPersistentConfig:{[modname:string]:any}={};
