@@ -312,7 +312,7 @@ export async function startServer(){
             if(subprocs[index].exitCode==null){
                 let subCfg=rootConfig.deamonMode!.subprocessConfig[index];
                 let client1=new RpcExtendClient1(new Client(await new WebSocketIo().connect(
-                    `ws://127.0.0.1:${subCfg.listenOn!.port}${subCfg.pxseedBase??config.pxseedBase}${subCfg.pxprpcPath??config.pxprpcPath}`)))
+                    `ws://127.0.0.1:${subCfg.listenOn!.port}${subCfg.pxseedBase??config.pxseedBase}${subCfg.pxprpcPath??config.pxprpcPath}?key=${subCfg.pxprpcKey??config.pxprpcKey}`)))
                 await client1.init();
                 let {PxseedServer2023Function}=await import('./clientFunction');
                 let func=new PxseedServer2023Function();

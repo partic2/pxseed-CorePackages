@@ -15,7 +15,7 @@ export class PxseedServer2023Function{
         return (await getRpcFunctionOn(this.client1!,'pxseedServer2023.subprocess.waitExitCode','i->i'))!.call(index);
     }
     async subprocessRestart(index:number){
-        (await getRpcFunctionOn(this.client1!,'pxseedServer2023.subprocess.restart','i->'))!.call(index);
+        return (await getRpcFunctionOn(this.client1!,'pxseedServer2023.subprocess.restart','i->'))!.call(index);
     }
     async connectWsPipe(id:string){
         return (await getRpcFunctionOn(this.client1!,'pxseedServer2023.connectWsPipe','s->o'))!.call(id);
