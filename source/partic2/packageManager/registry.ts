@@ -585,15 +585,9 @@ export async function installPackage(source:string){
         throw new Error(`Can not handle url:${source}`)
     }
 }
-
-async function startDebugger(){
-    try{
-        (await import('inspector')).open(9229,'127.0.0.1',true)
-    }catch(e:any){}
-    debugger;
-}
-
+import('inspector').then((mod)=>mod.open(9229)).catch();
 export async function createPackageTemplate1(pxseedConfig:PxseedConfig){
+    debugger
     let pkgloc=pathJoin(sourceDir,pxseedConfig.name);
     try{
         await access(pkgloc,fsConst.F_OK);
@@ -609,6 +603,38 @@ export async function createPackageTemplate1(pxseedConfig:PxseedConfig){
 !.gitignore
 tsconfig.json
 `);
+    if(pxseedConfig.options?.[__name__]!=undefined){
+        let opt=pxseedConfig.options[__name__] as PackageManagerOption;
+        if(opt.webui?.entry!=undefined && opt.webui.entry!=''){
+            let entryMod=opt.webui.entry;
+            if(entryMod.startsWith(pxseedConfig.name+'/')){
+                let entModPath=pathJoin(sourceDir,...entryMod.split('/'))+'.tsx';
+                await mkdir(dirname(entModPath),{recursive:true});
+                await writeFile(entModPath,`
+import * as React from 'preact'
+import { openNewWindow } from 'partic2/pComponentUi/workspace'
+import { requirejs } from 'partic2/jsutils1/base';
+import { GetJsEntry } from 'partic2/jsutils1/webutils';
+import { DomRootComponent, ReactRender } from 'partic2/pComponentUi/domui';
+
+const __name__=requirejs.getLocalRequireModule(require);
+
+//Open from packageManager.
+export function *main(args:string){
+    if(args=='webui'){
+        openNewWindow(<div>WebUI Demo</div>);
+    }
+}
+
+//Optinal support when module is open from url directly. like http://xxxx/pxseed/index.html?__jsentry=<moduleName>
+(async ()=>{
+    if(__name__==GetJsEntry()){
+        ReactRender(<div>WebUI Demo</div>,DomRootComponent);
+    }
+})();
+`)}
+        }
+    }
     await installLocalPackage(pkgloc);
     await initGitRepo(pkgloc);
 }

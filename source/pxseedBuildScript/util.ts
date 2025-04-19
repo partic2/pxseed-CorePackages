@@ -20,7 +20,7 @@ export async function readJson(path:string){
 
 
 export async function writeJson(path:string,obj:any){
-    await writeFile(path,new TextEncoder().encode(JSON.stringify(obj)));
+    await writeFile(path,new TextEncoder().encode(JSON.stringify(obj,undefined,2)));
 }
 
 export async function runBuild(){

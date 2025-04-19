@@ -89,6 +89,27 @@ export let pxseedBuiltinLoader={
             let tscPath=pathJoin(outputDir,'node_modules','typescript','bin','tsc');
             let sourceRootPath=dir.substring(sourceDir.length+1).split(sep).map(v=>'..').join('/');
             let include=config.include??["./**/*.ts","./**/*.tsx"];
+            try{
+                await fs.access(pathJoin(dir,'tsconfig.json'));
+            }catch(err:any){
+                if(err.code=='ENOENT'){
+                    let tsconfig={
+                        "compilerOptions": {
+                        "paths": {
+                            "*":[`${sourceRootPath}/*`,`${sourceRootPath}/../www/node_modules/*`]
+                        },
+                        },
+                        "extends":`${sourceRootPath}/tsconfig.base.json`,
+                        "include": include
+                    } as any;
+                    if(config.exclude!=undefined){
+                        tsconfig.exclude=config.exclude
+                    }
+                    await fs.writeFile(pathJoin(dir,'tsconfig.json'),new TextEncoder().encode(JSON.stringify(tsconfig)));
+                }else{
+                    throw err;
+                }
+            }
             let files=await glob(include,{cwd:dir});
             let latestMtime=0;
             for(let t1 of files){
@@ -100,19 +121,6 @@ export let pxseedBuiltinLoader={
                 console.info('typescript loader: No file modified since last build, skiped.')
                 return;
             }
-            let tsconfig={
-                "compilerOptions": {
-                "paths": {
-                    "*":[`${sourceRootPath}/*`,`${sourceRootPath}/../www/node_modules/*`]
-                },
-                },
-                "extends":`${sourceRootPath}/tsconfig.base.json`,
-                "include": include
-            } as any;
-            if(config.exclude!=undefined){
-                tsconfig.exclude=config.exclude
-            }
-            await fs.writeFile(pathJoin(dir,'tsconfig.json'),new TextEncoder().encode(JSON.stringify(tsconfig)));
             let returnCode=await runCommand(`node ${tscPath} -p ${dir}`)
             if(returnCode!==0)status.currentBuildError.push('tsc failed.');
         }
