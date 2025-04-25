@@ -1,7 +1,8 @@
 /*jshint node:true */
 
-import { ArrayBufferConcat, ArrayWrap2, BytesToHex, assert, logger, requirejs } from "partic2/jsutils1/base";
+import { ArrayBufferConcat, ArrayWrap2, BytesToHex, DateDiff, GetCurrentTime, assert, logger, requirejs } from "partic2/jsutils1/base";
 import { ExtendStreamReader } from "partic2/CodeRunner/jsutils2";
+import { getWWWRoot } from "partic2/jsutils1/webutils";
 
 
 let __name__=requirejs.getLocalRequireModule(require);
@@ -55,4 +56,65 @@ export class HttpParser{
 			this.headers.push([matchResult[1],matchResult[2]]);
 		}
 	}
+}
+
+
+let remoteModuleLoaderState:{
+	rootUrl:string|null
+	networkError:Error|null
+	lastFailedTime:Date,
+	updateLocal?:boolean
+}={
+	rootUrl:null,
+	networkError:null,
+	lastFailedTime:new Date(0),
+	updateLocal:true
+}
+
+export function enableRemoteModuleLoader(rootUrl:string,opts:{updateLocal?:boolean}){
+	remoteModuleLoaderState.rootUrl=rootUrl;
+	Object.assign(remoteModuleLoaderState,opts)
+}
+
+
+const TxikiJSFetchModuleProvider=async (modName:string,url:string):Promise<string|Function|null>=>{
+	if(DateDiff(GetCurrentTime(),remoteModuleLoaderState.lastFailedTime,'second')<15){
+		return null;
+	}
+	if(remoteModuleLoaderState.rootUrl==null){
+		return null;
+	}else{
+		let fetchUrl=`${remoteModuleLoaderState.rootUrl}/${modName}`;
+		if(!fetchUrl.endsWith('.js')){
+			fetchUrl=fetchUrl+'.js'
+		}
+		try{
+			let resp=await fetch(fetchUrl);
+			if(!resp.ok){
+				throw new Error('fetch module file failed. server response '+resp.status+' '+await resp.text())
+			}
+			let data=await resp.text();
+			if(remoteModuleLoaderState.updateLocal===true){
+				let modFile=`${getWWWRoot()}/${modName}`;
+				if(!modFile.endsWith('.js')){
+					modFile+='.js'
+				}
+				let fh=await tjs.open(modFile,'w');
+				try{
+					await fh.write(new TextEncoder().encode(modFile));
+				}catch(e){
+					await fh.close();
+				}
+			}
+			return data;
+		}catch(err:any){
+			remoteModuleLoaderState.networkError=err;
+			remoteModuleLoaderState.lastFailedTime=GetCurrentTime();
+			return null;
+		}
+	}
+}
+
+export function installTxikiJSFetchModuleProvider(){
+	requirejs.addResourceProvider(TxikiJSFetchModuleProvider)
 }

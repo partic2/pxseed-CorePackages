@@ -1,80 +1,20 @@
 
 
-import { DateDiff, GetCurrentTime, requirejs} from 'partic2/jsutils1/base';
+import { DateDiff, future, GetCurrentTime, requirejs} from 'partic2/jsutils1/base';
 import type {} from '@txikijs/types/src/index'
 import { Io } from 'pxprpc/base';
 
-var __name__='partic2/tjsonpxp/jsenv';
-
+var __name__=requirejs.getLocalRequireModule(require);
 
 import { GenerateRandomString } from 'partic2/jsutils1/base';
 
-import {getWWWRoot, IKeyValueDb, path, setKvStoreBackend} from 'partic2/jsutils1/webutils'
-
-
-let remoteModuleLoaderState:{
-    rootUrl:string|null
-    networkError:Error|null
-    lastFailedTime:Date,
-    updateLocal?:boolean
-}={
-    rootUrl:null,
-    networkError:null,
-    lastFailedTime:new Date(0),
-    updateLocal:true
-}
-
-export function enableRemoteModuleLoader(rootUrl:string,opts:{updateLocal?:boolean}){
-    remoteModuleLoaderState.rootUrl=rootUrl;
-    Object.assign(remoteModuleLoaderState,opts)
-}
-
-
-const TxikiJSFetchModuleProvider=async (modName:string,url:string):Promise<string|Function|null>=>{
-    if(DateDiff(GetCurrentTime(),remoteModuleLoaderState.lastFailedTime,'second')<15){
-        return null;
-    }
-    if(remoteModuleLoaderState.rootUrl==null){
-        return null;
-    }else{
-        let fetchUrl=`${remoteModuleLoaderState.rootUrl}/${modName}`;
-        if(!fetchUrl.endsWith('.js')){
-            fetchUrl=fetchUrl+'.js'
-        }
-        try{
-            let resp=await fetch(fetchUrl);
-            if(!resp.ok){
-                throw new Error('fetch module file failed. server response '+resp.status+' '+await resp.text())
-            }
-            let data=await resp.text();
-            if(remoteModuleLoaderState.updateLocal===true){
-                let modFile=`${getWWWRoot()}/${modName}`;
-                if(!modFile.endsWith('.js')){
-                    modFile+='.js'
-                }
-                let fh=await tjs.open(modFile,'w');
-                try{
-                    await fh.write(new TextEncoder().encode(modFile));
-                }catch(e){
-                    await fh.close();
-                }
-            }
-            return data;
-        }catch(err:any){
-            remoteModuleLoaderState.networkError=err;
-            remoteModuleLoaderState.lastFailedTime=GetCurrentTime();
-            return null;
-        }
-    }
-}
-
-
-
-var __name__=requirejs.getLocalRequireModule(require);
-
+import {BasicMessagePort, getWWWRoot, IKeyValueDb, IWorkerThread, lifecycle, path, setKvStoreBackend, setWorkerThreadImplementation} from 'partic2/jsutils1/webutils'
 
 
 import {toSerializableObject,fromSerializableObject} from 'partic2/CodeRunner/Inspector'
+
+//txiki.js has bugly eventTarget, patch it before upstream fix it.
+Object.defineProperty(Event.prototype,'target',{get:function(){return this.currentTarget}})
 
 async function writeFile(path:string,data:Uint8Array){
     let fh=await tjs.open(path,'w');
@@ -164,11 +104,104 @@ export class FsBasedKvDbV1 implements IKeyValueDb{
     }
 }
 
+let workerEntryUrl=function(){
+    try{
+        return getWWWRoot()+'/txikirun.js'
+    }catch(e){};
+    return '';
+}()
+const WorkerThreadMessageMark='__messageMark_WorkerThread'
+
+
+class WebWorkerThread implements IWorkerThread{
+    port?:BasicMessagePort
+    workerId='';
+    waitReady=new future<number>();
+    tjsWorker?:Worker
+    constructor(workerId?:string){
+        this.workerId=workerId??GenerateRandomString();
+    };
+    async start(){
+        this.tjsWorker=new Worker(workerEntryUrl);
+        this.port=this.tjsWorker;
+        this.port!.addEventListener('message',(msg:MessageEvent)=>{
+            if(typeof msg.data==='object' && msg.data[WorkerThreadMessageMark]){
+                let {type,scriptId}=msg.data as {type:string,scriptId?:string};
+                switch(type){
+                    case 'run':
+                        this.onHostRunScript(msg.data.script)
+                        break;
+                    case 'onScriptResolve':
+                        this.onScriptResult(msg.data.result,scriptId)
+                        break;
+                    case 'onScriptReject':
+                        this.onScriptReject(msg.data.reason,scriptId);
+                        break;
+                    case 'ready':
+                        this.waitReady.setResult(0);
+                        break;
+                }
+            }
+        });
+        await this.waitReady.get();
+        await this.runScript(`this.__workerId='${this.workerId}'`);
+        lifecycle.addEventListener('pause',()=>{
+            this.runScript(`require(['${__name__}'],function(webutils){
+                webutils.lifecycle.dispatchEvent(new Event('pause'));
+            })`);
+        });
+        lifecycle.addEventListener('resume',()=>{
+            this.runScript(`require(['${__name__}'],function(webutils){
+                webutils.lifecycle.dispatchEvent(new Event('resume'));
+            })`);
+        });
+        lifecycle.addEventListener('exit',()=>{
+            this.runScript(`require(['${__name__}'],function(webutils){
+                webutils.lifecycle.dispatchEvent(new Event('exit'));
+            })`);
+        });
+        
+    }
+    onHostRunScript(script:string){
+        (new Function('workerThread',script))(this);
+    }
+    processingScript={} as {[scriptId:string]:future<any>}
+    async runScript(script:string,getResult?:boolean){
+        let scriptId='';
+        if(getResult===true){
+            scriptId=GenerateRandomString();
+            this.processingScript[scriptId]=new future<any>();
+        }
+            this.port?.postMessage({[WorkerThreadMessageMark]:true,type:'run',script,scriptId})
+        if(getResult===true){
+            return await this.processingScript[scriptId].get();            
+        }
+    }
+    onScriptResult(result:any,scriptId?:string){
+        if(scriptId!==undefined && scriptId in this.processingScript){
+            let fut=this.processingScript[scriptId];
+            delete this.processingScript[scriptId];
+            fut.setResult(result);
+        }
+    }
+    onScriptReject(reason:any,scriptId?:string){
+        if(scriptId!==undefined && scriptId in this.processingScript){
+            let fut=this.processingScript[scriptId];
+            delete this.processingScript[scriptId];
+            fut.setException(new Error(reason));
+            
+        }
+    }
+    requestExit(){
+        this.runScript('globalThis.close()');
+    }
+}
+
+
 
 let cachePath=path.join(getWWWRoot(),__name__,'..');
 
 export function setupImpl(){
-    requirejs.addResourceProvider(TxikiJSFetchModuleProvider);
     setKvStoreBackend(async (dbname)=>{
         await tjs.makeDir(path.join(cachePath,'data'),{recursive:true});
         let dbMap:Record<string,string>={};
@@ -187,6 +220,42 @@ export function setupImpl(){
         await db.init(path.join(cachePath,'data',filename));
         return db;
     });
+    setWorkerThreadImplementation(WebWorkerThread)
+    if(globalThis.open==undefined){
+        globalThis.open=(async (url:string,target?:string)=>{
+            let jscode:string='';
+            if(url.startsWith('http://') || url.startsWith('https://')){
+                let resp=await fetch(url);
+                if(resp.ok){
+                    jscode=await resp.text();
+                }else{
+                    throw new Error(await resp.text())
+                }
+            }else if(url.startsWith('file://')){
+                let path=url.substring(7);
+                if(tjs.system.platform=='windows'){
+                    path=path.substring(1);
+                }
+                jscode=new TextDecoder().decode(await tjs.readFile(path));
+            }
+            if(target=='_self'){
+                new Function(jscode)();
+            }else{
+                if(target=='_blank' || target==undefined){
+                    target=GenerateRandomString();
+                }
+                let worker=new RpcWorker(target)
+                let workerClient=await worker.ensureClient();
+                let workerFuncs=await getAttachedRemoteRigstryFunction(workerClient);
+                await workerFuncs.jsExec(`new Function(${JSON.stringify(jscode)})();`,null);
+            }
+        }) as any
+    }
+    if(!rpcWorkerInitModule.includes(__name__)){
+        rpcWorkerInitModule.push(__name__);
+    }
 }
+
+import {getAttachedRemoteRigstryFunction, RpcWorker, rpcWorkerInitModule} from 'partic2/pxprpcClient/registry'
 
 setupImpl();

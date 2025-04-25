@@ -172,3 +172,38 @@ export function deepEqual(a:any, b:any) {
 	
 	return true;
 }
+
+
+
+export function setupAsyncHook(){
+	if(!('__onAwait' in Promise)){
+		let asyncStack:{yielded:boolean}[]=[];
+		(Promise as any).__onAsyncEnter=()=>{
+			asyncStack.push({yielded:false});
+		}
+		(Promise as any).__onAsyncExit=async ()=>{
+			let last=asyncStack.pop();
+			if(last?.yielded){Task.currentTask=null;}
+		}
+		(Promise as any).__onAwait=async (p:PromiseLike<any>)=>{
+			Task.getAbortSignal()?.throwIfAborted();
+			let saved={
+				task:Task.currentTask,
+				lastAsync:asyncStack.pop()
+			}
+			if(saved.lastAsync!=undefined){
+				if(saved.lastAsync.yielded){
+					Task.currentTask=null;
+				}else{
+					saved.lastAsync.yielded=true;
+				}
+			}
+			try{return await p;}finally{
+				Task.currentTask=saved.task;
+				if(saved.lastAsync)asyncStack.push(saved.lastAsync);
+			}
+		}
+	}
+}
+
+setupAsyncHook();

@@ -37,9 +37,7 @@ class MainView extends React.Component<{},{rpc:any}>{
         }
     }
     render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined; }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChild {
-        return <div style={{backgroundColor:'white',margin:'0px'}}>
-            {this.state.rpc==undefined?this.renderChooser():this.renderWorkerspace()}
-        </div>
+        return this.state.rpc==undefined?this.renderChooser():this.renderWorkerspace()
     }
 }
 

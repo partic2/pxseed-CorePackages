@@ -12,7 +12,7 @@ const decoder=new TextDecoder();
 
 export async function handleJsonRpcRequestWithHttpInfo(handlers:Map<string,(params:any,opt?:any)=>Promise<any>>,
         req:JsonRpcRequest,
-        info?:{headers:Record<string,string | string[] | undefined>,suorceIp:string,koa?:ExtendableContext}
+        info?:{headers:Record<string,string | string[] | undefined>,sourceIp:string,koa?:ExtendableContext}
     ){
     let handler=handlers.get(req.method);
     let resp=new JsonRpcResponse(req.id);
@@ -58,11 +58,11 @@ export class KoaJsonRpc{
                         let t2=new JsonRpcRequest().fromRaw(t1);
                         jreq.push(t2);
                     }
-                    let jresp=await Promise.all(jreq.map(t1=>handleJsonRpcRequestWithHttpInfo(this.handlers,t1,{headers:ctx.header,suorceIp:ctx.ip,koa:ctx})));
+                    let jresp=await Promise.all(jreq.map(t1=>handleJsonRpcRequestWithHttpInfo(this.handlers,t1,{headers:ctx.header,sourceIp:ctx.ip,koa:ctx})));
                     ctx.response.body=JSON.stringify(jresp.map(v=>v.toRaw()));
                 }else{
                     let jreq=new JsonRpcRequest().fromRaw(parsedBody);
-                    let jresp=await handleJsonRpcRequestWithHttpInfo(this.handlers,jreq,{headers:ctx.header,suorceIp:ctx.ip,koa:ctx})
+                    let jresp=await handleJsonRpcRequestWithHttpInfo(this.handlers,jreq,{headers:ctx.header,sourceIp:ctx.ip,koa:ctx})
                     ctx.response.body=JSON.stringify(jresp.toRaw());
                 }
                 await next();

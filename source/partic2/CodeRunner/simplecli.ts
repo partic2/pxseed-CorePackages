@@ -1,7 +1,8 @@
-import { requirejs, throwIfAbortError } from "../jsutils1/base";
+import { GenerateRandomString, requirejs, throwIfAbortError } from "partic2/jsutils1/base";
 import { GetPersistentConfig, SavePersistentConfig } from "partic2/jsutils1/webutils";
 import { LocalRunCodeContext } from "./CodeContext";
 import { CodeContextRemoteObjectFetcher, inspectCodeContextVariable, toSerializableObject } from "./Inspector";
+import { getAttachedRemoteRigstryFunction, RpcWorker } from "partic2/pxprpcClient/registry";
 
 let remoteObjectFetchConfig={maxDepth:3,maxKeyCount:50,enumerateMode:'for in' as 'for in'}
 

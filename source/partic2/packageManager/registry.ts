@@ -585,9 +585,8 @@ export async function installPackage(source:string){
         throw new Error(`Can not handle url:${source}`)
     }
 }
-import('inspector').then((mod)=>mod.open(9229)).catch();
+
 export async function createPackageTemplate1(pxseedConfig:PxseedConfig){
-    debugger
     let pkgloc=pathJoin(sourceDir,pxseedConfig.name);
     try{
         await access(pkgloc,fsConst.F_OK);

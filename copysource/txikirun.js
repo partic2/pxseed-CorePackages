@@ -1,10 +1,16 @@
 
 addEventListener('unhandledrejection',function(ev){
-    console.error(ev.reason);
+    //txikijs BUG https://github.com/quickjs-ng/quickjs/issues/39
+    //So we have to mute error before it is fixed.
+    //console.error(ev.reason);
     ev.preventDefault();
 });
 addEventListener('error',function(ev){
-    console.error(ev.reason);
+    if(globalThis.__workerId!=undefined){
+        console.error('worker '+globalThis.__workerId+'\n'+ev.reason);
+    }else{
+        console.error(ev.reason);
+    }
     ev.preventDefault();
 });
 
@@ -76,6 +82,11 @@ export const main=async (entry)=>{
     globalThis.require([entry],(ent)=>{});
 };
 
-if(tjs.args[2].endsWith('txikirun.js')){
-    main(tjs.args[3]);
+if(globalThis.postMessage==undefined){
+    if(tjs.args[2].endsWith('txikirun.js')){
+        main(tjs.args[3]);
+    }
+}else{
+    //worker
+    main('partic2/tjsonpxp/workerentry');
 }

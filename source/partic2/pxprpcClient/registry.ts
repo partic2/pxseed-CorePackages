@@ -22,7 +22,7 @@ export interface RemoteRegistryFunction{
     getConnectionFromUrl(url:string):Promise<RpcExtendClientObject>;
     io_send(io:RpcExtendClientObject,data:Uint8Array):Promise<void>;
     io_receive(io:RpcExtendClientObject):Promise<Uint8Array>;
-    jsExec(code:string,obj:RpcExtendClientObject):Promise<RpcExtendClientObject|null>;
+    jsExec(code:string,obj:RpcExtendClientObject|null):Promise<RpcExtendClientObject|null>;
     bufferData(obj:RpcExtendClientObject):Promise<Uint8Array>;
     anyToString(obj:RpcExtendClientObject):Promise<string>;
 }
@@ -59,7 +59,7 @@ export class RpcWorker{
             try{
                 this.conn=await new WebMessage.Connection().connect(this.workerId,1000);
             }catch(e){
-                if(e instanceof Error && e.message.match(/server not found/)){
+                if(e instanceof Error && e.message.match(/server not found/)!=null){
                     //mute
                 }else{
                     throw e;
@@ -385,9 +385,14 @@ if('window' in globalThis){
         });
     }
     //Critical Security Risk
-    new WebMessage.Server((conn)=>{
-        //mute error
-        new RpcExtendServer1(new Server(conn)).serve().catch(()=>{});
-    }).listen(rpcId);
+    if(globalThis.document!=undefined){
+        try{
+            new WebMessage.Server((conn)=>{
+                //mute error
+                new RpcExtendServer1(new Server(conn)).serve().catch(()=>{});
+            }).listen(rpcId);
+        }catch(err){};
+    }
+    
     WebMessage.postMessageOptions.targetOrigin='*'   
 }

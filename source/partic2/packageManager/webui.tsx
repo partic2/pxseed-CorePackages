@@ -8,6 +8,7 @@ const __name__=requirejs.getLocalRequireModule(require);
 
 ;(async ()=>{
     if(GetJsEntry()==__name__){
+        document.body.style.overflow='hidden';
         await (await import('./webui2')).renderPackagePanel();
     }
 })()
