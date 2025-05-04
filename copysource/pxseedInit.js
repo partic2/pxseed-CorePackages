@@ -6,6 +6,9 @@ var __pxseedInit={
     _entry:null,
     //Where pxseedInit is loaded. Known value:'window'|'worker'|'service worker'
     env:'',
+    //To avoid multitimes addEventListener for "message" event especially in service worker, and also stop complain about async message event handle.
+    //pxseedInit add the a message event listener and delegate the event to this handler.
+    onmessage:null,
     //For service worker only.
     serviceWorker:{
         //onfetch with type "(ev:FetchEvent)=>(Promise<Response>|Response|null)" to delegate the fetch event.
@@ -33,6 +36,7 @@ var __pxseedInit={
         isServiceWorkerLoaded:false
     }
 };
+
 __pxseedInit.serviceWorker.cacheFetch=function(url){
     var that=this;
     return this.cache.match(url).then(function(matchResult){
@@ -57,6 +61,11 @@ __pxseedInit.serviceWorker.cacheFetch=function(url){
     }catch(e){
         new Function('this.globalThis=this')()
     }
+    this.addEventListener('message',function(ev){
+        if(__pxseedInit.onmessage!=null){
+            __pxseedInit.onmessage(ev);
+        }
+    });
     var urlArgs='v=0.0.1';
     var jsentryQuery=globalThis.location.search.match(/__jsentry=([^&]*)/);
     if(jsentryQuery!=null){
@@ -94,12 +103,27 @@ __pxseedInit.serviceWorker.cacheFetch=function(url){
                         return globalThis.caches.open(jspath)
                     }).then(function(cacheIn){
                         __pxseedInit.serviceWorker.cache=cacheIn
+                        return __pxseedInit.serviceWorker.cacheFetch(__pxseedInit.wwwroot+'/require.js');
+                    }).then(function(){
+                        var defined=require.getDefined();
+                        for(var modId in defined){
+                            require.undef(modId);
+                        }
+                        defined=require.getFailed();
+                        for(var modId in defined){
+                            require.undef(modId);
+                        }
+                        __pxseedInit.onfetch=null;
+                        __pxseedInit.serviceWorker.onServiceWorkerLoaded=[];
+                        __pxseedInit.serviceWorker.isServiceWorkerLoaded=false;
+                        require([__pxseedInit._entry]);
                     });
-                    var defined=require.getDefined();
-                    for(var modId in defined){
-                        require.undef(modId);
-                    }
-                    __pxseedInit.onfetch=null;
+                    ev.respondWith(new Response('ok'));
+                }else if(ev.request.url.substring(__pxseedInit.wwwroot.length)==='/pxseedInit.js/unregister'){
+                    globalThis.caches.delete(jspath)
+                    self.registration.unregister();
+                    ev.respondWith(new Response('ok'));
+                }else if(ev.request.url.substring(__pxseedInit.wwwroot.length)==='/pxseedInit.js/test'){
                     ev.respondWith(new Response('ok'));
                 }else{
                     if(!__pxseedInit.serviceWorker.isServiceWorkerLoaded){

@@ -11,11 +11,12 @@ export const serviceWorkerServeRoot=getWWWRoot()+`/${__name__}/`;
 
 export const ServiceWorkerId='service worker 1';
 
+declare var __pxseedInit:any;
 
 (function(){
     const WorkerThreadMessageMark='__messageMark_WorkerThread';
     (self as any).globalThis=self;
-    addEventListener('message',function(msg){
+    __pxseedInit.onmessage=function(msg:MessageEvent){
         if(typeof msg.data==='object' && msg.data[WorkerThreadMessageMark]){
             let type=msg.data.type;
             let scriptId=msg.data.scriptId;
@@ -29,7 +30,7 @@ export const ServiceWorkerId='service worker 1';
                     break;
             }
         }
-    });
+    };
 
     if('postMessage' in globalThis){
         globalThis.postMessage({[WorkerThreadMessageMark]:true,type:'ready'});
@@ -60,7 +61,7 @@ async function kvStoreOnFetch(dbName:string,varName:string,queryStat?:string){
     }
     
 }
-declare var __pxseedInit:any;
+
 
 let swconfig:{
     startupModules?:string[]
