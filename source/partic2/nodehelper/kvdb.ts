@@ -1,12 +1,12 @@
 
 import * as fs from 'fs/promises'
 import {join} from 'path'
-import { GenerateRandomString ,Base64ToArrayBuffer,ArrayBufferToBase64, BytesToHex} from 'partic2/jsutils1/base';
+import { GenerateRandomString ,Base64ToArrayBuffer,ArrayBufferToBase64, BytesToHex, requirejs} from 'partic2/jsutils1/base';
 
 import {CKeyValueDb, getWWWRoot, IKeyValueDb, setKvStoreBackend} from 'partic2/jsutils1/webutils'
 
 
-var __name__='partic2/JsNotebookServer/entry';
+var __name__=requirejs.getLocalRequireModule(require);
 
 
 
@@ -56,11 +56,11 @@ export class FsBasedKvDbV1 implements IKeyValueDb{
         let {fileName,type}=this.config!.fileList[key];
         try{
             if(type==='ArrayBuffer'){
-                return (await fs.readFile(fileName)).buffer;
+                return (await fs.readFile(`${this.baseDir}/${fileName}`)).buffer;
             }else if(type==='Uint8Array'){
-                return new Uint8Array((await fs.readFile(fileName)).buffer);
+                return new Uint8Array((await fs.readFile(`${this.baseDir}/${fileName}`)).buffer);
             }else if(type==='Int8Array'){
-                return new Int8Array((await fs.readFile(fileName)).buffer);
+                return new Int8Array((await fs.readFile(`${this.baseDir}/${fileName}`)).buffer);
             }else if(type==='json'){
                 let data=await fs.readFile(`${this.baseDir}/${fileName}`)
                 let r=fromSerializableObject(JSON.parse(new TextDecoder().decode(data)),{});
@@ -106,7 +106,7 @@ export function setupImpl(){
             dbMap=JSON.parse(new TextDecoder().decode(await fs.readFile(path.join(cachePath,'data','meta-dbMap'))));
         }catch(e){};
         if(dbname in dbMap){
-            filename=dbname;
+            filename=dbMap[dbname];
         }
         try{
             await fs.access(path.join(cachePath,'data',filename));

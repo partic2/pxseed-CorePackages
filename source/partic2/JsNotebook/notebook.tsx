@@ -5,7 +5,7 @@ import { GenerateRandomString, GetCurrentTime, WaitUntil, assert, future, logger
 import * as React from 'preact'
 
 import {ClientInfo, getAttachedRemoteRigstryFunction, getRegistered, listRegistered, persistent, ServerHostWorker1RpcName} from 'partic2/pxprpcClient/registry'
-import { LocalWindowSFS, installRequireProvider,SimpleFileSystem } from 'partic2/CodeRunner/JsEnviron';
+import { installRequireProvider,SimpleFileSystem,defaultFileSystem,ensureDefaultFileSystem } from 'partic2/CodeRunner/JsEnviron';
 import { TabInfo, TabInfoBase } from 'partic2/pComponentUi/workspace';
 import { FileTypeHandler, FileTypeHandlerBase } from './fileviewer';
 
@@ -23,13 +23,13 @@ export let __name__='partic2/JsNotebook/notebook'
 //LWRP = LocalWindowRequireProvider, setup to requirejs
 let LWRPSetuped=[false,new future()] as [boolean,future<(modName: string, url: string) => Promise<string | null>>];
 
-let defaultFs=new LocalWindowSFS();
 
 async function ensureLWRPInstalled(){
     if(!LWRPSetuped[0]){
-        await defaultFs.ensureInited();
+        await ensureDefaultFileSystem();
+        await defaultFileSystem!.ensureInited();
         LWRPSetuped[0]=true;
-        LWRPSetuped[1].setResult(await installRequireProvider(defaultFs));
+        LWRPSetuped[1].setResult(await installRequireProvider(defaultFileSystem!));
     }
     await LWRPSetuped[1].get();
 }
@@ -141,8 +141,8 @@ export class RunCodeTab extends TabInfoBase{
         })
         if(this.fs==undefined){
             if(this.rpc==undefined){
-                await defaultFs.ensureInited()
-                this.fs=defaultFs;
+                await ensureDefaultFileSystem();
+                this.fs=defaultFileSystem!;
             }
         }
         if(this.rpc==undefined){
@@ -244,8 +244,14 @@ export class RunCodeReplView extends React.Component<{
         if(cellList.at(-1)?.key==cellKey){
             this.autoScrollToBottom=true;
         }
-        let nextCell=await (await this.rref.list.waitValid()).newCell(cellKey);
-        (await this.rref.list.waitValid()).setCurrentEditing(nextCell);
+        let runCellAt=cellList.findIndex(t1=>t1.key===cellKey);
+        if(runCellAt==cellList.length-1){
+            let nextCell=await (await this.rref.list.waitValid()).newCell(cellKey);
+            (await this.rref.list.waitValid()).setCurrentEditing(nextCell);
+        }else{
+            let nextCell=cellList[runCellAt+1].key;
+            (await this.rref.list.waitValid()).setCurrentEditing(nextCell);
+        }
     }
     async doRunCode(code:string){
         let cl=(await this.rref.list.waitValid());

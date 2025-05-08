@@ -69,11 +69,11 @@ export class FsBasedKvDbV1 implements IKeyValueDb{
         let {fileName,type}=this.config!.fileList[key];
         try{
             if(type==='ArrayBuffer'){
-                return (await tjs.readFile(fileName)).buffer;
+                return (await tjs.readFile(`${this.baseDir}/${fileName}`)).buffer;
             }else if(type==='Uint8Array'){
-                return new Uint8Array((await tjs.readFile(fileName)).buffer);
+                return new Uint8Array((await tjs.readFile(`${this.baseDir}/${fileName}`)).buffer);
             }else if(type==='Int8Array'){
-                return new Int8Array((await tjs.readFile(fileName)).buffer);
+                return new Int8Array((await tjs.readFile(`${this.baseDir}/${fileName}`)).buffer);
             }else if(type==='json'){
                 let data=await tjs.readFile(`${this.baseDir}/${fileName}`)
                 let r=fromSerializableObject(JSON.parse(new TextDecoder().decode(data)),{});
@@ -210,7 +210,7 @@ export function setupImpl(){
             dbMap=JSON.parse(new TextDecoder().decode(await tjs.readFile(path.join(cachePath,'data','meta-dbMap'))));
         }catch(e){};
         if(dbname in dbMap){
-            filename=dbname;
+            filename=dbMap[dbname];
         }else{
             dbMap[dbname]=filename;
         }

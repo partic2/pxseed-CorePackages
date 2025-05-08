@@ -33,7 +33,7 @@ export let css={
 }
 
 DynamicPageCSSManager.PutCss('.'+css.windowContainer,['max-height:100vh','max-width:100vw']);
-DynamicPageCSSManager.PutCss('.'+css.defaultWindowClass ,['background-color:white'])
+DynamicPageCSSManager.PutCss('.'+css.defaultWindowClass ,['background-color:white','flex-grow:1'])
 
 export class WindowComponent extends React.Component<WindowComponentProps,WindowComponentStats>{
     static defaultProps:WindowComponentProps={
