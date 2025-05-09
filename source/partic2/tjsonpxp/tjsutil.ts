@@ -28,35 +28,6 @@ export class TjsWriterDataSink implements UnderlyingSink<Uint8Array>{
 }
 
 
-//WIP HTTP Parser
-const headerExp = /^([^: \t]+):[ \t]*((?:.*[^ \t])|)/;
-const requestExp = /^([A-Z-]+) ([^ ]+) HTTP\/[^ \t]+$/;
-const responseExp = /^HTTP\/[^ \t]+ (\d{3}) ?(.*)$/;
-
-export class HttpParser{
-	static lineSpliter='\n'.charCodeAt(0);
-	constructor(public reader:ExtendStreamReader){}
-	decoder=new TextDecoder();
-	method='';
-	version='1.0';
-	path='/';
-	headers=new Array<[string,string]>();
-	async parseHeader(){
-		let reqHdr=this.decoder.decode(await this.reader.readUntil(HttpParser.lineSpliter));
-		let matchResult=reqHdr.match(requestExp);
-		assert(matchResult!=null);
-		this.method=matchResult[1];
-		this.path=matchResult[2];
-		this.version=matchResult[3];
-		for(let t1=0;t1<64*1024;t1++){
-			let line=this.decoder.decode(await this.reader.readUntil(HttpParser.lineSpliter));
-			if(line=='\r\n')break;
-			let matched=line.match(headerExp);
-			assert(matched!=null)
-			this.headers.push([matchResult[1],matchResult[2]]);
-		}
-	}
-}
 
 
 let remoteModuleLoaderState:{

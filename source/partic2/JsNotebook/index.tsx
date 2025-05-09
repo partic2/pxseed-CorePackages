@@ -54,7 +54,7 @@ export function *main(command:string){
         DynamicPageCSSManager.PutCss('body',['margin:0px'])
         let rpc=GetUrlQueryVariable('__rpc');
         await persistent.load();
-        ReactRender(MainView,DomRootComponent);
+        ReactRender(<MainView/>,DomRootComponent);
         
     }
 })();
