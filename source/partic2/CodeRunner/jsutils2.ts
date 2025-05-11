@@ -207,3 +207,134 @@ export function setupAsyncHook(){
 }
 
 setupAsyncHook();
+
+const decode=TextDecoder.prototype.decode.bind(new TextDecoder());
+const encode=TextEncoder.prototype.encode.bind(new TextEncoder());
+
+export class HttpServer{
+	static headerExp = /^([^: \t]+):[ \t]*((?:.*[^ \t])|)/;
+	static requestExp = /^([A-Z-]+) ([^ ]+) HTTP\/[^ \t]+$/;
+	onfetch:(this:HttpServer,request:Request)=>Promise<Response>=async ()=>new Response();
+	controller=new AbortController();
+	signal=this.controller.signal;
+	async serve(stream:[ExtendStreamReader,WritableStreamDefaultWriter<Uint8Array>]){
+		while(!this.signal.aborted){
+			let req=await this.pParseHttpRequest(stream[0]);
+			let resp=await this.onfetch(req);
+			await this.pWriteResponse(stream[1],resp);
+		}
+	}
+	async pParseHttpHeader(r:ExtendStreamReader){
+		const lineSpliter='\n'.charCodeAt(0);
+		let reqHdr=decode(await r.readUntil(lineSpliter));
+		let matchResult=reqHdr.match(HttpServer.requestExp);
+		assert(matchResult!=null);
+		let method=matchResult[1];
+		let pathname=matchResult[2];
+		let httpVersion=matchResult[3];
+		let headers=new Headers();
+		for(let t1=0;t1<64*1024;t1++){
+			let line=decode(await r!.readUntil(lineSpliter));
+			if(line=='\r\n')break;
+			let matched=line.match(HttpServer.headerExp);
+			assert(matched!=null)
+			headers.set(matched[1],matched[2]);
+		}
+		return {method,pathname,httpVersion,headers}
+	}
+	async pParseHttpRequest(r:ExtendStreamReader){
+		let header1=await this.pParseHttpHeader(r);
+		let bodySource
+		if(header1.headers.get('transfer-encoding')==='chunked'){
+			bodySource={
+				pull:async (controller:ReadableStreamDefaultController<Uint8Array>)=>{
+					let length=Number(decode(await r.readUntil('\n'.charCodeAt(0))).trim());
+					if(length==0){
+						let eoc=new Uint8Array(2);
+						await r.readInto(eoc);
+						assert(decode(eoc)=='\r\n');
+						controller.close();
+					}else{
+						let buf=new Uint8Array(length);
+						let writePos=new Ref2<number>(0);
+						while(writePos.get()<length){
+							await r.readInto(buf,writePos);
+						}
+						let eoc=new Uint8Array(2);
+						await r.readInto(eoc);
+						assert(decode(eoc)=='\r\n');
+						controller.enqueue(buf);
+					}
+				}
+			}
+		}else if(header1.headers.has('content-length')){
+			bodySource={
+				pull:async (controller:ReadableStreamDefaultController<Uint8Array>)=>{
+					let contentLength=Number(header1.headers.get('content-length')!.trim());
+					let buf=new Uint8Array(contentLength);
+					let writePos=new Ref2<number>(0);
+					while(writePos.get()<length){
+						await r.readInto(buf,writePos);
+					}
+					controller.enqueue(buf);
+					controller.close();
+				}
+			}
+		}else{
+			bodySource={
+				pull:async (controller:ReadableStreamDefaultController<Uint8Array>)=>{
+					controller.close();
+				}
+			}
+		}
+		bodySource satisfies UnderlyingDefaultSource<Uint8Array>;
+		let url=header1.pathname;
+		if(!url.startsWith('http:')){
+			url='http://';
+			if(header1.headers.has('host')){
+				url+=header1.headers.get('host')
+			}else{
+				url+='0.0.0.0:0';
+			}
+			url+=header1.pathname;
+		}
+		let req=new Request(url,{
+			method:header1.method,
+			body:['GET','HEAD'].includes(header1.method.toUpperCase())?undefined
+				:new ReadableStream(bodySource),
+			headers:header1.headers
+		});
+		return req;
+	}
+	async pWriteResponse(w:WritableStreamDefaultWriter<Uint8Array>,resp:Response){
+		let headersString=new Array<string>();
+		let chunked=resp.headers.get('transfer-encoding')=='chunked'
+		resp.headers.forEach((val,key)=>{
+			headersString.push(`${key}: ${val}`);
+		});
+		let nonChunkBody:ArrayBuffer|null=null;
+		if(!chunked){
+			nonChunkBody=await resp.arrayBuffer();
+			headersString.push('Content-Length:' +String(nonChunkBody.byteLength));
+		}
+		await w.write(encode(
+			[
+				`HTTP/1.1 ${resp.status} ${resp.statusText}`,
+				...headersString,
+				'\r\n'
+			].join('\r\n'))
+		);
+		if(resp.body!=undefined){
+			if(chunked){
+				await resp.body.pipeTo(new WritableStream({
+					write:async (chunk: Uint8Array, controller: WritableStreamDefaultController)=>{
+						await w.write(encode(String(chunk.length)+'\r\n'));
+						await w.write(chunk);
+					}
+				}));
+				await w.write(encode('0\r\n\r\n'));
+			}else{
+				await w.write(new Uint8Array(nonChunkBody!));			}
+		}
+	}
+}
