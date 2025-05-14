@@ -1,7 +1,7 @@
 
 import { ExtendStreamReader } from "partic2/CodeRunner/jsutils2";
-import { future, ArrayWrap2, Ref2, CanceledError, ArrayBufferConcat, throwIfAbortError, assert } from "partic2/jsutils1/base";
-import {SimpleFileSystem} from 'partic2/CodeRunner/JsEnviron'
+import { future, ArrayWrap2, Ref2, CanceledError, ArrayBufferConcat, throwIfAbortError, assert, BytesToHex } from "partic2/jsutils1/base";
+import {getFileSystemReadableStream, SimpleFileSystem} from 'partic2/CodeRunner/JsEnviron'
 const decode=TextDecoder.prototype.decode.bind(new TextDecoder());
 const encode=TextEncoder.prototype.encode.bind(new TextEncoder());
 
@@ -248,8 +248,7 @@ export class WebSocketServerConnection {
 
 
 export class HttpServer{
-	static headerExp = /^([^: \t]+):[ \t]*((?:.*[^ \t])|)/;
-	static requestExp = /^([A-Z-]+) ([^ ]+) HTTP\/[^ \t]+$/;
+	static requestExp = /^([A-Z-]+) ([^ ]+) HTTP\/([^ \t]+)\r\n$/;
 	onfetch:(this:HttpServer,request:Request,connection:{r:ExtendStreamReader,w:WritableStreamDefaultWriter<Uint8Array>})=>Promise<Response>=async ()=>new Response();
 	controller=new AbortController();
 	signal=this.controller.signal;
@@ -280,9 +279,8 @@ export class HttpServer{
 		for(let t1=0;t1<64*1024;t1++){
 			let line=decode(await r!.readUntil(lineSpliter));
 			if(line=='\r\n')break;
-			let matched=line.match(HttpServer.headerExp);
-			assert(matched!=null)
-			headers.set(matched[1],matched[2]);
+			let sepAt=line.indexOf(':');
+			headers.set(line.substring(0,sepAt),line.substring(sepAt+1,line.length-2).trim())
 		}
 		return {method,pathname,httpVersion,headers}
 	}
@@ -390,39 +388,21 @@ export class HttpServer{
 	}
 }
 
-class SimpleFileServer{
+export class SimpleFileServer{
     constructor(public fs:SimpleFileSystem){}
-    protected async mapUrlToFilename(url:string):Promise<string>{
-        return new URL(url).pathname;
-    }
     onfetch=async (req:Request):Promise<Response>=>{
-        let filepath=await this.mapUrlToFilename(req.url);
+        let filepath=new URL(req.url).pathname;
         try{
+			assert(await this.fs.filetype(filepath)==='file','Not a valid file');
             let statResult=await this.fs.stat(filepath);
-            if(statResult.size>1024*1024){
-                //max 1Gb
-                let readPos=0;
-                let readBuffer=new Uint8Array(1024*1024);
-                new ReadableStream({
-                    pull:async (ctl)=>{
-                        if(readPos<statResult.size){
-                            try{
-                                let byteRead=await this.fs.read(filepath,readPos,readBuffer);
-                            }
-                            
-                            if(byteRead==0){
-
-                            }
-                            ctl.enqueue()
-                        }
-                    }
-                })
-                for(let readPos=0;readPos<1073741824;readPos+1048576){
-                    await this.fs.read(filepath,)
-                }
-            }else{
-                return new Response(await this.fs.readAll(filepath))
-            }
+			let headers=new Headers();
+			headers.set('content-length',String(statResult.size));
+			if(filepath.endsWith('.js')){
+				headers.set('content-type','application/javascript');
+			}
+            let t1=new Response(getFileSystemReadableStream(this.fs,filepath),
+				{headers});
+			return t1;
         }catch(err:any){
             return new Response(err.toString(),{status:404});
         }

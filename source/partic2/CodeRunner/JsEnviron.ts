@@ -179,7 +179,7 @@ export class TjsSfs implements SimpleFileSystem{
         try{
             let len=await fh.read(buf,offset);
             if(len===null){
-                throw new Error('EOF reached');
+                len=0;
             }
             return len;
         }finally{
@@ -436,6 +436,7 @@ export class LocalWindowSFS implements SimpleFileSystem{
     }
     
     async read(path: string, offset: number, buf: Uint8Array): Promise<number> {
+        assert(buf.length>0);
         let path2=this.pathSplit(path);
         let lookupResult=await this.lookupPathDir(path2.slice(0,path2.length-1),{createParentDirectories:false});
         if(lookupResult.entry.mountFs==null){
@@ -455,7 +456,7 @@ export class LocalWindowSFS implements SimpleFileSystem{
                 pos+=datas[blk].size;
             }
             let len=Math.min(datas[blk].size-(offset-pos),buf.byteLength);
-            if(len<0)return 0;
+            if(len<=0)return 0;
             let bufsrc=await this.db!.getItem(datas[blk].key);
             buf.set(new Uint8Array(bufsrc.buffer,offset-pos,len));
             return len;
@@ -464,6 +465,7 @@ export class LocalWindowSFS implements SimpleFileSystem{
         }
     }
     async write(path: string, offset: number, buf: Uint8Array): Promise<number> {
+        assert(buf.length>0);
         let path2=this.pathSplit(path);
         let lookupResult=await this.lookupPathDir(path2.slice(0,path2.length-1),{createParentDirectories:true});
         if(lookupResult.entry.mountFs==null){
@@ -615,7 +617,7 @@ import type * as nodefsmodule from 'fs/promises'
 import type * as nodepathmodule from 'path'
 import { type CodeCompletionContext } from "./Inspector";
 
-class NodeSimpleFileSystem implements SimpleFileSystem{
+export class NodeSimpleFileSystem implements SimpleFileSystem{
     
     
     pxprpc?: ClientInfo | undefined;
@@ -712,13 +714,21 @@ class NodeSimpleFileSystem implements SimpleFileSystem{
     }
     async read(path: string, offset: number, buf: Uint8Array): Promise<number> {
         let fh=await this.nodefs!.open(path,'r+');
-        let r=await fh.read(buf,0,buf.byteLength,offset);
-        return r.bytesRead;
+        try{
+            let r=await fh.read(buf,0,buf.byteLength,offset);
+            return r.bytesRead;
+        }finally{
+            fh.close();
+        }
     }
     async write(path: string, offset: number, buf: Uint8Array): Promise<number> {
         let fh=await this.nodefs!.open(path,'r+');
-        let r=await fh.write(buf,0,buf.byteLength,offset);
-        return r.bytesWritten;
+        try{
+            let r=await fh.write(buf,0,buf.byteLength,offset);
+            return r.bytesWritten;
+        }finally{
+            fh.close();
+        }
     }
     async stat(path: string): Promise<{ atime: Date; mtime: Date; ctime: Date; birthtime: Date; size: number; }> {
         return this.nodefs!.stat(path);
@@ -728,6 +738,90 @@ class NodeSimpleFileSystem implements SimpleFileSystem{
     }
 }
 
+export class DirAsRootFS implements SimpleFileSystem{
+    pxprpc?: ClientInfo | undefined;
+    constructor(public fs:SimpleFileSystem,public rootDir:string){
+    }
+    async ensureInited(): Promise<void> {
+        return await this.fs.ensureInited();
+    }
+    protected pConvertPath(path:string){
+        if(path.startsWith('/')){
+            return this.rootDir+path.substring(1);
+        }else{
+            return this.rootDir+path;
+        }
+    }
+    async writeAll(path: string, data: Uint8Array): Promise<void> {
+        return this.fs.writeAll(this.pConvertPath(path),data);
+    }
+    async readAll(path: string): Promise<Uint8Array | null> {
+        return this.fs.readAll(this.pConvertPath(path));
+    }
+    async read(path: string, offset: number, buf: Uint8Array): Promise<number> {
+        return this.fs.read(this.pConvertPath(path),offset,buf);
+    }
+    async write(path: string, offset: number, buf: Uint8Array): Promise<number> {
+        return this.fs.write(this.pConvertPath(path),offset,buf);
+    }
+    async delete2(path: string): Promise<void> {
+        return this.fs.delete2(this.pConvertPath(path));
+    }
+    async listdir(path: string): Promise<{ name: string; type: string; }[]> {
+        return this.fs.listdir(this.pConvertPath(path));
+    }
+    async filetype(path: string): Promise<"dir" | "file" | "none"> {
+        return this.fs.filetype(this.pConvertPath(path));
+    }
+    async mkdir(path: string): Promise<void> {
+        return this.fs.mkdir(this.pConvertPath(path));
+    }
+    async rename(path: string, newPath: string): Promise<void> {
+        return this.fs.rename(this.pConvertPath(path),this.pConvertPath(newPath));
+    }
+    async dataDir(): Promise<string> {
+        return '';
+    }
+    async stat(path: string): Promise<{ atime: Date; mtime: Date; ctime: Date; birthtime: Date; size: number; }> {
+        return this.fs.stat(this.pConvertPath(path));
+    }
+    async truncate(path: string, newSize: number): Promise<void> {
+        return this.fs.truncate(this.pConvertPath(path),newSize);
+    }
+    
+}
+
+class SimpleFileSystemDataSource implements UnderlyingSource<Uint8Array>{
+    constructor(public fs:SimpleFileSystem,public path:string){}
+    public readPos=0;
+    public readBuffer=new Uint8Array(64*1024);
+    async pull(controller: ReadableStreamController<Uint8Array>): Promise<void>{
+        let bytesRead=await this.fs.read(this.path,this.readPos,this.readBuffer);
+        if(bytesRead==0){
+            controller.close();
+            return;
+        }
+        this.readPos+=bytesRead;
+        controller.enqueue(this.readBuffer.slice(0,bytesRead));
+    }
+}
+export function getFileSystemReadableStream(fs:SimpleFileSystem,path:string,initialSeek?:number){
+    let dataSource=new SimpleFileSystemDataSource(fs,path);
+    if(initialSeek!=undefined)dataSource.readPos=initialSeek;
+    return new ReadableStream(dataSource)
+}
+class SimpleFileSystemDataSink implements UnderlyingSink<Uint8Array>{
+    public writePos=0;
+    constructor(public fs:SimpleFileSystem,public path:string){}
+    async write(chunk: Uint8Array, controller: WritableStreamDefaultController): Promise<void>{
+        await this.fs.write(this.path,this.writePos,chunk);
+    }
+}
+export function getFileSysteWritableStream(fs:SimpleFileSystem,path:string,initialSeek?:number){
+    let dataSink=new SimpleFileSystemDataSink(fs,path);
+    if(initialSeek!=undefined)dataSink.writePos=initialSeek;
+    return new WritableStream(dataSink)
+}
 
 class RequirejsResourceProvider{
     rootPath:string='www';
