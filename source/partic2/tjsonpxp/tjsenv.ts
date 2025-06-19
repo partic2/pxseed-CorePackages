@@ -1,6 +1,6 @@
 
 
-import { DateDiff, future, GetCurrentTime, requirejs} from 'partic2/jsutils1/base';
+import { ArrayBufferConcat, DateDiff, future, GetCurrentTime, requirejs} from 'partic2/jsutils1/base';
 import type {} from '@txikijs/types/src/index'
 import { Io } from 'pxprpc/base';
 
@@ -253,6 +253,53 @@ export function setupImpl(){
     }
     if(!rpcWorkerInitModule.includes(__name__)){
         rpcWorkerInitModule.push(__name__);
+    }
+}
+
+declare global {
+    var __pxprpc4tjs__:{
+        pipeConnect(pipeServer:string):BigInt;
+        ioSend(pipe:BigInt,buf:ArrayBuffer):string|undefined;
+        ioReceive(pipe:BigInt,cb:(result:ArrayBuffer|string)=>void):void;
+        ioClose(pipe:BigInt):void;
+        accessMemory(base:BigInt,len:number):SharedArrayBuffer;
+    }
+}
+
+export class PxprpcRtbIo implements Io{
+    static async connect(pipeServer:string):Promise<PxprpcRtbIo|null>{
+        let conn=__pxprpc4tjs__.pipeConnect(pipeServer);
+        if(conn==BigInt(0)){
+            return null;
+        }else{
+            return new PxprpcRtbIo(conn);
+        }
+    }
+    constructor(public pipeAddr:BigInt){};
+    receive(): Promise<Uint8Array> {
+        return new Promise((resolve,reject)=>{
+            __pxprpc4tjs__.ioReceive(this.pipeAddr,(buf)=>{
+                if(typeof buf==='string'){
+                    reject(new Error(buf));
+                }else{
+                    resolve(new Uint8Array(buf));
+                }
+            })
+        })
+    }
+    async send(data: Uint8Array[]): Promise<void> {
+        let res
+        if(data.length==1 && data[0].byteOffset==0 && data[0].length==data[0].buffer.byteLength){
+            res=__pxprpc4tjs__.ioSend(this.pipeAddr,data[0].buffer);
+        }else{
+            res=__pxprpc4tjs__.ioSend(this.pipeAddr,ArrayBufferConcat(data));
+        }
+        if(res!=undefined){
+            throw new Error(res);
+        }
+    }
+    close(): void {
+        __pxprpc4tjs__.ioClose(this.pipeAddr);
     }
 }
 

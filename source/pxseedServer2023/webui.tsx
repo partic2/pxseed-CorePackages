@@ -81,7 +81,7 @@ export class PxseedServerAdministrateTool extends React.Component<{},{
     }
     renderConnected(){
         return <div className={css.flexColumn}>
-            <h2>Server cnofig</h2>
+            <h2>Server config</h2>
             <div className={css.flexColumn}>
                 <div className={css.flexColumn} style={{overflowY:'auto',maxHeight:'300px',display:'flex'}}>
                     <TextEditor ref={this.rref.configView} divClass={[css.simpleCard]}/>

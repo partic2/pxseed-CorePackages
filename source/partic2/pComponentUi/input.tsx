@@ -158,7 +158,7 @@ export class JsonForm extends ReactEventTarget<JsonFormPros,
     }
     _renderInput(name:string,type:FormType){
         let jsx2:React.JSX.Element[]=[];
-        if(this.props.type.type==='object' && type.type!=='button'){
+        if(this.props.type.type==='object' && type.type!=='button' && type.type!='boolean'){
             jsx2.push(<div>{name}</div>)
         }
         switch(type.type){
@@ -168,9 +168,9 @@ export class JsonForm extends ReactEventTarget<JsonFormPros,
                 />);
                 break;
             case 'boolean':
-                jsx2.push(<ValueCheckBox 
+                jsx2.push(<div className={css.flexRow}>{name}:<ValueCheckBox  style={{flexGrow:'1'}}
                     ref={this._inputCollector.getRefForInput(name)}
-                />);
+                /></div>);
                 break;
             case 'string':
                 jsx2.push(<PlainTextEditorInput 

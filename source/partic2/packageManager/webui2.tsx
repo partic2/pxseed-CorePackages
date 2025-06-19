@@ -2,9 +2,9 @@
 import * as React from 'preact'
 import {DomComponentGroup, DomRootComponent, ReactRefEx, ReactRender, css} from 'partic2/pComponentUi/domui'
 import { RemoteRunCodeContext } from 'partic2/CodeRunner/RemoteCodeContext'
-import {getRegistered,persistent,ServerHostRpcName,ServerHostWorker1RpcName} from 'partic2/pxprpcClient/registry'
+import {getPersistentRegistered, getRegistered,importRemoteModule,persistent,ServerHostRpcName,ServerHostWorker1RpcName} from 'partic2/pxprpcClient/registry'
 import { GenerateRandomString, GetBlobArrayBufferContent, Task, assert, future, requirejs } from 'partic2/jsutils1/base'
-import { BuildUrlFromJsEntryModule, GetJsEntry, RequestDownload, selectFile, useDeviceWidth } from 'partic2/jsutils1/webutils'
+import { BuildUrlFromJsEntryModule, GetJsEntry, GetPersistentConfig, RequestDownload, selectFile, useDeviceWidth } from 'partic2/jsutils1/webutils'
 import {JsonForm} from 'partic2/pComponentUi/input'
 import {alert, appendFloatWindow, confirm, prompt, removeFloatWindow, WindowComponent} from 'partic2/pComponentUi/window'
 var registryModuleName='partic2/packageManager/registry';
@@ -15,7 +15,6 @@ export var __name__=requirejs.getLocalRequireModule(require);
 
 import * as registryModType from 'partic2/packageManager/registry'
 import type { PxseedConfig } from 'pxseedBuildScript/buildlib'
-import { CodeContextShell, registry } from 'partic2/CodeRunner/CodeContext'
 import {openWorkspaceWindowFor} from 'partic2/JsNotebook/workspace'
 import { TextEditor } from 'partic2/pComponentUi/texteditor'
 
@@ -45,21 +44,11 @@ if(navigator.language.split('-').includes('zh')){
     i18n.error='错误'
 }
 
-let codeCellShell=new Singleton(async ()=>{
-    await persistent.load();
-    let rpc=getRegistered(ServerHostWorker1RpcName);
-    assert(rpc!=null);
-    let codeContext=new RemoteRunCodeContext(await rpc!.ensureConnected());
-    registry.set(registryModuleName,codeContext);
-    return new CodeContextShell(codeContext);
-});
-async function getServerCodeShell(){
-    let ccs=await codeCellShell.get();
-    let mod=await ccs.importModule<typeof registryModType>(registryModuleName,'registry');
-    return {
-        shell:codeCellShell,
-        registry:mod.toModuleProxy()
-    };
+let remoteModule={
+    registry:new Singleton(async ()=>{
+        return await importRemoteModule<typeof import('partic2/packageManager/registry')>(
+            await (await getPersistentRegistered(ServerHostWorker1RpcName))!.ensureConnected(),'partic2/packageManager/registry');
+    })
 }
 
 const SimpleButton=(props:React.RenderableProps<{
@@ -93,9 +82,9 @@ class PackagePanel extends React.Component<{},{
         }
         let source=(await this.rref.installPackageName.waitValid()).getPlainText();
         dlg.close();
-        let {registry}=await getServerCodeShell();
         this.setState({errorMessage:'Installing...'})
         try{
+            const registry=await remoteModule.registry.get();
             await registry.installPackage!(source);
             this.setState({errorMessage:'done'});
             this.refreshList();
@@ -104,14 +93,14 @@ class PackagePanel extends React.Component<{},{
         }
     }
     async exportPackagesInstallation(){
-        let {registry}=await getServerCodeShell();
+        const registry=await remoteModule.registry.get();
         let result=await registry.exportPackagesInstallation!();
         RequestDownload(new TextEncoder().encode(JSON.stringify(result)),'export.txt')
     }
     async importPackagesInstallation(){
         let selected=await selectFile();
         if(selected!=null && selected.length>0){
-            let {registry}=await getServerCodeShell();
+            let registry=await remoteModule.registry.get();
             registry.importPackagesInstallation!(JSON.parse(new TextDecoder().decode(
                 (await GetBlobArrayBufferContent(selected.item(0)!))!))
             )
@@ -136,13 +125,12 @@ class PackagePanel extends React.Component<{},{
     }
     async refreshList(){
         try{
-            let {registry}=await getServerCodeShell();
+            let registry=await remoteModule.registry.get();
             this.setState({
                 packageList:await registry.listPackagesArray(this.filterString),
                 errorMessage:''
             });
         }catch(err:any){
-            codeCellShell.i=null;
             this.setState({
                 packageList:[{
                     "loaders": [
@@ -178,10 +166,9 @@ class PackagePanel extends React.Component<{},{
                       }
                     }
                   }],
-                errorMessage:err.message
+                errorMessage:err.toString()
             });
         }
-        
     }
     async showCreatePackage(){
         this.rref.createPackageGuide.current?.active();
@@ -200,7 +187,7 @@ class PackagePanel extends React.Component<{},{
         }
     }
     async createPackageBtn(pkgInfoIn:any,subbtn?:string){
-        let {registry}=await getServerCodeShell();
+        let registry=await remoteModule.registry.get();
         if(subbtn==='create'){
             let opt={} as registryModType.PackageManagerOption;
             let webuiEntry=pkgInfoIn.webuiEntry as string;
@@ -248,7 +235,7 @@ class PackagePanel extends React.Component<{},{
     }
     async uninstallPackage(pkgName:string){
         if(await confirm(`Uninstall package ${pkgName}?`)=='ok'){
-            let {registry}=await getServerCodeShell();
+            let registry=await remoteModule.registry.get();
             this.setState({errorMessage:'uninstalling...'})
             try{
                 await registry.uninstallPackage!(pkgName);
@@ -261,7 +248,7 @@ class PackagePanel extends React.Component<{},{
     }
     async openNotebook(){
         try{
-            await openWorkspaceWindowFor((await codeCellShell.get()).codeContext as any,'packageManager/registry');
+            await openWorkspaceWindowFor((await getPersistentRegistered(ServerHostWorker1RpcName))!,'packageManager/registry');
         }catch(err:any){
             await alert(err.errorMessage,i18n.error)
         }
@@ -336,16 +323,6 @@ class PackagePanel extends React.Component<{},{
     
 
 }
-
-//Module cleaner
-export async function close(){
-    if(codeCellShell!=null){
-        if(codeCellShell instanceof CodeContextShell){
-            codeCellShell.codeContext.close();
-        }
-    }
-}
-
 
 export let renderPackagePanel=async()=>{
     useDeviceWidth()

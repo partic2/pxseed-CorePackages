@@ -1,25 +1,20 @@
 import { ArrayWrap2, assert, DateDiff, GetCurrentTime, logger, sleep } from 'partic2/jsutils1/base';
 import { RemoteRunCodeContext } from 'partic2/CodeRunner/RemoteCodeContext';
-import { CodeContextShell } from 'partic2/CodeRunner/CodeContext';
 
-import { getPersistentRegistered, ServerHostRpcName } from 'partic2/pxprpcClient/registry'
+import { getPersistentRegistered, importRemoteModule, ServerHostRpcName, ServerHostWorker1RpcName } from 'partic2/pxprpcClient/registry'
 import { GetPersistentConfig, SavePersistentConfig } from 'partic2/jsutils1/webutils';
+import { Singleton } from '../CodeRunner/jsutils2';
 
 
 let servShell:any=null;
 export let __name__='partic2/packageManager/misc';
 type ThisModuleType=typeof import('partic2/packageManager/misc');
 
-async function getServerShell():Promise<{shell:CodeContextShell,misc:ThisModuleType}>{
-    //may reload server so not worker.
-    let client1=await getPersistentRegistered(ServerHostRpcName);
-    assert(client1!=null);
-    if(servShell==null){
-        let shell=new CodeContextShell(new RemoteRunCodeContext(await client1.ensureConnected()));
-        let misc=(await shell.importModule<typeof import('partic2/packageManager/misc')>('partic2/packageManager/misc','misc1')).toModuleProxy();
-        servShell={shell,misc};
-    }
-    return servShell;
+let remoteModule={
+    misc:new Singleton(async ()=>{
+        return await importRemoteModule<typeof import('partic2/packageManager/misc')>(
+            await (await getPersistentRegistered(ServerHostWorker1RpcName))!.ensureConnected(),'partic2/packageManager/misc');
+    })
 }
 
 export async function cleanWWW(dir?:string){
@@ -87,7 +82,7 @@ export async function ensureCodeUpdated(opt:{reload?:boolean}){
             }
         }
     }else{
-        let {misc}=await getServerShell();
+        let misc=await remoteModule.misc.get();
         config1=await GetPersistentConfig(__name__);
         if(config1!.lastCodeUpateTime==undefined){
             config1!.lastCodeUpateTime=0;
@@ -125,7 +120,7 @@ export async function processDirectoryContainFile(file:string):Promise<{sourceRo
         }
         return {sourceRoot:sourceDir,outputRoot:join(dirname(sourceDir),'www')};
     }else{
-        let {misc}=await getServerShell();
+        let misc=await remoteModule.misc.get();
         return await misc.processDirectoryContainFile(file);
     }
 }

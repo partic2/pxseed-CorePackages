@@ -1,4 +1,5 @@
-import { ArrayBufferConcat, ArrayWrap2, CanceledError, GenerateRandomString, Ref2, Task, assert, future, requirejs, throwIfAbortError } from "partic2/jsutils1/base";
+import { ArrayBufferConcat, ArrayWrap2, GenerateRandomString, Ref2, Task, assert, future, requirejs, throwIfAbortError } from "partic2/jsutils1/base";
+import { getPersistentRegistered, importRemoteModule } from "partic2/pxprpcClient/registry";
 
 
 let __name__=requirejs.getLocalRequireModule(require);
@@ -141,14 +142,18 @@ export class ExtendStreamReader implements ReadableStreamDefaultReader<Uint8Arra
 
 
 
-export class Singleton<T>{
-    constructor(public init:()=>Promise<T>){}
+export class Singleton<T> extends future<T>{
+    constructor(public init:()=>Promise<T>){super()}
     i:T|null=null;
     async get(){
-        if(this.i===null){
-            this.i=await this.init()
-        }
-        return this.i;
+		if(!this.done){
+			this.init().then((result)=>{
+				this.setResult(result);
+			},(err)=>{
+				this.setException(err);
+			})
+		}
+        return super.get();
     }
 }
 

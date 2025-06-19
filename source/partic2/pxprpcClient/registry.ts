@@ -1,4 +1,4 @@
-import { ArrayBufferConcat, ArrayWrap2, GenerateRandomString, future, mutex, requirejs } from "partic2/jsutils1/base";
+import { ArrayBufferConcat, ArrayWrap2, ErrorChain, GenerateRandomString, future, mutex, requirejs } from "partic2/jsutils1/base";
 import { GetPersistentConfig, SavePersistentConfig,IWorkerThread, CreateWorkerThread, lifecycle, GetUrlQueryVariable } from "partic2/jsutils1/webutils";
 import { WebMessage, WebSocketIo } from "pxprpc/backend";
 import { Client, Io, Server } from "pxprpc/base";
@@ -10,15 +10,39 @@ export var __name__=requirejs.getLocalRequireModule(require);
 
 export let rpcWorkerInitModule:string[]=[];
 
-defaultFuncMap[__name__+'.loadModule']=new RpcExtendServerCallable(async (name:string)=>requirejs.promiseRequire(name)).typedecl('s->o');
-defaultFuncMap[__name__+'.unloadModule']=new RpcExtendServerCallable(async (name:string)=>requirejs.undef(name)).typedecl('s->o');
+defaultFuncMap[__name__+'.loadModule']=new RpcExtendServerCallable(async (name:string)=>{
+    return {
+        type:'module',
+        value:await requirejs.promiseRequire(name)
+    }
+}).typedecl('s->o');
+defaultFuncMap[__name__+'.unloadModule']=new RpcExtendServerCallable(async (name:string)=>requirejs.undef(name)).typedecl('s->');
+defaultFuncMap[__name__+'.callJsonFunction']=new RpcExtendServerCallable(async (module:{type:'module',value:any},functionName:string,paramsJson:string)=>{
+    try{
+        let param=JSON.parse(paramsJson);
+        return JSON.stringify([(await module.value[functionName](...param))??null]);
+    }catch(err:any){
+        return JSON.stringify([null,{
+                message:err.message,
+                stack:err.stack
+            }]);
+    }
+}).typedecl('oss->s');
 defaultFuncMap[__name__+'.getDefined']=new RpcExtendServerCallable(async ()=>requirejs.getDefined()).typedecl('s->o');
 defaultFuncMap[__name__+'.getConnectionFromUrl']=new RpcExtendServerCallable(async (url:string)=>{
     return await getConnectionFromUrl(url)
 }).typedecl('s->o');
 
+
+export type OnlyAsyncFunctionProps<Mod>={
+    [P in (keyof Mod & string)]:Mod[P] extends (...args:any[])=>Promise<any>?Mod[P]:never
+}
+
+
 export interface RemoteRegistryFunction{
     loadModule(name:string):Promise<RpcExtendClientObject>;
+    callJsonFunction(module:RpcExtendClientObject,functionName:string,params:any):Promise<any>
+    unloadModule(name:string):Promise<void>;
     getConnectionFromUrl(url:string):Promise<RpcExtendClientObject>;
     io_send(io:RpcExtendClientObject,data:Uint8Array):Promise<void>;
     io_receive(io:RpcExtendClientObject):Promise<Uint8Array>;
@@ -86,7 +110,6 @@ export class RpcWorker{
         }
         return this.client;
     }
-
 }
 
 export class ClientInfo{
@@ -103,7 +126,7 @@ export class ClientInfo{
     }
     async jsServerLoadModule(name:string){
         let fn=await getAttachedRemoteRigstryFunction(this.client!);
-        return fn.loadModule(name);
+        return await fn.loadModule(name);
     }
     protected connecting=new mutex();
     async ensureConnected():Promise<RpcExtendClient1>{
@@ -178,13 +201,36 @@ export function createIoPipe():[Io,Io]{
     return [oneSide(a2b,b2a),oneSide(b2a,a2b)];
 }
 
+class RemoteCallFunctionError extends Error{
+    remoteStack?:string
+    constructor(message?:string){
+        super('REMOTE:'+message);
+    }
+    toString(){
+        return this.message+'\n'+(this.remoteStack??'');
+    }
+}
 
 class RemoteRegistryFunctionImpl implements RemoteRegistryFunction{
+    
     funcs:(RpcExtendClientCallable|undefined)[]=[]
     client1?:RpcExtendClient1;
+
     async loadModule(name: string): Promise<RpcExtendClientObject> {
         return this.funcs[0]!.call(name);
     }
+    async callJsonFunction(module: RpcExtendClientObject, functionName: string, params:any[] ): Promise<string> {
+        let [result,error]=JSON.parse(await this.funcs[7]!.call(module,functionName,JSON.stringify(params)));
+        if(error!=null){
+            let remoteError=new RemoteCallFunctionError(error.message);
+            remoteError.remoteStack=error.stack;
+            throw remoteError;
+        }
+        return result;
+    }
+    async unloadModule(name: string): Promise<void> {
+        return this.funcs[8]!.call(name)
+    }   
     async getConnectionFromUrl(url: string): Promise<RpcExtendClientObject> {
         return this.funcs[1]!.call(url);
     }
@@ -212,8 +258,10 @@ class RemoteRegistryFunctionImpl implements RemoteRegistryFunction{
                 (await this.client1!.getFunc('pxprpc_pp.io_send'))?.typedecl('ob->'),
                 (await this.client1!.getFunc('pxprpc_pp.io_receive'))?.typedecl('o->b'),
                 (await this.client1!.getFunc('builtin.jsExec'))?.typedecl('so->o'),
-                (await this.client1!.getFunc('builtin.bufferData'))?.typedecl('o->b'),
-                (await this.client1!.getFunc('builtin.anyToString'))?.typedecl('o->s')
+                (await this.client1!.getFunc('builtin.bufferData'))?.typedecl('o->b'), //[5]
+                (await this.client1!.getFunc('builtin.anyToString'))?.typedecl('o->s'),
+                (await this.client1!.getFunc(__name__+'.callJsonFunction'))?.typedecl('oss->s'),
+                (await this.client1!.getFunc(__name__+'.unloadModule'))?.typedecl('s->')
             ]
         }
     }
@@ -395,4 +443,23 @@ if('window' in globalThis){
     }
     
     WebMessage.postMessageOptions.targetOrigin='*'   
+}
+
+//Before typescript support syntax like <typeof import(T)>, we can only tell module type explicitly.
+//Only support plain JSON parameter and return value.
+export async function importRemoteModule<T>(rpc:RpcExtendClient1,moduleName:string):Promise<OnlyAsyncFunctionProps<T>>{
+    let module:RpcExtendClientObject|null=null;
+    let funcs:RemoteRegistryFunction|null=null;
+    funcs=await getAttachedRemoteRigstryFunction(rpc);
+    module=await funcs.loadModule(moduleName);
+    let proxyModule=new Proxy({},{
+        get(target,p){
+            //Avoid triggle by Promise.resolve
+            if(p==='then')return undefined;
+            return async (...params:any[])=>{
+                return await funcs.callJsonFunction(module,p as string,params);
+            }
+        }
+    });
+    return proxyModule as any;
 }
