@@ -1,13 +1,15 @@
+//Implement tjs base on pxprpc
+
 import { RpcExtendClientObject, TableSerializer } from "pxprpc/extend";
 import { Invoker,getDefault } from "partic2/pxprpcBinding/JseHelper__JseIo";
-import { WaitUntil, future,copy, ArrayWrap2 } from "partic2/jsutils1/base";
+import {  future,copy } from "partic2/jsutils1/base";
 
 import type {} from '@txikijs/types/src/index'
 
 
 /**
-        * Implemented by entities from which data can be read.
-        */
+ * Implemented by entities from which data can be read.
+*/
 interface Reader {
     /**
     * Reads data into the given buffer. Resolves to the number of read bytes or null for EOF.
@@ -394,6 +396,172 @@ function homedir(){
     return dataDir
 }
 
+interface Address {
+    family: number;
+    ip: string;
+    port: number;
+    scopeId?: number;
+    flowInfo?: number;
+}
+
+interface Connection {
+    read(buf: Uint8Array): Promise<number|null>;
+    write(buf: Uint8Array): Promise<number>;
+    setKeepAlive(enable: boolean, delay: number): void;
+    setNoDelay(enable?: boolean): void;
+    shutdown(): void;
+    close(): void;
+    localAddress: Address;
+    remoteAddress: Address;
+    readable: ReadableStream<Uint8Array>;
+    writable: WritableStream<Uint8Array>;
+}
+
+interface DatagramData {
+    nread: number;
+    partial: boolean;
+    addr: Address;
+}
+
+interface DatagramEndpoint {
+    recv(buf: Uint8Array): Promise<number>;
+    send(buf: Uint8Array, addr?: Address): Promise<DatagramData>;
+    close(): void;
+    localAddress: Address;
+    remoteAddress: Address;
+}
+
+type Transport = 'tcp' | 'udp' | 'pipe';
+
+interface ConnectOptions {
+    /**
+    * Local address to bind to.
+    */
+    bindAddr: Address;
+    
+    /**
+    * Disables dual stack mode.
+    */
+    ipv6Only?: boolean;
+}
+
+class JseConnection implements Connection{
+    read(buf: Uint8Array): Promise<number | null> {
+        return this.rawR.read(buf);
+    }
+    write(buf: Uint8Array): Promise<number> {
+        return this.rawW.write(buf);
+    }
+    setKeepAlive(enable: boolean, delay: number): void {
+        throw new Error("Method not implemented.");
+    }
+    setNoDelay(enable?: boolean | undefined): void {
+        throw new Error("Method not implemented.");
+    }
+    shutdown(): void {
+        this.close();
+    }
+    close(): void {
+        if(this.rawR.getHandler.done){
+            this.rawR.getHandler.result!.free();
+        }
+        if(this.rawW.getHandler.done){
+            this.rawW.getHandler.result!.free();
+        }
+        this.rpcHandle.free();
+    }
+    rawR:JseInputReader=new JseInputReader();
+    rawW:JseOutputWriter=new JseOutputWriter();
+    constructor(public rpcHandle:RpcExtendClientObject){}
+    localAddress: Address={family: 0,ip:'',port: 0};
+    remoteAddress: Address={family: 0,ip:'',port:0};
+    readable:ReadableStream<Uint8Array>=undefined as any
+    writable:WritableStream<Uint8Array>=undefined as any
+    
+}
+
+async function JseConnectionFromJseRpcSocket(soc:RpcExtendClientObject){
+    let [in2,out2]=await jseio.tcpStreams(soc);
+    let r=new JseConnection(soc);
+    r.rawR.getHandler.setResult(in2);
+    r.rawW.getHandler.setResult(out2);
+    return r;
+}
+/**
+* Creates a connection to the target host + port over the selected transport.
+*
+* @param transport Type of transport for the connection.
+* @param host Hostname for the connection. Basic lookup using {@link lookup} will be performed.
+* @param port Destination port (where applicable).
+* @param options Extra connection options.
+*/
+async function connect(transport: Transport, host: string, port?: string | number, options?: ConnectOptions): Promise<Connection | DatagramEndpoint>{
+    if(transport=='tcp'){
+        let soc=await jseio.tcpConnect(host,Number(port??0));
+        let r=await JseConnectionFromJseRpcSocket(soc);
+        return r;
+    }else{
+        throw new Error('Not implemented');
+    }
+}
+
+interface Listener extends AsyncIterable<Connection> {
+    accept(): Promise<Connection>;
+    close(): void;
+    localAddress: Address;
+}
+
+interface ListenOptions {
+    backlog?: number;
+    
+    /**
+    * Disables dual stack mode.
+    */
+    ipv6Only?: boolean;
+    
+    /**
+    * Used on UDP only.
+    * Enable address reusing (when binding). What that means is that
+    * multiple threads or processes can bind to the same address without error
+    * (provided they all set the flag) but only the last one to bind will receive
+    * any traffic, in effect "stealing" the port from the previous listener.
+    */
+    reuseAddr?: boolean;
+}
+
+class JseIoListener implements Listener{
+    constructor(public ssoc:RpcExtendClientObject){};
+    async accept(): Promise<Connection> {
+        let soc=await jseio.tcpAccept(this.ssoc);
+        let r=JseConnectionFromJseRpcSocket(soc);
+        return r;
+    }
+    close(): void {
+        this.ssoc.free();
+    }
+    localAddress: Address={family:0,ip:'',port:0};
+    [Symbol.asyncIterator](): AsyncIterator<Connection, any, undefined> {
+        throw new Error("Method not implemented.");
+    }
+
+}
+
+/**
+* Listens for incoming connections on the selected transport.
+*
+* @param transport Transport type.
+* @param host Hostname for listening on.
+* @param port Listening port (where applicable).
+* @param options Extra listen options.
+*/
+async function listen(transport: Transport, host: string, port?: string | number, options?: ListenOptions): Promise<Listener | DatagramEndpoint>{
+    if(transport=='tcp'){
+        return new JseIoListener(await jseio.tcpListen(host,Number(port??0)))
+    }else{
+        throw new Error('Not implemented');
+    }
+}
+
     let tjsi={
         realpath,unlink,rename,mkstemp,stat,open,rmdir,copyfile,mkdir,readdir,readFile,rm,spawn,homedir,platform,
         realPath:realpath,
@@ -401,7 +569,8 @@ function homedir(){
         homeDir:dataDir,
         makeDir:mkdir,
         readDir:readdir,
-        system:{platform:platform}
+        system:{platform:platform},
+        listen,connect
     } as any;
 
     (invoker as any)[tjsImpl]=tjsi;

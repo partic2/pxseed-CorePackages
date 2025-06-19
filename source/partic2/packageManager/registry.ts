@@ -379,7 +379,7 @@ export async function fetchPackage(name:string){
 }
 
 export async function uninstallPackage(pkgname:string){
-    remove(pathJoin(sourceDir,...pkgname.split('/')))
+    await remove(pathJoin(sourceDir,...pkgname.split('/')))
     let pkgdb=await kvStore(pkgdbName);
     await pkgdb.delete('pkg-'+pkgname);
 }

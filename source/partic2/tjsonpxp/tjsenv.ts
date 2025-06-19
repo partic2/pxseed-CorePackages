@@ -1,4 +1,4 @@
-
+//import this module to Initialize pxseed environment on txiki.js platform.
 
 import { ArrayBufferConcat, DateDiff, future, GetCurrentTime, requirejs} from 'partic2/jsutils1/base';
 import type {} from '@txikijs/types/src/index'
@@ -305,4 +305,11 @@ export class PxprpcRtbIo implements Io{
 
 import {getAttachedRemoteRigstryFunction, RpcWorker, rpcWorkerInitModule} from 'partic2/pxprpcClient/registry'
 
-setupImpl();
+if(globalThis.tjs==undefined){
+    console.warn('This module is only used to initialize pxseed environment on txiki.js,'+
+        ' and has no effect on other platform.'+
+        'Also avoid to import this module on other platform.')
+}else{
+    setupImpl();
+}
+
