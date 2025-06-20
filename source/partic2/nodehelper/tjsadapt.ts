@@ -1,7 +1,7 @@
 import { RpcExtendClientObject, TableSerializer } from "pxprpc/extend";
 import { Invoker,getDefault } from "partic2/pxprpcBinding/JseHelper__JseIo";
 import { WaitUntil, future,copy, ArrayWrap2, GenerateRandomString, requirejs } from "partic2/jsutils1/base";
-
+import { TjsReaderDataSource, TjsWriterDataSink } from 'partic2/tjshelper/tjsutil'
 import type {} from '@txikijs/types/src/index'
 
 
@@ -36,6 +36,7 @@ import path from 'path'
 import fs from 'fs/promises'
 import child_process from 'child_process'
 import { wrapReadable } from "./nodeio";
+import { Server, Socket } from "net";
 
 export async function tjsFrom():Promise<typeof tjs>{
     if(tjsImpl!=null){
@@ -381,6 +382,212 @@ function homedir(){
     return dataDir
 }
 
+
+interface Address {
+    family: number;
+    ip: string;
+    port: number;
+    scopeId?: number;
+    flowInfo?: number;
+}
+
+interface Connection {
+    read(buf: Uint8Array): Promise<number|null>;
+    write(buf: Uint8Array): Promise<number>;
+    setKeepAlive(enable: boolean, delay: number): void;
+    setNoDelay(enable?: boolean): void;
+    shutdown(): void;
+    close(): void;
+    localAddress: Address;
+    remoteAddress: Address;
+    readable: ReadableStream<Uint8Array>;
+    writable: WritableStream<Uint8Array>;
+}
+
+interface DatagramData {
+    nread: number;
+    partial: boolean;
+    addr: Address;
+}
+
+interface DatagramEndpoint {
+    recv(buf: Uint8Array): Promise<number>;
+    send(buf: Uint8Array, addr?: Address): Promise<DatagramData>;
+    close(): void;
+    localAddress: Address;
+    remoteAddress: Address;
+}
+
+type Transport = 'tcp' | 'udp' | 'pipe';
+
+interface ConnectOptions {
+    /**
+    * Local address to bind to.
+    */
+    bindAddr: Address;
+    
+    /**
+    * Disables dual stack mode.
+    */
+    ipv6Only?: boolean;
+}
+
+
+class NodeConnection implements Connection{
+    read(buf: Uint8Array): Promise<number | null> {
+        return this.rawR.read(buf);
+    }
+    write(buf: Uint8Array): Promise<number> {
+        return this.rawW.write(buf);
+    }
+    setKeepAlive(enable: boolean, delay: number): void {
+        this.sock.setKeepAlive(enable,delay);
+    }
+    setNoDelay(enable?: boolean | undefined): void {
+        this.sock.setNoDelay(enable);
+    }
+    shutdown(): void {
+        this.close();
+    }
+    close(): void {
+        this.sock.end();
+    }
+    rawR:Reader;
+    rawW:Writer;
+    constructor(public sock:Socket){
+        this.rawR=wrapReadable(sock);
+        this.rawW={
+            write:async (buf: Uint8Array):Promise<number>=>{
+                sock.write(buf);
+                return buf.byteLength;
+            },
+        }
+        this.localAddress.ip=sock.localAddress!;
+        this.localAddress.port=sock.localPort!;
+        this.remoteAddress.ip=sock.localAddress!;
+        this.remoteAddress.port=sock.remotePort!;
+    }
+    localAddress: Address={family: 0,ip:'',port: 0};
+    remoteAddress: Address={family: 0,ip:'',port:0};
+    //Diabled until concurrent read/write issue is solved.
+    readable:ReadableStream<Uint8Array>=undefined as any
+    writable:WritableStream<Uint8Array>=undefined as any
+    
+}
+/**
+* Creates a connection to the target host + port over the selected transport.
+*
+* @param transport Type of transport for the connection.
+* @param host Hostname for the connection. Basic lookup using {@link lookup} will be performed.
+* @param port Destination port (where applicable).
+* @param options Extra connection options.
+*/
+async function connect(transport: Transport, host: string, port?: string | number, options?: ConnectOptions): Promise<Connection | DatagramEndpoint>{
+    if(transport=='tcp'){
+        let soc=new Socket();
+        let r=new NodeConnection(soc);
+        let p=new Promise<void>((resolve,reject)=>{
+            //XXX:should we remove listener?
+            soc.once('connect',resolve)
+            soc.once('error',reject)
+        });
+        soc.connect({host:host,port:Number(port??0)});
+        await p;
+        return r;
+    }else if(transport=='pipe'){
+        let soc=new Socket();
+        let r=new NodeConnection(soc);
+        let p=new Promise<void>((resolve,reject)=>{
+            //XXX:should we remove listener?
+            soc.once('connect',resolve)
+            soc.once('error',reject)
+        });
+        soc.connect({path:host});
+        await p;
+        return r;
+    }else{
+        throw new Error('Not implemented');
+    }
+}
+
+interface Listener extends AsyncIterable<Connection> {
+    accept(): Promise<Connection>;
+    close(): void;
+    localAddress: Address;
+}
+
+interface ListenOptions {
+    backlog?: number;
+    
+    /**
+    * Disables dual stack mode.
+    */
+    ipv6Only?: boolean;
+    
+    /**
+    * Used on UDP only.
+    * Enable address reusing (when binding). What that means is that
+    * multiple threads or processes can bind to the same address without error
+    * (provided they all set the flag) but only the last one to bind will receive
+    * any traffic, in effect "stealing" the port from the previous listener.
+    */
+    reuseAddr?: boolean;
+}
+
+class NodeListener implements Listener{
+    sockQueue=new ArrayWrap2<Socket>();
+    constructor(public ssoc:Server){
+        ssoc.on('connection',(soc)=>{
+            this.sockQueue.queueSignalPush(soc);
+        });
+        let addr=ssoc.address();
+        if(typeof addr=='string'){
+            this.localAddress.ip=addr
+        }else if(addr!=undefined){
+            this.localAddress.ip=addr.address;
+            this.localAddress.port=addr.port;
+        }
+    };
+    async accept(): Promise<Connection> {
+        let sock=await this.sockQueue.queueBlockShift();
+        return new NodeConnection(sock);
+    }
+    close(): void {
+        this.ssoc.close();
+    }
+    localAddress: Address={family:0,ip:'',port:0};
+    [Symbol.asyncIterator](): AsyncIterator<Connection, any, undefined> {
+        throw new Error("Method not implemented.");
+    }
+
+}
+
+/**
+* Listens for incoming connections on the selected transport.
+*
+* @param transport Transport type.
+* @param host Hostname for listening on.
+* @param port Listening port (where applicable).
+* @param options Extra listen options.
+*/
+async function listen(transport: Transport, host: string, port?: string | number, options?: ListenOptions): Promise<Listener | DatagramEndpoint>{
+    if(transport=='tcp'){
+        let serv=new Server();
+        serv.listen({
+            host:host,port:Number(port??0)
+        });
+        return new NodeListener(serv)
+    }else if(transport=='udp'){
+        let serv=new Server();
+        serv.listen({
+            path:host
+        });
+        return new NodeListener(serv)
+    }else{
+        throw new Error('Not implemented');
+    }
+}
+
     let tjsi={
         realpath,unlink,rename,mkstemp,stat,open,rmdir,copyfile,mkdir,readdir,readFile,rm,spawn,homedir,platform,
         realPath:realpath,
@@ -388,10 +595,12 @@ function homedir(){
         homeDir:dataDir,
         makeDir:mkdir,
         readDir:readdir,
-        system:{platform:platform}
+        system:{platform:platform},
+        listen,connect,
+        __impl__:'partic2/nodehelper/tjsadapt'
     } as any;
-    
-    return tjsi
+    tjsImpl=tjsi;
+    return tjsImpl;
 
 }
 

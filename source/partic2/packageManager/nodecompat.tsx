@@ -4,7 +4,6 @@ import type {readFile,writeFile,unlink,readdir,mkdir,rmdir,stat,lstat,readlink,s
 import { SimpleFileSystem } from 'partic2/CodeRunner/JsEnviron';
 import { assert, requirejs } from 'partic2/jsutils1/base';
 import {path} from 'partic2/jsutils1/webutils'
-import { tjsFrom } from 'partic2/tjsonpxp/tjs';
 import { getPersistentRegistered } from 'partic2/pxprpcClient/registry';
 
 

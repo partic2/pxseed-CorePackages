@@ -7,7 +7,7 @@ import { stdout } from 'process';
 import { FileTypeHandlerBase } from './fileviewer';
 import { TabInfo, TabInfoBase } from 'partic2/pComponentUi/workspace';
 import type { Workspace } from './workspace';
-import { tjsFrom } from 'partic2/tjsonpxp/tjs';
+import { tjsFrom } from 'partic2/tjshelper/tjsonjserpc';
 import { ArrayBufferConcat, copy, GetCurrentTime, partial, WaitUntil } from 'partic2/jsutils1/base';
 import { css, FloatLayerComponent } from 'partic2/pComponentUi/domui';
 

@@ -88,5 +88,5 @@ if(globalThis.postMessage==undefined){
     }
 }else{
     //worker
-    main('partic2/tjsonpxp/workerentry');
+    main('partic2/tjshelper/workerentry');
 }

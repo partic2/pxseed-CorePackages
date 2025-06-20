@@ -1,7 +1,6 @@
 /*jshint node:true */
 
 import { ArrayBufferConcat, ArrayWrap2, BytesToHex, DateDiff, GetCurrentTime, assert, logger, requirejs } from "partic2/jsutils1/base";
-import { ExtendStreamReader } from "partic2/CodeRunner/jsutils2";
 import { getWWWRoot } from "partic2/jsutils1/webutils";
 
 
@@ -26,8 +25,6 @@ export class TjsWriterDataSink implements UnderlyingSink<Uint8Array>{
 		await this.tjsWriter.write(chunk)
 	}
 }
-
-
 
 
 let remoteModuleLoaderState:{

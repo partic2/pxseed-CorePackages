@@ -118,7 +118,7 @@ export async function CorePackagePublishHandler(moduleName:string){
         ['source','partic2','pxprpcBinding'],
         ['source','partic2','pxprpcClient'],
         ['source','partic2','pxseedMedia1'],
-        ['source','partic2','tjsonpxp']
+        ['source','partic2','tjshelper']
     ];
     let corePackFiles=[
         ['source','.gitignore'],

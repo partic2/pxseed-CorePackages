@@ -8,7 +8,7 @@ import { FileTypeHandler, JsModuleHandler, ImageFileHandler, TextFileHandler } f
 import { SimpleFileSystem ,LocalWindowSFS,TjsSfs} from 'partic2/CodeRunner/JsEnviron';
 import { RegistryUI } from 'partic2/pxprpcClient/ui';
 import { clone, GetCurrentTime, sleep,assert, GenerateRandomString, future, throwIfAbortError } from 'partic2/jsutils1/base';
-import { tjsFrom } from 'partic2/tjsonpxp/tjs';
+import { tjsFrom } from 'partic2/tjshelper/tjsonjserpc';
 import { Invoker as jseioInvoker} from "partic2/pxprpcBinding/JseHelper__JseIo";
 import { StdioShellProfile1 } from './stdioshell';
 import {removeFloatWindow, WindowComponent} from 'partic2/pComponentUi/window'

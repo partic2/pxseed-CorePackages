@@ -5,6 +5,7 @@ import { Invoker,getDefault } from "partic2/pxprpcBinding/JseHelper__JseIo";
 import {  future,copy } from "partic2/jsutils1/base";
 
 import type {} from '@txikijs/types/src/index'
+import { TjsReaderDataSource, TjsWriterDataSink } from "./tjsutil";
 
 
 /**
@@ -475,8 +476,9 @@ class JseConnection implements Connection{
     constructor(public rpcHandle:RpcExtendClientObject){}
     localAddress: Address={family: 0,ip:'',port: 0};
     remoteAddress: Address={family: 0,ip:'',port:0};
-    readable:ReadableStream<Uint8Array>=undefined as any
-    writable:WritableStream<Uint8Array>=undefined as any
+    //Diabled until concurrent read/write issue is solved.
+    readable:ReadableStream<Uint8Array>=undefined as any;
+    writable:WritableStream<Uint8Array>=undefined as any;
     
 }
 
@@ -570,7 +572,8 @@ async function listen(transport: Transport, host: string, port?: string | number
         makeDir:mkdir,
         readDir:readdir,
         system:{platform:platform},
-        listen,connect
+        listen,connect,
+        __impl__:'partic2/tjshelper/tjsonjserpc'
     } as any;
 
     (invoker as any)[tjsImpl]=tjsi;
