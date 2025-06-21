@@ -260,11 +260,13 @@ export class JsonForm extends ReactEventTarget<JsonFormPros,
             for(let t1 of ArrayWrap2.IntSequence(0,this.state.elemCount??0)){
                 r.push(v[t1.toString()]);
             }
-            return r;
+            this.cachedValue=r;
         }else if(this.props.type.type==='object'){
-            return this._inputCollector.getValue();
+            Object.assign(this.cachedValue,this._inputCollector.getValue());
         }
+        return this.cachedValue;
     }
+    protected cachedValue:any={};
     set value(v:any){
         if(this.props.type.type==='array'){
             let v2=v as Array<any>|undefined;
@@ -277,7 +279,6 @@ export class JsonForm extends ReactEventTarget<JsonFormPros,
                     this._inputCollector.setValue(r);
                 });
             }
-            
         }else if(this.props.type.type==='object'){
             if(v!=undefined){
                 this.forceUpdate(()=>{
@@ -285,5 +286,6 @@ export class JsonForm extends ReactEventTarget<JsonFormPros,
                 });
             }
         }
+        this.cachedValue=v;
     }
 }
