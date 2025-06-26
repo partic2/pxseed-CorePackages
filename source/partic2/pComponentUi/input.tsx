@@ -94,10 +94,13 @@ export class SimpleReactForm1<P={},S={}> extends ReactEventTarget<P&{},S>{
         return this.valueCollection.getRefForInput(name);
     }
     get value():any{
-        return this.valueCollection.getValue();
+        this.__cachedValue={...this.__cachedValue,...this.valueCollection.getValue()};
+        return this.__cachedValue;
     }
+    protected __cachedValue={};
     set value(val:any){
-        this.valueCollection.setValue(val);
+        this.__cachedValue={...val};
+        this.valueCollection.setValue(this.__cachedValue);
     }
 }
 

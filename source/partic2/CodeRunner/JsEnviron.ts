@@ -53,11 +53,9 @@ export interface SimpleFileSystem{
     truncate(path:string,newSize:number):Promise<void>;
 }
 
-
 export class TjsSfs implements SimpleFileSystem{
     
     impl?:typeof tjs
-    pxprpc?:ClientInfo
     
     protected dummyRootDir:[string,tjs.StatResult][]=[];
     //is windows base(C:\... D:\...) path?
@@ -206,6 +204,21 @@ export class TjsSfs implements SimpleFileSystem{
         }finally{
             await f.close();
         }
+    }
+}
+
+export async function getSimpleFileSystemFromPxprpc(pxprpc:RpcExtendClient1){
+    //check if jseio is supported
+    let checkFunc=await pxprpc.getFunc('JseHelper.JseIo.open');
+    if(checkFunc!=null){
+        checkFunc.free();
+        let {tjsFrom}=await import('partic2/tjshelper/tjsonjserpc');
+        let {Invoker}=await import('partic2/pxprpcBinding/JseHelper__JseIo');
+        let inv=new Invoker();
+        await inv.useClient(pxprpc);
+        let fs=new TjsSfs();
+        fs.from(await tjsFrom(inv));
+        return fs;                                                  
     }
 }
 
@@ -616,6 +629,7 @@ export async function ensureDefaultFileSystem(){
 import type * as nodefsmodule from 'fs/promises'
 import type * as nodepathmodule from 'path'
 import { type CodeCompletionContext } from "./Inspector";
+import { RpcExtendClient1 } from "pxprpc/extend";
 
 export class NodeSimpleFileSystem implements SimpleFileSystem{
     

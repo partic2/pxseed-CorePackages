@@ -43,7 +43,7 @@ export class StdioShell extends React.Component<StdioShellProps,StdioShellStats>
     }
     protected async startProcess(cmdline?:string){
         try{
-            let tjs=await tjsFrom(this.props.ws.jseio!);
+            let tjs=await tjsFrom(await this.props.ws.props.rpc!.ensureConnected());
             if(cmdline==undefined){
                 cmdline='sh';
                 if(tjs.system.platform=='windows'){

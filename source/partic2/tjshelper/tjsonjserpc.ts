@@ -1,6 +1,6 @@
 //Implement tjs base on pxprpc
 
-import { RpcExtendClientObject, TableSerializer } from "pxprpc/extend";
+import { RpcExtendClient1, RpcExtendClientObject, TableSerializer } from "pxprpc/extend";
 import { Invoker,getDefault } from "partic2/pxprpcBinding/JseHelper__JseIo";
 import {  future,copy } from "partic2/jsutils1/base";
 
@@ -34,10 +34,16 @@ interface Writer {
 
 let tjsImpl=Symbol('tjs implemention')
 
-export async function tjsFrom(invoker:Invoker):Promise<typeof tjs>{
-    var jseio:Invoker=invoker;
-    if(tjsImpl in invoker){
-        return (invoker as any)[tjsImpl]
+export async function tjsFrom(remote:Invoker|RpcExtendClient1):Promise<typeof tjs>{
+    var jseio:Invoker;
+    if(remote instanceof Invoker){
+        jseio=remote;
+    }else{
+        jseio=new Invoker();
+        await jseio.useClient(remote);
+    }
+    if(tjsImpl in jseio){
+        return (jseio as any)[tjsImpl]
     }
     
 let platform=await jseio.platform()
@@ -576,7 +582,7 @@ async function listen(transport: Transport, host: string, port?: string | number
         __impl__:'partic2/tjshelper/tjsonjserpc'
     } as any;
 
-    (invoker as any)[tjsImpl]=tjsi;
+    (jseio as any)[tjsImpl]=tjsi;
     
     return tjsi
 

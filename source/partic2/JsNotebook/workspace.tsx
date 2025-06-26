@@ -5,7 +5,7 @@ import { TabInfoBase, TabView } from 'partic2/pComponentUi/workspace';
 import { ClientInfo } from 'partic2/pxprpcClient/registry';
 import { IJSNBFileHandler, RunCodeTab } from './notebook';
 import { FileTypeHandler, JsModuleHandler, ImageFileHandler, TextFileHandler } from './fileviewer';
-import { SimpleFileSystem ,LocalWindowSFS,TjsSfs} from 'partic2/CodeRunner/JsEnviron';
+import { SimpleFileSystem ,LocalWindowSFS,TjsSfs, getSimpleFileSystemFromPxprpc} from 'partic2/CodeRunner/JsEnviron';
 import { RegistryUI } from 'partic2/pxprpcClient/ui';
 import { clone, GetCurrentTime, sleep,assert, GenerateRandomString, future, throwIfAbortError } from 'partic2/jsutils1/base';
 import { tjsFrom } from 'partic2/tjshelper/tjsonjserpc';
@@ -125,7 +125,6 @@ export class Workspace extends React.Component<{rpc?:ClientInfo,fs?:SimpleFileSy
     onPauseListener=async ()=>{
         await this.saveProfile();
     }
-    jseio?:jseioInvoker
     componentDidMount(): void {
         this.init().catch((e)=>alert(e.toString()));
         lifecycle.addEventListener('pause',this.onPauseListener);
@@ -148,11 +147,8 @@ export class Workspace extends React.Component<{rpc?:ClientInfo,fs?:SimpleFileSy
                 this.setState({fs:t1});
             }else{
                 try{
-                    let fs1=new TjsSfs();
-                    this.jseio=new jseioInvoker();
-                    await this.jseio.useClient(this.props.rpc.client!);
-                    fs1.from(await tjsFrom(this.jseio));
-                    fs1.pxprpc=this.props.rpc;
+                    let fs1=await getSimpleFileSystemFromPxprpc(await this.props.rpc.ensureConnected());
+                    assert(fs1!=undefined);
                     await fs1.ensureInited();
                     this.fs=fs1;
                     this.setState({fs:fs1});

@@ -1,12 +1,18 @@
 import {RpcExtendClient1,RpcExtendClientCallable,RpcExtendClientObject} from 'pxprpc/extend'
 import { getDefaultClient } from './pxprpc_config';
+
+
 export class Invoker{
  RemoteName='JseHelper.JseIo';
  rpc__client?:RpcExtendClient1;
  rpc__RemoteFuncs={} as {[k:string]:RpcExtendClientCallable|undefined|null};
  async useClient(client:RpcExtendClient1){
   this.rpc__client=client;
-  this.rpc__RemoteFuncs={}
+  this.rpc__RemoteFuncs=(client as any).__attached__JseHelper__JseIo;
+  if(this.rpc__RemoteFuncs==undefined){
+    this.rpc__RemoteFuncs={};
+    (client as any).__attached__JseHelper__JseIo=this.rpc__RemoteFuncs;
+  }
  }
  async ensureFunc(name:string,typedecl:string){
   let __v1=this.rpc__RemoteFuncs[name];

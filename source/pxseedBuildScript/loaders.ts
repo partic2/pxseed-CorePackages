@@ -162,13 +162,9 @@ export let pxseedBuiltinLoader={
                         if((globalThis as any).requirejs.__nodeenv.require.resolve.paths(source)==null){
                             return true;
                         }else if(source.endsWith('/')){
-                            //Some import like 'process/', Don't make external.
-                            return true;
-                        }
-                        if(source!=mod && !/^[\/\.]/.test(source) && !/^[a-zA-Z]:\\/.test(source)){
-                            if(!config.entryModules.includes(source)){
-                                config.entryModules.push(source);
-                            }
+                            //Some import like 'process/', Don't make it external.
+                            return false;
+                        }else if(source!=mod && config.entryModules.includes(source)){
                             return true;
                         }
                         return false;
