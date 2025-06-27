@@ -1,8 +1,8 @@
-import { ArrayWrap2, assert, DateDiff, GetCurrentTime, logger, sleep } from 'partic2/jsutils1/base';
+import { ArrayWrap2, assert, DateDiff, GetCurrentTime, logger, requirejs, sleep } from 'partic2/jsutils1/base';
 import { RemoteRunCodeContext } from 'partic2/CodeRunner/RemoteCodeContext';
 
 import { getPersistentRegistered, importRemoteModule, ServerHostRpcName, ServerHostWorker1RpcName } from 'partic2/pxprpcClient/registry'
-import { GetPersistentConfig, SavePersistentConfig } from 'partic2/jsutils1/webutils';
+import { GetPersistentConfig, getWWWRoot, SavePersistentConfig } from 'partic2/jsutils1/webutils';
 import { Singleton } from '../CodeRunner/jsutils2';
 
 
@@ -99,7 +99,17 @@ export async function ensureCodeUpdated(opt:{reload?:boolean}){
     }
 }
 
-export async function processDirectoryContainFile(file:string):Promise<{sourceRoot:string,outputRoot:string}>{
+
+export async function getServerWWWRoot():Promise<string>{
+    if(globalThis.process?.versions?.node!=undefined){
+        return getWWWRoot()
+    }else{
+        let misc=await remoteModule.misc.get();
+        return await misc.getServerWWWRoot();
+    }
+}
+
+export async function processDirectoryContainFile(file:string):Promise<{sourceRoot:string,outputRoot:string,pkgName:string|null}>{
     if(globalThis.process?.versions?.node!=undefined){
         let {dirname,join} = await import('path');
         let {access}=await import('fs/promises');
@@ -115,10 +125,12 @@ export async function processDirectoryContainFile(file:string):Promise<{sourceRo
             }catch(e:any){
             }
         }
+        let pkgName=null;
         if(pkgPath!=null){
             await processDirectory(pkgPath);
+            pkgName=pkgPath.substring(sourceDir.length+1).replace(/\\/g,'/');
         }
-        return {sourceRoot:sourceDir,outputRoot:join(dirname(sourceDir),'www')};
+        return {sourceRoot:sourceDir,outputRoot:join(dirname(sourceDir),'www'),pkgName};
     }else{
         let misc=await remoteModule.misc.get();
         return await misc.processDirectoryContainFile(file);
