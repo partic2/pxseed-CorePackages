@@ -1,6 +1,6 @@
 
 import type { Dirent,StatsBase } from 'fs';
-import type {readFile,writeFile,unlink,readdir,mkdir,rmdir,stat,lstat,readlink,symlink,chmod} from 'fs/promises'
+import type {readFile,writeFile,unlink,readdir,mkdir,rmdir,stat,lstat,readlink,symlink,chmod,rm,access,copyFile} from 'fs/promises'
 import { SimpleFileSystem } from 'partic2/CodeRunner/JsEnviron';
 import { assert, requirejs } from 'partic2/jsutils1/base';
 import {path} from 'partic2/jsutils1/webutils'
@@ -34,8 +34,18 @@ class NodeFsCompatStats extends NodeFsCompatDirent implements StatsBase<number>{
     ctime: Date=new Date(0);
     birthtime: Date=new Date(0);
 }
+function makeENOENT(){
+  let err=new Error('File not found.') as any;
+  err.code='ENOENT';
+  return err;
+}
 export class NodeFsAdapter{
     constructor(public wrapped:SimpleFileSystem){}
+    access:typeof access=(async (path: string, mode?: number)=>{
+      if(await this.wrapped.filetype(path)==='none'){
+        throw makeENOENT();
+      }
+    }) as any
     readFile:typeof readFile=(async (path:string,options?:{encoding?:string})=>{
         let data=await this.wrapped!.readAll(path);
         if(data==null){
@@ -83,6 +93,13 @@ export class NodeFsAdapter{
             throw new Error('rmdir failed, directory not empty.');
         }
     })as any;
+    rm:typeof rm=(async (path: string, options?: any)=>{
+      if(options.recursive){
+        await this.wrapped!.delete2(path);
+      }else{
+        await this.rmdir(path);
+      }
+    })as any
     stat:typeof stat=(async (path:string)=>{
         let sr=await this.wrapped!.stat(path);
         let nst=new NodeFsCompatStats(await this.wrapped!.filetype(path),path,path);
@@ -99,7 +116,13 @@ export class NodeFsAdapter{
     })as any;
     chmod:typeof chmod=(async (path:string,mode:number)=>{
     })as any;
-
+    copyFile:typeof copyFile=(async (src: string, dest: string, mode?: number)=>{
+      let data=await this.wrapped.readAll(src);
+      if(data==null){
+        throw makeENOENT();
+      }
+      await this.wrapped.writeAll(dest,data);
+    }) as any;
 }
 
 export let pathCompat=(function(){

@@ -1,8 +1,6 @@
-import * as fs from 'fs/promises'
-import {constants as fsConst} from 'fs'
-import {dirname,sep,basename,join as pathJoin, relative} from 'path'
-import { pxseedBuiltinLoader ,sourceDir,outputDir} from './loaders';
-import { readJson, writeJson } from './util';
+
+import { pxseedBuiltinLoader ,sourceDir,outputDir, inited} from './loaders';
+import { getNodeCompatApi, readJson, writeJson } from './util';
 
 export {sourceDir,outputDir}
 
@@ -40,8 +38,9 @@ function makeDefaultStatus():PxseedStatus{
     return {...PxseedStatusDefault,lastBuildError:[],currentBuildError:[],subpackages:[]}
 }
 
-
 export async function processDirectory(dir:string){
+    await inited;
+    const {fs,pathJoin}=await getNodeCompatApi();
     console.log(`enter ${dir}`);
     let children=await fs.readdir(dir,{withFileTypes:true});
     let hasPxseedConfig=false;
@@ -116,6 +115,8 @@ export async function processDirectory(dir:string){
 
 
 export async function cleanBuildStatus(dir:string){
+    await inited;
+    const {fs,pathJoin}=await getNodeCompatApi();
     let children=await fs.readdir(dir,{withFileTypes:true});
     for(let t1 of children){
         if(t1.isDirectory()){
@@ -127,6 +128,8 @@ export async function cleanBuildStatus(dir:string){
 }
 
 export async function cleanJsFiles(dir:string){
+    await inited;
+    const {fs,pathJoin}=await getNodeCompatApi();
     let children=await fs.readdir(dir,{withFileTypes:true});
     for(let t1 of children){
         if(t1.isDirectory() && !t1.isSymbolicLink()){

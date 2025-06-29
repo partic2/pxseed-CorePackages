@@ -1,17 +1,24 @@
-import * as fs from 'fs/promises'
-import {constants} from 'fs'
-import {dirname,sep,basename,join as pathJoin, relative} from 'path'
-import {glob} from 'tinyglobby'
-import { readJson, runCommand } from './util'
+
+
+import { simpleGlob, runCommand, getNodeCompatApi } from './util'
 import {type PxseedStatus} from './buildlib'
 
 
 
-export let sourceDir=pathJoin(dirname(dirname(__dirname)),'source');
-export let outputDir=pathJoin(dirname(dirname(__dirname)),'www')
+export let sourceDir=''
+export let outputDir=''
+
+export let inited=(async ()=>{
+    const {pathJoin}=await getNodeCompatApi();
+    if(globalThis.process?.versions?.node!=undefined){
+        sourceDir=pathJoin(__dirname,'..','..','source');
+        outputDir=pathJoin(__dirname,'..');
+    }
+})();
 
 export let pxseedBuiltinLoader={
     copyFiles:async function(dir:string,config:{include:string[],outDir?:string}){
+        const {fs,pathJoin}=await getNodeCompatApi();
         let tplVar={
             sourceRoot:sourceDir,outputRoot:outputDir,
             packageSource:dir,packageOutput:outputDir+'/'+dir.substring(sourceDir.length+1)
@@ -27,7 +34,7 @@ export let pxseedBuiltinLoader={
         for(let t1 of config.include){
             include.push(applyTemplate(t1,tplVar));
         }
-        for(let subpath of await glob(include,{cwd:dir})){
+        for(let subpath of await simpleGlob(include,{cwd:dir})){
             let dest=pathJoin(outDir,subpath);
             let src=pathJoin(dir,subpath);
             let needCopy=false;
@@ -42,18 +49,19 @@ export let pxseedBuiltinLoader={
             }
             if(needCopy){
                 try{
-                    await fs.mkdir(dirname(dest),{recursive:true});
+                    await fs.mkdir(pathJoin(dest,'..'),{recursive:true});
                 }catch(e){};
                 await fs.copyFile(src,dest);
             }
         }
     },
     typescript:async function(dir:string,config:{include?:string[],exclude?:string[],transpileOnly?:boolean},status:PxseedStatus){
+        const {fs,pathJoin}=await getNodeCompatApi();
         if(config.transpileOnly===true){
             let ts=(await import('typescript'));
             ts=(ts.default??ts) as any;
             let include=config.include??["./**/*.ts","./**/*.tsx"];
-            let files=await glob(include,{cwd:dir});
+            let files=await simpleGlob(include,{cwd:dir});
             for(let t1 of files){
                 let filePath=pathJoin(dir,t1)
                 let fileInfo=await fs.stat(filePath);
@@ -81,13 +89,13 @@ export let pxseedBuiltinLoader={
                         );
                     }
                     let outputPath=pathJoin(outputDir,dir.substring(sourceDir.length+1).replace(/\\/g,'/'),t1.replace(/.tsx?$/,'.js'));
-                    await fs.mkdir(dirname(outputPath),{recursive:true});
+                    await fs.mkdir(pathJoin(outputPath,'..'),{recursive:true});
                     await fs.writeFile(outputPath,new TextEncoder().encode(transpiled));
                 }
             }
         }else{
             let tscPath=pathJoin(outputDir,'node_modules','typescript','bin','tsc');
-            let sourceRootPath=dir.substring(sourceDir.length+1).split(sep).map(v=>'..').join('/');
+            let sourceRootPath=dir.substring(sourceDir.length+1).split(/[\\/]/).map(v=>'..').join('/');
             let include=config.include??["./**/*.ts","./**/*.tsx"];
             try{
                 await fs.access(pathJoin(dir,'tsconfig.json'));
@@ -110,7 +118,7 @@ export let pxseedBuiltinLoader={
                     throw err;
                 }
             }
-            let files=await glob(include,{cwd:dir});
+            let files=await simpleGlob(include,{cwd:dir});
             let latestMtime=0;
             for(let t1 of files){
                 let fileInfo=await fs.stat(pathJoin(dir,t1));
@@ -126,6 +134,7 @@ export let pxseedBuiltinLoader={
         }
     },
     rollup:async function(dir:string,config:{entryModules:string[],compressed?:boolean}){
+        const {fs,pathJoin}=await getNodeCompatApi();
         let rollup=(await import('rollup')).rollup;
         let nodeResolve =(await import('@rollup/plugin-node-resolve')).default;
         let commonjs =(await import('@rollup/plugin-commonjs')).default;
@@ -136,7 +145,7 @@ export let pxseedBuiltinLoader={
             let mod=config.entryModules[i1];
             let existed=false;
             try{
-                await fs.access(pathJoin(outputDir,mod+'.js'),constants.R_OK);
+                await fs.access(pathJoin(outputDir,mod+'.js'));
                 existed=true;
             }catch(e){
                 existed=false
