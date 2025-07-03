@@ -2,7 +2,7 @@
 import * as React from 'preact'
 import {DomComponentGroup, DomRootComponent, ReactRefEx, ReactRender, css} from 'partic2/pComponentUi/domui'
 import { RemoteRunCodeContext } from 'partic2/CodeRunner/RemoteCodeContext'
-import {getPersistentRegistered, getRegistered,importRemoteModule,persistent,ServerHostRpcName,ServerHostWorker1RpcName} from 'partic2/pxprpcClient/registry'
+import {getPersistentRegistered, getRegistered,importRemoteModule,persistent,ServerHostRpcName,ServerHostWorker1RpcName, WebWorker1RpcName} from 'partic2/pxprpcClient/registry'
 import { GenerateRandomString, GetBlobArrayBufferContent, Task, assert, future, requirejs } from 'partic2/jsutils1/base'
 import { BuildUrlFromJsEntryModule, GetJsEntry, GetPersistentConfig, RequestDownload, selectFile, useDeviceWidth } from 'partic2/jsutils1/webutils'
 import {JsonForm} from 'partic2/pComponentUi/input'
@@ -17,6 +17,7 @@ import * as registryModType from 'partic2/packageManager/registry'
 import type { PxseedConfig } from 'pxseedBuildScript/buildlib'
 import {openWorkspaceWindowFor} from 'partic2/JsNotebook/workspace'
 import { TextEditor } from 'partic2/pComponentUi/texteditor'
+
 
 
 let i18n={
@@ -46,8 +47,15 @@ if(navigator.language.split('-').includes('zh')){
 
 let remoteModule={
     registry:new Singleton(async ()=>{
-        return await importRemoteModule<typeof import('partic2/packageManager/registry')>(
-            await (await getPersistentRegistered(ServerHostWorker1RpcName))!.ensureConnected(),'partic2/packageManager/registry');
+        let rpc1=await getPersistentRegistered(ServerHostRpcName);
+        if(rpc1!=undefined){
+            return await importRemoteModule<typeof import('partic2/packageManager/registry')>(
+                await (await getPersistentRegistered(ServerHostWorker1RpcName))!.ensureConnected(),'partic2/packageManager/registry');
+        }else{
+            //Local worker with xplatj mode.
+            return await importRemoteModule<typeof import('partic2/packageManager/registry')>(
+                await (await getPersistentRegistered(WebWorker1RpcName))!.ensureConnected(),'partic2/packageManager/registry');
+        }
     })
 }
 

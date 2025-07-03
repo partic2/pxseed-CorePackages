@@ -1,12 +1,13 @@
 import * as fs from 'fs/promises'
 import {constants as fsConst} from 'fs'
 import {dirname,sep,basename,join as pathJoin, relative} from 'path'
-import { pxseedBuiltinLoader } from './loaders';
+import { inited, pxseedBuiltinLoader } from './loaders';
 import { processDirectory,cleanBuildStatus, sourceDir, cleanJsFiles, outputDir } from './buildlib';
 
 
 
 ;(async ()=>{
+    await inited;
     let buildScriptAt=process.argv.indexOf('pxseedBuildScript/build');
     let command=process.argv[buildScriptAt+1]??'build'
     if(command=='build'){

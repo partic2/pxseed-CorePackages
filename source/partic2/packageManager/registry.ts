@@ -1,47 +1,82 @@
 
-
-import {dirname,join as pathJoin} from 'path'
-import {readdir,readFile,writeFile,mkdir, access, copyFile,stat} from 'fs/promises'
-import {constants as fsConst} from 'fs'
-
-import {PxseedConfig, processDirectory} from 'pxseedBuildScript/buildlib'
-import {getWWWRoot, kvStore} from 'partic2/jsutils1/webutils'
-import {ArrayWrap2, GenerateRandomString, assert, logger, requirejs} from 'partic2/jsutils1/base'
-import {copy,remove} from 'fs-extra'
-import { platform } from 'os';
-import { runCommand, writeJson } from 'pxseedBuildScript/util';
+import {PxseedConfig, processDirectory, sourceDir} from 'pxseedBuildScript/buildlib'
+import {defaultHttpClient, getWWWRoot, kvStore} from 'partic2/jsutils1/webutils'
+import {ArrayBufferConcat, ArrayWrap2, GenerateRandomString, assert, logger, requirejs} from 'partic2/jsutils1/base'
+import { getNodeCompatApi, readJson, runCommand, writeJson } from 'pxseedBuildScript/util';
 
 export let __name__=requirejs.getLocalRequireModule(require);
 
 let log=logger.getLogger(__name__);
 
-function mustNoSuchFileError(err:any){
-    if(err.toString().indexOf('no such file')<0){
-        throw err;
-    }
+async function getGitClientConfig(){
+    const {fs}=await getNodeCompatApi()
+    globalThis.Buffer=(await import('buffer')).Buffer
+    async function request(c:{
+        onProgress?:any
+        url:string,
+        method?:string,
+        headers?:Record<string,string>,
+        body?:string|Uint8Array|AsyncIterableIterator<Uint8Array>
+        }) {
+        c.method=c.method??'GET';
+        c.headers=c.headers??{};
+        if(typeof c.body==='object' && (Symbol.asyncIterator in c.body )){
+            let bodyPart:{
+                buffer: ArrayBuffer;
+                byteLength: number;
+                byteOffset: number;
+            }[]=[];
+            for await (let t1 of c.body){
+                bodyPart.push(t1);
+            }
+            c.body=new Uint8Array(ArrayBufferConcat(bodyPart));
+        }
+        if(getWWWRoot().startsWith('http')){
+            let wwwrootUrl=new URL(getWWWRoot());
+            let targetUrl=new URL(c.url);
+            c.url=wwwrootUrl.protocol+'//'+wwwrootUrl.host+'/corsBuster/'+encodeURIComponent(targetUrl.protocol+'//'+targetUrl.host)+targetUrl.pathname+targetUrl.search;
+        }
+        const res = await defaultHttpClient.fetch(c.url, { method:c.method,headers: c.headers, body:c.body })
+        const iter = res.body??(async function*():AsyncGenerator<Uint8Array>{})
+        // convert Header object to ordinary JSON
+        let headers:Record<string,string> = {}
+        res.headers.forEach((key,value)=>{
+            headers[key] = value
+        })
+        return {
+            url: res.url,
+            method: c.method,
+            statusCode: res.status,
+            statusMessage: res.statusText,
+            body: iter as any,
+            headers: headers,
+        }
+    };
+    
+    return {fs:{promises:fs},http:{request}}
 }
 
-async function copyFilesNewer(destDir:string,srcDir:string){
-    let children=await readdir(srcDir,{withFileTypes:true});
+async function copyFilesNewer(destDir:string,srcDir:string,ignore?:(name:string)=>boolean){
+    const {fs,path}=await getNodeCompatApi()
+    let children=await fs.readdir(srcDir,{withFileTypes:true});
     try{
-        await access(destDir)
+        await fs.access(destDir)
     }catch(e){
-        mustNoSuchFileError(e);
-        mkdir(destDir,{recursive:true});
+        fs.mkdir(destDir,{recursive:true});
     }
     for(let t1 of children){
-        if(t1.name=='.git'){
+        if(ignore!=undefined && ignore(t1.name)){
             continue;
         }
         if(t1.isDirectory()){
-            copyFilesNewer(pathJoin(destDir,t1.name),pathJoin(srcDir,t1.name));
+            await copyFilesNewer(path.join(destDir,t1.name),path.join(srcDir,t1.name));
         }else{
-            let dest=pathJoin(destDir,t1.name);
-            let src=pathJoin(srcDir,t1.name);
+            let dest=path.join(destDir,t1.name);
+            let src=path.join(srcDir,t1.name);
             let needCopy=false;
             try{
-                let dfile=await stat(dest);
-                let sfile2=await stat(src);
+                let dfile=await fs.stat(dest);
+                let sfile2=await fs.stat(src);
                 if(dfile.mtimeMs<sfile2.mtimeMs){
                     needCopy=true;
                 }
@@ -49,22 +84,22 @@ async function copyFilesNewer(destDir:string,srcDir:string){
                 needCopy=true;
             }
             if(needCopy){
-                await mkdir(dirname(dest),{recursive:true});
-                await copyFile(src,dest);
+                await fs.mkdir(path.dirname(dest),{recursive:true});
+                await fs.copyFile(src,dest);
             }
         }
     }
 }
 
 async function fetchCorePackages(){
-    let gitcache=pathJoin(getWWWRoot(),__name__,'/corepkg-gitcache');
-    let {simpleGit}=await import('simple-git');
+    const {fs,path,wwwroot}=await getNodeCompatApi()
+    let gitcache=path.join(wwwroot,__name__,'/corepkg-gitcache');
+    let {listRemotes,pull}=await import('isomorphic-git');
     try{
-        await access(pathJoin(gitcache,'.git'));
-        let git=simpleGit(gitcache);
-        for(let t1 of await git.getRemotes()){
+        await fs.access(path.join(gitcache,'.git'));
+        for(let t1 of await listRemotes({...await getGitClientConfig(),dir:gitcache})){
             try{
-                log.info((await git.pull(t1.name)).remoteMessages.all.join('\n'));
+                await pull({...await getGitClientConfig(),dir:gitcache});
                 break;
             }catch(e:any){
                 log.info(e.toString());
@@ -72,7 +107,6 @@ async function fetchCorePackages(){
         }
         return
     }catch(e){
-        mustNoSuchFileError(e);
     }
     let repoInfos=await getRepoInfoFromPkgName('partic2/CorePackages');
     let ok=false;
@@ -92,15 +126,17 @@ async function fetchCorePackages(){
 
 export async function CorePackagesUpgradeHandler(moduleName:string){
     assert(moduleName=='partic2/packageManager');
-    let gitcache=pathJoin(getWWWRoot(),__name__,'/corepkg-gitcache');
+    const {fs,path,wwwroot}=await getNodeCompatApi()
+    let gitcache=path.join(wwwroot,__name__,'/corepkg-gitcache');
     await fetchCorePackages();
     //copyFile to pxseed dir
-    await copyFilesNewer(pathJoin(sourceDir,'..'),gitcache);
+    await copyFilesNewer(path.join(wwwroot,'..'),gitcache,(name)=>name=='.git');
 }
 
 export async function CorePackagePublishHandler(moduleName:string){
     assert(moduleName=='partic2/packageManager');
-    let gitcache=pathJoin(getWWWRoot(),__name__,'/corepkg-gitcache');
+    const {fs,path,wwwroot}=await getNodeCompatApi()
+    let gitcache=path.join(wwwroot,__name__,'/corepkg-gitcache');
     await fetchCorePackages();
     let corePackDirs=[
         ['copysource'],
@@ -124,11 +160,12 @@ export async function CorePackagePublishHandler(moduleName:string){
         ['source','.gitignore'],
         ['source','tsconfig.base.json']
     ]
+    let sourceDir=path.join(wwwroot,'..','source');
     for(let t1 of corePackDirs){
-        await copyFilesNewer(pathJoin(gitcache,...t1),pathJoin(sourceDir,...t1))
+        await copyFilesNewer(path.join(gitcache,...t1),path.join(sourceDir,...t1))
     }
     for(let t1 of corePackFiles){
-        await copyFile(pathJoin(gitcache,...t1),pathJoin(sourceDir,...t1))
+        await fs.copyFile(path.join(gitcache,...t1),path.join(sourceDir,...t1))
     }
 
 }
@@ -165,12 +202,7 @@ export interface PackageManagerOption{
 
 
 
-let sourceDir=pathJoin(dirname(dirname(dirname(__dirname))),'source');
 let pkgdbName=__name__+'/pkgdb';
-
-async function readJson(...path:string[]){
-    return JSON.parse(new TextDecoder().decode(await readFile(pathJoin(...path))));
-}
 
 function getPMOptFromPcfg(config:PxseedConfig):PackageManagerOption|null{
     if(config.options && (__name__ in config.options)){
@@ -180,17 +212,19 @@ function getPMOptFromPcfg(config:PxseedConfig):PackageManagerOption|null{
     }
 }
 
-export async function fillNameDependOnPath(path?:string){
-    path=path??sourceDir;
-    let children=await readdir(path,{withFileTypes:true});
+export async function fillNameDependOnPath(path2?:string){
+    const {fs,path,wwwroot}=await getNodeCompatApi();
+    let sourceDir=path.join(wwwroot,'..','source')
+    path2=path2??sourceDir;
+    let children=await fs.readdir(path2,{withFileTypes:true});
     if(children.find(v=>v.name=='pxseed.config.json')!=undefined){
-        let result=await readJson(path,'pxseed.config.json');
-        result.name=path.substring(sourceDir.length+1).replace(/\\/g,'/');
-        await writeFile(pathJoin(path,'pxseed.config.json'),new TextEncoder().encode(JSON.stringify(result,undefined,'  ')));
+        let result=await readJson(path.join(path2,'pxseed.config.json'));
+        result.name=path2.substring(sourceDir.length+1).replace(/\\/g,'/');
+        await fs.writeFile(path.join(path2,'pxseed.config.json'),new TextEncoder().encode(JSON.stringify(result,undefined,'  ')));
     }else{
         for(let ch of children){
             if(ch.isDirectory()){
-                fillNameDependOnPath(pathJoin(path,ch.name))
+                fillNameDependOnPath(path.join(path2,ch.name))
             }
         }
     }
@@ -257,14 +291,14 @@ let RepositoriesRegistry={
 }
 
 
-export async function installLocalPackage(path:string){
-    
-    let pxseedConfig=await readJson(path,"pxseed.config.json");
+export async function installLocalPackage(path2:string){
+    const {fs,path,wwwroot}=await getNodeCompatApi();
+    let pxseedConfig=await readJson(path.join(path2,"pxseed.config.json"));
     let pkgname=pxseedConfig.name as string;
     let destDir=await getSourceDirForPackage(pkgname);
-    await mkdir(destDir,{recursive:true});
-    if(path!=destDir){
-        await copy(path,destDir);
+    await fs.mkdir(destDir,{recursive:true});
+    if(path2!=destDir){
+        await copyFilesNewer(destDir,path2);
     }
     let pkgConfig=getPMOptFromPcfg(pxseedConfig);
     if(pkgConfig!=null){
@@ -309,27 +343,28 @@ export async function installLocalPackage(path:string){
 }
 
 export async function fetchGitPackageFromUrl(url:string,fetchDir?:string){
-    let {simpleGit}=await import('simple-git');
-    let tempdir=fetchDir??pathJoin(__dirname,'__temp',GenerateRandomString());
+    const {fs,path,wwwroot}=await getNodeCompatApi();
+    let {clone}=await import('isomorphic-git');
+    let tempdir=fetchDir??path.join(wwwroot,...__name__.split('/'),'..','__temp',GenerateRandomString());
     try{
         
-        await access(tempdir,fsConst.F_OK);
-        await remove(tempdir);
+        await fs.access(tempdir);
+        await fs.rm(tempdir);
     }catch(e){
-        mustNoSuchFileError(e);
     };
-    await mkdir(tempdir,{recursive:true});
-    let git=simpleGit(tempdir);
-    log.info(await git.clone(url,tempdir));
+    await fs.mkdir(tempdir,{recursive:true});
+    await clone({...await getGitClientConfig(),dir:tempdir,url})
     return tempdir
 }
 
 
 export async function fetchPackageFromUrl(url:string){
+    const {fs,path,wwwroot}=await getNodeCompatApi();
     if(url.startsWith('file://')){
         let filePath=url.substring(7);
-        if(platform().includes('win32')){
-            filePath=filePath.substring(1).replace(/\//g,'\\');
+        if(/[a-zA-Z]:/.test(wwwroot)){
+            //windows path format
+            filePath=filePath.substring(1)
         }
         return filePath;
     }else if(url.endsWith('.git')){
@@ -365,40 +400,42 @@ export async function getRepoInfoFromPkgName(pkgFullName:string){
 }
 
 export async function fetchPackage(name:string){
+    const {fs,path,wwwroot}=await getNodeCompatApi();
     let info=await getRepoInfoFromPkgName(name);
     for(let t1 of info.urls){
         try{
             let repoLocalPath=await fetchPackageFromUrl(t1);
             if(repoLocalPath==undefined)continue;
-            let path=info.path;
-            return pathJoin(repoLocalPath,...path);
-        }catch(e){
-            log.debug(`fetchPackage from ${t1} failed.`)
+            let path2=info.path;
+            return path.join(repoLocalPath,...path2);
+        }catch(e:any){
+            log.debug(`fetchPackage from ${t1} failed. `+e.toString());
         }
     }
 }
 
 export async function uninstallPackage(pkgname:string){
-    await remove(pathJoin(sourceDir,...pkgname.split('/')))
+    const {fs,path,wwwroot}=await getNodeCompatApi();
+    await fs.rm(path.join(wwwroot,'..','source',...pkgname.split('/')),{recursive:true});
     let pkgdb=await kvStore(pkgdbName);
     await pkgdb.delete('pkg-'+pkgname);
 }
 
 export async function upgradeGitPackage(localPath:string){
-    let {simpleGit}=await import('simple-git');
-    let git=simpleGit(localPath);
-    log.info(await git.pull(['--rebase']));
+    let {pull}=await import('isomorphic-git');
+    await pull({...await getGitClientConfig(),dir:localPath});
 }
 
 export async function upgradePackage(pkgname:string){
-    let pkgdir=pathJoin(sourceDir,...pkgname.split('/'));
-    let pxseedConfig=await readJson(pathJoin(pkgdir,'pxseed.config.json')) as PxseedConfig;
+    const {fs,path,wwwroot}=await getNodeCompatApi();
+    let pkgdir=path.join(path.join(wwwroot,'..','source'),...pkgname.split('/'));
+    let pxseedConfig=await readJson(path.join(pkgdir,'pxseed.config.json')) as PxseedConfig;
     let pmopt=getPMOptFromPcfg(pxseedConfig);
     if(pmopt?.onUpgrade!=undefined){
         await (await import(pmopt.onUpgrade.module))[pmopt.onUpgrade.function](pkgname,pkgdir);
     }else{
         try{
-            await access(pathJoin(pkgdir,'.git'),fsConst.F_OK);
+            await fs.access(path.join(pkgdir,'.git'));
             await upgradeGitPackage(pkgdir);
         }catch(e){};
     }
@@ -406,22 +443,21 @@ export async function upgradePackage(pkgname:string){
 
 
 export async function publishPackage(dir:string){
-    let children=await readdir(dir,{withFileTypes:true});
+    const {fs,path,wwwroot}=await getNodeCompatApi();
+    let children=await fs.readdir(dir,{withFileTypes:true});
     if(children.find(v=>v.name=='pxseed.config.json')!=undefined){
-        let {simpleGit}=await import('simple-git');
-        let git=simpleGit(dir);
-        let remotes=await git.getRemotes();
-        await git.add('.');
-        await git.commit('auto commit');
-        let currentBranch=(await git.branch()).current;
+        let {add,commit,push,listRemotes,currentBranch}=await import('isomorphic-git');;
+        let remotes=await listRemotes({...await getGitClientConfig(),dir})
+        await add({...await getGitClientConfig(),dir,filepath:'.'})
+        await commit({...await getGitClientConfig(),dir,message:'auto commit'})
         for(let t1 of remotes){
-            let pushResult=await git.push(t1.name,currentBranch);
+            let pushResult=await push({...await getGitClientConfig(),dir,remote:t1.remote});
             log.debug(JSON.stringify(pushResult));
         }
     }else{
         for(let t1 of children){
             if(t1.isDirectory()){
-                publishPackage(pathJoin(dir,t1.name));
+                publishPackage(path.join(dir,t1.name));
             }
         }
     }
@@ -429,17 +465,17 @@ export async function publishPackage(dir:string){
 
 
 export async function initGitRepo(dir:string){
-    let children=await readdir(dir,{withFileTypes:true});
+    const {fs,path,wwwroot}=await getNodeCompatApi();
+    let children=await fs.readdir(dir,{withFileTypes:true});
     if(children.find(v=>v.name=='.git')!=undefined){
         return;
     }
     if(children.find(v=>v.name=='pxseed.config.json')!=undefined){
-        let config=await readJson(pathJoin(dir,'pxseed.config.json'))
+        let config=await readJson(path.join(dir,'pxseed.config.json'))
         let name=config.name;
-        let {simpleGit}=await import('simple-git');
-        let git=simpleGit(dir);
-        await git.init();
-        await writeFile(pathJoin(dir,'.gitignore'),new TextEncoder().encode('/.pxseed.status.json'));
+        let {init,addRemote}=await import('isomorphic-git');;
+        await init({...await getGitClientConfig(),dir});
+        await fs.writeFile(path.join(dir,'.gitignore'),new TextEncoder().encode('/.pxseed.status.json'));
         let repo=await getRepoInfoFromPkgName(name);
         let remoteName=[];
         let repoUrls=Array.from(repo.urls);
@@ -454,40 +490,42 @@ export async function initGitRepo(dir:string){
             }
         }
         for(let t1 of ArrayWrap2.IntSequence(0,remoteName.length)){
-            await git.addRemote(remoteName[t1],repoUrls[t1]);
+            await addRemote({...await getGitClientConfig(),dir,remote:remoteName[t1],url:repoUrls[t1]});
         }
     }else{
         for(let t1 of children){
             if(t1.isDirectory()){
-                await initGitRepo(pathJoin(dir,t1.name));
+                await initGitRepo(path.join(dir,t1.name));
             }
         }
     }
 }
 
 export async function getSourceDirForPackage(pkgname:string){
-    return pathJoin(sourceDir,...pkgname.split('/'))
+    const {fs,path,wwwroot}=await getNodeCompatApi();
+    return path.join(wwwroot,'..','source',...pkgname.split('/'))
 }
 
 export async function getPxseedConfigForPackage(pkgname:string):Promise<PxseedConfig | null>{
-    let configFile=pathJoin(await getSourceDirForPackage(pkgname),'pxseed.config.json');
+    const {fs,path,wwwroot}=await getNodeCompatApi();
+    let configFile=path.join(await getSourceDirForPackage(pkgname),'pxseed.config.json');
     try{
-        await access(configFile);
+        await fs.access(configFile);
         return await readJson(configFile) as PxseedConfig;
     }catch(e){
-        mustNoSuchFileError(e);
         return null;
     }
 }
 
 async function *listPackagesInternal(dir:string):AsyncGenerator<any>{
-    let children=await readdir(dir,{withFileTypes:true});
+    const {fs,path,wwwroot}=await getNodeCompatApi();
+    let children=await fs.readdir(dir,{withFileTypes:true});
     if(children.find(t1=>t1.name=='pxseed.config.json')){
-        yield await readJson(pathJoin(dir,'pxseed.config.json'));
+        yield await readJson(path.join(dir,'pxseed.config.json'));
     }else{
         for(let t1 of children){
             if(t1.isDirectory()){
-                yield *listPackagesInternal(pathJoin(dir,t1.name));
+                yield *listPackagesInternal(path.join(dir,t1.name));
             }
         }
     }
@@ -495,7 +533,8 @@ async function *listPackagesInternal(dir:string):AsyncGenerator<any>{
 
 
 export async function *listPackages():AsyncGenerator<PxseedConfig>{
-    yield *listPackagesInternal(sourceDir);
+    const {fs,path,wwwroot}=await getNodeCompatApi();
+    yield *listPackagesInternal(path.join(wwwroot,'..','source'));
 }
 
 export async function listPackagesArray(filterString:string){
@@ -532,10 +571,12 @@ export async function listPackagesArray(filterString:string){
 
 
 export async function installPackage(source:string){
+    const {fs,path,wwwroot}=await getNodeCompatApi();
     let installProcessed=false;
+    let sourceDir=path.join(wwwroot,'..','source');
     if(source.indexOf(':')>=0){
         if(source.startsWith('npm:')){
-            let packageJson=await readJson(pathJoin(dirname(sourceDir),'npmdeps','package.json')) as {
+            let packageJson=await readJson(path.join(path.dirname(sourceDir),'npmdeps','package.json')) as {
                 dependencies:{[pkg:string]:string}
             };
             //TODO: npm version check
@@ -547,7 +588,11 @@ export async function installPackage(source:string){
             let pkgName=t1.substring(0,versionSep);
             if(packageJson.dependencies[pkgName]==undefined){
                 log.info('install npm package '+pkgName);
-                let returnCode=await runCommand(`npm i ${pkgName}`,{cwd:pathJoin(dirname(sourceDir),'npmdeps')})
+                if(globalThis.process?.versions?.node==undefined){
+                    throw new Error('npm depdendencies are only support on node.js platform')
+                }
+                const {runCommand}=await import('pxseedBuildScript/util')
+                let returnCode=await runCommand(`npm i ${pkgName}`,{cwd:path.join(path.dirname(sourceDir),'npmdeps')})
                 if(returnCode!==0)log.error('install npm package failed.');
                 //Should we abort?
             }
@@ -562,15 +607,14 @@ export async function installPackage(source:string){
     }else{
         let existed=false;
         try{
-            await access(pathJoin(sourceDir,source),fsConst.F_OK);
+            await fs.access(path.join(sourceDir,source));
             existed=true;
         }catch(e){
-            mustNoSuchFileError(e);
             existed=false;
         }
         if(existed){
             await upgradePackage(source)
-            let localPath=pathJoin(sourceDir,source);
+            let localPath=path.join(sourceDir,source);
             await installLocalPackage!(localPath); 
             installProcessed=true;
         }else{
@@ -587,17 +631,17 @@ export async function installPackage(source:string){
 }
 
 export async function createPackageTemplate1(pxseedConfig:PxseedConfig){
-    let pkgloc=pathJoin(sourceDir,pxseedConfig.name);
+    const {fs,path,wwwroot}=await getNodeCompatApi();
+    let pkgloc=path.join(sourceDir,pxseedConfig.name);
     try{
-        await access(pkgloc,fsConst.F_OK);
+        await fs.access(pkgloc);
         throw new Error('package is existed.')
     }catch(e:any){
-        mustNoSuchFileError(e)
     }
-    await mkdir(pkgloc,{recursive:true});
-    await mkdir(pathJoin(pkgloc,'assets'));
-    await writeJson(pathJoin(pkgloc,'pxseed.config.json'),pxseedConfig);
-    await writeFile(pathJoin(pkgloc,'.gitignore'),
+    await fs.mkdir(pkgloc,{recursive:true});
+    await fs.mkdir(path.join(pkgloc,'assets'));
+    await writeJson(path.join(pkgloc,'pxseed.config.json'),pxseedConfig);
+    await fs.writeFile(path.join(pkgloc,'.gitignore'),
 `.*
 !.gitignore
 tsconfig.json
@@ -607,9 +651,9 @@ tsconfig.json
         if(opt.webui?.entry!=undefined && opt.webui.entry!=''){
             let entryMod=opt.webui.entry;
             if(entryMod.startsWith(pxseedConfig.name+'/')){
-                let entModPath=pathJoin(sourceDir,...entryMod.split('/'))+'.tsx';
-                await mkdir(dirname(entModPath),{recursive:true});
-                await writeFile(entModPath,`
+                let entModPath=path.join(sourceDir,...entryMod.split('/'))+'.tsx';
+                await fs.mkdir(path.dirname(entModPath),{recursive:true});
+                await fs.writeFile(entModPath,`
 import * as React from 'preact'
 import { openNewWindow } from 'partic2/pComponentUi/workspace'
 import { requirejs } from 'partic2/jsutils1/base';
@@ -657,6 +701,7 @@ export async function exportPackagesInstallation(){
 
 
 export async function importPackagesInstallation(installationInfo:{repos:RepoConfig,pkgs:string[]}){
+    const {fs,path,wwwroot}=await getNodeCompatApi();
     let {repos,pkgs}=installationInfo;
     for(let name in repos.repositories!.scope){
         let repoUrls=repos.repositories!.scope[name];
@@ -666,7 +711,7 @@ export async function importPackagesInstallation(installationInfo:{repos:RepoCon
         try{
             let existed=false;
             try{
-                access(pathJoin(sourceDir,...pkg.split('/')),fsConst.F_OK);
+                fs.access(path.join(sourceDir,...pkg.split('/')));
                 existed=true;
             }catch(e){}
             if(!existed){

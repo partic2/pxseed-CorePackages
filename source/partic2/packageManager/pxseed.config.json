@@ -2,6 +2,9 @@
   "loaders": [
     {
       "name": "typescript"
+    },{
+      "name":"rollup",
+      "entryModules":["buffer","isomorphic-git"]
     }
   ],
   "name": "partic2/packageManager"

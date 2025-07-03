@@ -3,7 +3,7 @@ import type { Dirent,StatsBase } from 'fs';
 import type {readFile,writeFile,unlink,readdir,mkdir,rmdir,stat,lstat,readlink,symlink,chmod,rm,access,copyFile} from 'fs/promises'
 import { SimpleFileSystem } from 'partic2/CodeRunner/JsEnviron';
 import { assert, requirejs } from 'partic2/jsutils1/base';
-import {path} from 'partic2/jsutils1/webutils'
+import {getWWWRoot, path} from 'partic2/jsutils1/webutils'
 import { getPersistentRegistered } from 'partic2/pxprpcClient/registry';
 
 
@@ -83,7 +83,6 @@ export class NodeFsAdapter{
         }
     })as any;
     mkdir:typeof mkdir=(async (path2:string,opt?:number|{recursive?:boolean,mode?:number})=>{
-        let result=await this.wrapped!.listdir(path2);
         this.wrapped!.mkdir(path2);
     })as any;
     rmdir:typeof rmdir=(async (path:string)=>{
@@ -94,7 +93,7 @@ export class NodeFsAdapter{
         }
     })as any;
     rm:typeof rm=(async (path: string, options?: any)=>{
-      if(options.recursive){
+      if(options.recursive || await this.wrapped.filetype(path)=='file'){
         await this.wrapped!.delete2(path);
       }else{
         await this.rmdir(path);
@@ -104,6 +103,7 @@ export class NodeFsAdapter{
         let sr=await this.wrapped!.stat(path);
         let nst=new NodeFsCompatStats(await this.wrapped!.filetype(path),path,path);
         Object.assign(nst,sr);
+        return nst;
     })as any;
     lstat:typeof lstat=(async (path:string)=>{
         return await this.stat(path)
@@ -219,8 +219,8 @@ export let pathCompat=(function(){
   }
   
   // posix version
-  function join() {
-    var paths = Array.prototype.slice.call(arguments, 0);
+  function join(...pathParts:string[]) {
+    var paths = Array.prototype.slice.call(pathParts, 0);
     return normalize(paths.filter(function(p:any, index:number) {
       if (typeof p !== 'string') {
         throw new TypeError('Arguments to path.join must be strings');
@@ -320,3 +320,74 @@ export let pathCompat=(function(){
     resolve: resolve
   };
 })();
+
+export async function buildNodeCompatApiTjs(){
+  const {buildTjs,XplatjDefaultRpcName}=await import('partic2/tjshelper/tjsbuilder');
+  const tjs=await buildTjs();
+  const {TjsSfs}=await import('partic2/CodeRunner/JsEnviron');
+  const fs=new TjsSfs();
+  fs.from(tjs);
+  await fs.ensureInited();
+  const {NodeFsAdapter}=await import('partic2/packageManager/nodecompat');
+  const nfs=new NodeFsAdapter(fs);
+  const {ServerHostWorker1RpcName,getPersistentRegistered,getAttachedRemoteRigstryFunction}=await import('partic2/pxprpcClient/registry')
+  let wwwroot='';
+  const serverWorker1=await getPersistentRegistered(ServerHostWorker1RpcName);
+  if(serverWorker1!=undefined){
+      const remoteJsRpc=await getAttachedRemoteRigstryFunction(await serverWorker1.ensureConnected());
+      const webutilsMod=await remoteJsRpc.loadModule('partic2/jsutils1/webutils');
+      wwwroot=await remoteJsRpc.callJsonFunction(webutilsMod,'getWWWRoot',[]);
+      wwwroot=wwwroot.replace(/\\/g,'/');
+      if(wwwroot.startsWith('/')){
+          wwwroot='/'+wwwroot;
+      }
+      webutilsMod.free();
+  }else{
+      if(await getPersistentRegistered(XplatjDefaultRpcName)!=undefined){
+        let {pathname}=new URL(getWWWRoot());
+        if(pathname.startsWith('/localFile')){
+            wwwroot=pathname.replace(/^\/localFile/,'');
+        }
+      }           
+  }
+  return {fs:{promises:nfs},'fs/promises':nfs,wwwroot:wwwroot,path:pathCompat}
+}
+
+let cachedTypescriptModule:typeof import('typescript')|null=null;
+
+export async function getTypescriptModuleTjs():Promise<typeof import('typescript')>{
+  if(cachedTypescriptModule!=null){
+    return cachedTypescriptModule!;
+  }
+  let importTyescriptSucc=false;
+  try{
+    let ts=await requirejs.promiseRequire<any>('typescript');
+    importTyescriptSucc=true;
+    cachedTypescriptModule=ts.default??ts;
+    return cachedTypescriptModule!;
+  }catch(err){
+    await Promise.all(Object.keys(await requirejs.getFailed()).map((t1)=>requirejs.undef(t1)));
+  }
+  try{
+    let ts=await requirejs.promiseRequire<any>('partic2/packageManager/typescript4tjs');
+    importTyescriptSucc=true;
+    cachedTypescriptModule=ts.default??ts;
+    return cachedTypescriptModule!;
+  }catch(err){
+    await Promise.all(Object.keys(await requirejs.getFailed()).map((t1)=>requirejs.undef(t1)));
+  }
+  {
+    let downloadTs=await fetch('https://cdnjs.cloudflare.com/ajax/libs/typescript/5.8.3/typescript.min.js');
+    assert(downloadTs.ok);
+    let tstxt=await downloadTs.text();
+    tstxt="define(['exports','module'],function(exports,module){"+tstxt+"})";
+    const {fs,wwwroot,path}=await buildNodeCompatApiTjs();
+    await fs.promises.writeFile(path.join(wwwroot,'partic2','packageManager','typescript4tjs.js'),new TextEncoder().encode(tstxt));
+  }
+  {
+    let ts=await requirejs.promiseRequire<any>('partic2/packageManager/typescript4tjs');
+    importTyescriptSucc=true;
+    cachedTypescriptModule=ts.default??ts;
+    return cachedTypescriptModule!;
+  }
+}

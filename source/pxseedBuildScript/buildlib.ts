@@ -40,7 +40,7 @@ function makeDefaultStatus():PxseedStatus{
 
 export async function processDirectory(dir:string){
     await inited;
-    const {fs,pathJoin}=await getNodeCompatApi();
+    const {fs,path}=await getNodeCompatApi();
     console.log(`enter ${dir}`);
     let children=await fs.readdir(dir,{withFileTypes:true});
     let hasPxseedConfig=false;
@@ -51,14 +51,14 @@ export async function processDirectory(dir:string){
     if(!hasPxseedConfig){
         for(let child of children){
             if(child.isDirectory()){
-                await processDirectory(pathJoin(dir,child.name));
+                await processDirectory(path.join(dir,child.name));
             }
         }
     }else{
-        let pxseedConfig=await readJson(pathJoin(dir,'pxseed.config.json')) as PxseedConfig;
+        let pxseedConfig=await readJson(path.join(dir,'pxseed.config.json')) as PxseedConfig;
         let pstat:PxseedStatus;
         if(children.find(v=>v.name=='.pxseed.status.json')){
-            pstat=await readJson(pathJoin(dir,'.pxseed.status.json'));
+            pstat=await readJson(path.join(dir,'.pxseed.status.json'));
             pstat={...makeDefaultStatus(),...pstat};
         }else{
             pstat={...makeDefaultStatus()}
@@ -71,7 +71,7 @@ export async function processDirectory(dir:string){
                     let packages=loaderConfig.packages as string[]|undefined;
                     if(packages!=undefined){
                         for(let p1 of packages){
-                            await processDirectory(pathJoin(sourceDir,p1));
+                            await processDirectory(path.join(sourceDir,p1));
                         }
                     }
                 }else if(loaderConfig.name.startsWith('pxseedjs:')){
@@ -95,7 +95,7 @@ export async function processDirectory(dir:string){
         }
         if(pstat.subpackages.length>0){
             for(let t1 of pstat.subpackages){
-                await processDirectory(pathJoin(dir,t1));
+                await processDirectory(path.join(dir,t1));
             }
             //Don't save ".subpackages" to file.
             pstat.subpackages=[];
@@ -109,33 +109,33 @@ export async function processDirectory(dir:string){
             console.info(pstat.lastBuildError)
         }
         pstat.currentBuildError=[];
-        await writeJson(pathJoin(dir,'.pxseed.status.json'),pstat);
+        await writeJson(path.join(dir,'.pxseed.status.json'),pstat);
     }
 }
 
 
 export async function cleanBuildStatus(dir:string){
     await inited;
-    const {fs,pathJoin}=await getNodeCompatApi();
+    const {fs,path}=await getNodeCompatApi();
     let children=await fs.readdir(dir,{withFileTypes:true});
     for(let t1 of children){
         if(t1.isDirectory()){
-            await cleanBuildStatus(pathJoin(dir,t1.name))
+            await cleanBuildStatus(path.join(dir,t1.name))
         }else if(t1.name=='.pxseed.status.json'){
-            await fs.rm(pathJoin(dir,t1.name));
+            await fs.rm(path.join(dir,t1.name));
         }
     }
 }
 
 export async function cleanJsFiles(dir:string){
     await inited;
-    const {fs,pathJoin}=await getNodeCompatApi();
+    const {fs,path}=await getNodeCompatApi();
     let children=await fs.readdir(dir,{withFileTypes:true});
     for(let t1 of children){
         if(t1.isDirectory() && !t1.isSymbolicLink()){
-            await cleanJsFiles(pathJoin(dir,t1.name));
+            await cleanJsFiles(path.join(dir,t1.name));
         }else if(t1.name.endsWith('.js') || t1.name.endsWith('.js.map')){
-            await fs.rm(pathJoin(dir,t1.name))
+            await fs.rm(path.join(dir,t1.name))
         }
     }
     children=await fs.readdir(dir,{withFileTypes:true});

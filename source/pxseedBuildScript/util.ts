@@ -1,8 +1,24 @@
 
+let cachedNodeCompatApi:{
+    fs:typeof import('fs/promises'),
+    path:typeof import('path'),
+    wwwroot:string
+}|null=null;
+
 export async function getNodeCompatApi(){
-    const fs:typeof import('fs/promises')=await import('fs/promises');
-    const {join:pathJoin}=await import('path');
-    return {fs,pathJoin};
+    if(cachedNodeCompatApi!=null){
+        return cachedNodeCompatApi;
+    }
+    if(globalThis.process?.versions?.node!=undefined){
+        const fs=await import('fs/promises');
+        const path=await import('path');
+        cachedNodeCompatApi={fs,path,wwwroot:path.join(__dirname,'..')};
+    }else{
+        const {buildNodeCompatApiTjs}=await import('partic2/packageManager/nodecompat');
+        const builtApi=await buildNodeCompatApiTjs();
+        cachedNodeCompatApi={fs:builtApi.fs.promises as any,path:builtApi.path as any,wwwroot:builtApi.wwwroot}
+    }
+    return cachedNodeCompatApi
 }
 
 
@@ -16,13 +32,15 @@ export async function runCommand(cmd:string,opt?:{cwd?:string}){
 }
 
 export async function readJson(path:string){
-    const {readFile, writeFile}=await import('fs/promises');
+    const {fs}=await getNodeCompatApi();
+    const {readFile, writeFile}=fs
     return JSON.parse(new TextDecoder().decode(await readFile(path)));
 }
 
 
 export async function writeJson(path:string,obj:any){
-    const {readFile, writeFile}=await import('fs/promises');
+    const {fs}=await getNodeCompatApi();
+    const {readFile, writeFile}=fs
     await writeFile(path,new TextEncoder().encode(JSON.stringify(obj,undefined,2)));
 }
 
@@ -32,27 +50,30 @@ export async function runBuild(){
     await runCommand('node '+buildScriptPath)
 }
 
-async function *iterPath(cwd:string,path:string):AsyncGenerator<string>{
-    const {readdir}=await import('fs/promises');
-    const {join:pathJoin} =await import('path');
-    for(let child of await readdir(pathJoin(cwd,path),{withFileTypes:true})){
+async function *iterPath(path2:string,opt:{includeHidenFile?:boolean,cwd:string}):AsyncGenerator<string>{
+    const {path,fs}=await getNodeCompatApi();
+    for(let child of await fs.readdir(path.join(opt.cwd,path2),{withFileTypes:true})){
+        if(!opt.includeHidenFile && child.name.startsWith('.')){
+            continue
+        }
         if(child.isDirectory()){
-            yield* iterPath(cwd,pathJoin(path,child.name));
+            yield* iterPath(path.join(path2,child.name),opt);
         }else{
-            const p=pathJoin(path,child.name);
+            const p=path.join(path2,child.name);
             yield p;
         }
     }
 }
 
-export async function simpleGlob(include:string[],opt:{cwd:string}){
+export async function simpleGlob(include:string[],opt:{cwd:string,includeHidenFile?:boolean}){
     let matchRegexps:Array<Array<RegExp|'**'>>=[];
     for(let t1 of include){
         let pathPart=t1.split(/[\\/]/);
         let pathPartReg:Array<RegExp|'**'>=[];
         for(let t2 of pathPart){
-            if(t2=='.')continue;
-            if(t2=='..'){
+            if(t2=='.'){
+                continue
+            }else if(t2=='..'){
                 if(pathPartReg.length==0){
                     throw new Error('simple glob do not support ".." on the top level.');
                 }
@@ -60,14 +81,17 @@ export async function simpleGlob(include:string[],opt:{cwd:string}){
             }else if(t2=='**'){
                 pathPartReg.push('**');
             }else{
-                pathPartReg.push(new RegExp(t2.replace(/\./g,'\\.').replace(/\*/g,'.*')));
+                pathPartReg.push(new RegExp('^'+
+                    t2.replace(/[\.\(\)]/g,(v)=>'\\'+v)
+                        .replace(/\*/g,'.*')+
+                    '$'));
             }
         }
         matchRegexps.push(pathPartReg);
     }
     
     let matchResult:string[]=[];
-    for await(let t1 of iterPath(opt.cwd,'')){
+    for await(let t1 of iterPath('',{cwd:opt.cwd,includeHidenFile:opt.includeHidenFile})){
         let matched=false;
         const pathPart=t1.split(/[\\/]/);
         for(let t2 of matchRegexps){
@@ -94,7 +118,7 @@ export async function simpleGlob(include:string[],opt:{cwd:string}){
             }
         }
         if(matched){
-            matchResult.push(t1);
+            matchResult.push(t1.replace(/\\/g,'/'));
         }
     }
     return matchResult;

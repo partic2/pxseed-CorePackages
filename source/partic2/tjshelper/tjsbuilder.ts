@@ -40,7 +40,7 @@ export async function buildTjs():Promise<typeof tjs>{
                 let url=`${protocol}//${host}/pxprpc/2050`;
                 await wsio.connect(url);
                 wsio.close();
-                rpc=await addClient(XplatjDefaultRpcName)
+                rpc=await addClient(url,XplatjDefaultRpcName)
             }catch(err){}
         }
         if(rpc!=null){

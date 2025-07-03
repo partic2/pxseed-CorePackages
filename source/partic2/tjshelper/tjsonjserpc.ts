@@ -176,7 +176,8 @@ interface StatResult {
 * @param path Path to the file.
 */
 async function stat(path: string): Promise<StatResult>{
-    let [type,size,mtime]=await jseio.stat(path);
+    try{
+        let [type,size,mtime]=await jseio.stat(path);
         let r={
             dev:0,
             mode:0o777,
@@ -200,6 +201,16 @@ async function stat(path: string): Promise<StatResult>{
             isDirectory:type==='dir', 
             isFile:type==='file'}
         return r;
+    }catch(err:any){
+        if(err.message.includes('File not exists')){
+            let err2=new Error(err.message) as any;
+            err2.code='ENOENT'
+            throw err2;
+        }else{
+            throw err
+        }
+    }
+    
 }
 
 
@@ -242,7 +253,7 @@ async function rmdir(path: string): Promise<void>{
 * @param options Options for making the directory.
 */
 async function mkdir(path: string, options?: MkdirOptions): Promise<void>{
-    jseio.mkdir(path)
+    await jseio.mkdir(path)
 }
 
 /**

@@ -154,7 +154,7 @@ export class TjsSfs implements SimpleFileSystem{
     }
     async mkdir(path: string): Promise<void> {
         path=this.pathConvert(path);
-        await this.impl!.makeDir(path);
+        await this.impl!.makeDir(path,{recursive:true});
     }
     async rename(path: string, newPath: string): Promise<void> {
         path=this.pathConvert(path);

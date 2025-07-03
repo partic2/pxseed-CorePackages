@@ -95,6 +95,7 @@ export function addAsyncHook(replacePlan:JsSourceReplacePlan){
 }
 
 import {setupAsyncHook} from './jsutils2'
+
 export {setupAsyncHook}
 
 export async function ensureModuleImported(replacePlan:JsSourceReplacePlan,moduleName:string){
@@ -116,17 +117,18 @@ export async function ensureModuleImported(replacePlan:JsSourceReplacePlan,modul
 
 export async function addAsyncHookPxseedLoader(dir:string,config:{include?:string[]},status:PxseedStatus){
     const {sourceDir,outputDir}=await import('pxseedBuildScript/loaders');
-    const {glob}=await import('tinyglobby');
-    const {join:pathJoin,dirname}=await import('path');
-    const fs=await import('fs/promises');
+    const { getNodeCompatApi }=await import('pxseedBuildScript/util');
+    const {fs,path}=await getNodeCompatApi();
     let packageOutput=outputDir+'/'+dir.substring(sourceDir.length+1);
     if(config.include==undefined){
         config.include=['**/*.js']
     }
-    for(let file1 of await glob(config.include,{cwd:packageOutput})){
-        let fpath=pathJoin(packageOutput,file1);
+    const { simpleGlob } =await import('pxseedBuildScript/util');
+    for(let file1 of await simpleGlob(config.include,{cwd:packageOutput})){
+        let fpath=path.join(packageOutput,file1);
         let finfo=await fs.stat(fpath);
         if(finfo.mtime.getTime()>status.lastSuccessBuildTime){
+            console.info('addAsyncHook:',file1);
             let source=new TextDecoder().decode(await fs.readFile(fpath));
             let replacePlan=new JsSourceReplacePlan(source);
             replacePlan.parsedAst=acorn.parse(source,{allowAwaitOutsideFunction:true,ecmaVersion:'latest',allowReturnOutsideFunction:true});
