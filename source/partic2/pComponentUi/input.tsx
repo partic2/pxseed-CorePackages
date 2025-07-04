@@ -37,7 +37,6 @@ interface ReactInput{
 
 export class ReactInputValueCollection extends EventTarget{
     inputRef={} as {[k:string]:ReactRefEx<ReactInput>}
-    protected savedValue:Record<string,any>={};
     protected _onInputValueChange=(ev:Event)=>{
         this.dispatchEvent(new Event('change'));
     }
@@ -49,20 +48,20 @@ export class ReactInputValueCollection extends EventTarget{
         rref.addEventListener('change',(ev:RefChangeEvent<ReactInput>)=>{
             if(ev.data.prev!=null){
                 ev.data.prev.removeEventListener('change',this._onInputValueChange);
-                this.savedValue[name]=ev.data.prev.value;
             }
             if(ev.data.curr!=null){
                 ev.data.curr.addEventListener('change',this._onInputValueChange);
-                if(name in this.savedValue){
-                    ev.data.curr.value=this.savedValue[name]
-                }
             }
         });
         this.inputRef[name]=rref;
         return rref;
     }
+    async waitRefValid():Promise<this>{
+        await Promise.all(Object.values(this.inputRef).map(t1=>t1.waitValid))
+        return this;
+    }
     getValue(){
-        let val={...this.savedValue} as {[k:string]:any}
+        let val:any={}
         for(var name in this.inputRef){
             let elem=this.inputRef[name].current;
             if(elem!=undefined){
@@ -85,8 +84,17 @@ export class ReactInputValueCollection extends EventTarget{
     }
 }
 
-export class SimpleReactForm1<P={},S={}> extends ReactEventTarget<P&{},S>{
+export class SimpleReactForm1<P={},S={}> extends ReactEventTarget<P&{value?:Record<string,any>,onChange?:(newValue:Record<string,any>)=>void},S>{
+    protected _onChangeListener=()=>{
+        this.props.onChange?.(this.value);
+    }
+    constructor(props:any,ctx:any){
+        super(props,ctx);
+        this.eventTarget.addEventListener('change',this._onChangeListener);
+    }
     public render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined; }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChild {
+        //XXX: Is there any better place?
+        this.value=this.props.value
         return this.props.children;
     }
     protected valueCollection=new ReactInputValueCollection().forwardChangeEvent(this.eventTarget);
@@ -98,9 +106,23 @@ export class SimpleReactForm1<P={},S={}> extends ReactEventTarget<P&{},S>{
         return this.__cachedValue;
     }
     protected __cachedValue={};
+    protected __valueApplied:boolean=true;
     set value(val:any){
         this.__cachedValue={...val};
-        this.valueCollection.setValue(this.__cachedValue);
+        if(this.__valueApplied){
+            this.__valueApplied=false;
+            (async ()=>{
+                await this.valueCollection.waitRefValid();
+                this.valueCollection.setValue(this.__cachedValue);
+                this.__valueApplied=true;
+            })();
+        }
+    }
+    addEventListener(type:'change',cb:(ev:Event)=>void):void{
+        this.eventTarget.addEventListener(type,cb);
+    }
+    removeEventListener(type:'change',cb:(ev:Event)=>void):void{
+        this.eventTarget.removeEventListener(type,cb);
     }
 }
 
