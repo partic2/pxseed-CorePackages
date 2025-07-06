@@ -37,7 +37,22 @@ async function getGitClientConfig(){
             c.url=wwwrootUrl.protocol+'//'+wwwrootUrl.host+'/corsBuster/'+encodeURIComponent(targetUrl.protocol+'//'+targetUrl.host)+targetUrl.pathname+targetUrl.search;
         }
         const res = await defaultHttpClient.fetch(c.url, { method:c.method,headers: c.headers, body:c.body })
-        const iter = res.body??(async function*():AsyncGenerator<Uint8Array>{})
+        let body:any=res.body==null?null:function(stream:ReadableStream){
+            const reader = stream.getReader()
+            return {
+                next() {
+                return reader.read()
+                },
+                return() {
+                reader.releaseLock()
+                return {}
+                },
+                [Symbol.asyncIterator]() {
+                return this
+                },
+            }
+        }(res.body);
+        
         // convert Header object to ordinary JSON
         let headers:Record<string,string> = {}
         res.headers.forEach((key,value)=>{
@@ -48,7 +63,7 @@ async function getGitClientConfig(){
             method: c.method,
             statusCode: res.status,
             statusMessage: res.statusText,
-            body: iter as any,
+            body,
             headers: headers,
         }
     };
@@ -56,8 +71,15 @@ async function getGitClientConfig(){
     return {fs:{promises:fs},http:{request}}
 }
 
-async function copyFilesNewer(destDir:string,srcDir:string,ignore?:(name:string)=>boolean){
+async function copyFilesNewer(destDir:string,srcDir:string,ignore?:(name:string,path:string)=>boolean,maxDepth?:number){
+    if(maxDepth==undefined){
+        maxDepth=20;
+    }
+    if(maxDepth==0){
+        return;
+    }
     const {fs,path}=await getNodeCompatApi()
+    fs.mkdir(destDir,{recursive:true});
     let children=await fs.readdir(srcDir,{withFileTypes:true});
     try{
         await fs.access(destDir)
@@ -65,11 +87,11 @@ async function copyFilesNewer(destDir:string,srcDir:string,ignore?:(name:string)
         fs.mkdir(destDir,{recursive:true});
     }
     for(let t1 of children){
-        if(ignore!=undefined && ignore(t1.name)){
+        if(ignore!=undefined && ignore(t1.name,srcDir+'/'+t1.name)){
             continue;
         }
         if(t1.isDirectory()){
-            await copyFilesNewer(path.join(destDir,t1.name),path.join(srcDir,t1.name));
+            await copyFilesNewer(path.join(destDir,t1.name),path.join(srcDir,t1.name),ignore,maxDepth-1);
         }else{
             let dest=path.join(destDir,t1.name);
             let src=path.join(srcDir,t1.name);
@@ -133,40 +155,83 @@ export async function CorePackagesUpgradeHandler(moduleName:string){
     await copyFilesNewer(path.join(wwwroot,'..'),gitcache,(name)=>name=='.git');
 }
 
+let corePackDirs=[
+    ['copysource'],
+    ['script'],
+    ['npmdeps'],
+    ['source','pxseedBuildScript'],
+    ['source','pxseedServer2023'],
+    ['source','pxprpc'],
+    ['source','partic2','CodeRunner'],
+    ['source','partic2','JsNotebook'],
+    ['source','partic2','jsutils1'],
+    ['source','partic2','nodehelper'],
+    ['source','partic2','packageManager'],
+    ['source','partic2','pComponentUi'],
+    ['source','partic2','pxprpcBinding'],
+    ['source','partic2','pxprpcClient'],
+    ['source','partic2','pxseedMedia1'],
+    ['source','partic2','tjshelper']
+];
+let corePackFiles=[
+    ['source','.gitignore'],
+    ['source','tsconfig.base.json']
+]
+
 export async function CorePackagePublishHandler(moduleName:string){
     assert(moduleName=='partic2/packageManager');
     const {fs,path,wwwroot}=await getNodeCompatApi()
     let gitcache=path.join(wwwroot,__name__,'/corepkg-gitcache');
     await fetchCorePackages();
-    let corePackDirs=[
-        ['copysource'],
-        ['script'],
-        ['npmdeps'],
-        ['source','pxseedBuildScript'],
-        ['source','pxseedServer2023'],
-        ['source','pxprpc'],
-        ['source','partic2','CodeRunner'],
-        ['source','partic2','JsNotebook'],
-        ['source','partic2','jsutils1'],
-        ['source','partic2','nodehelper'],
-        ['source','partic2','packageManager'],
-        ['source','partic2','pComponentUi'],
-        ['source','partic2','pxprpcBinding'],
-        ['source','partic2','pxprpcClient'],
-        ['source','partic2','pxseedMedia1'],
-        ['source','partic2','tjshelper']
-    ];
-    let corePackFiles=[
-        ['source','.gitignore'],
-        ['source','tsconfig.base.json']
-    ]
+    
     let sourceDir=path.join(wwwroot,'..','source');
     for(let t1 of corePackDirs){
         await copyFilesNewer(path.join(gitcache,...t1),path.join(sourceDir,...t1))
     }
     for(let t1 of corePackFiles){
-        await fs.copyFile(path.join(gitcache,...t1),path.join(sourceDir,...t1))
+        await fs.copyFile(path.join(sourceDir,...t1),path.join(gitcache,...t1))
     }
+}
+
+export async function packPxseedForXplatj(){
+    const {fs,path,wwwroot}=await getNodeCompatApi()
+    let pxseedRoot=path.join(wwwroot,'..').replace(/\\/g,'/');
+    let outputRoot=path.join(wwwroot,__name__,'pxseedPack4Xplatj').replace(/\\/g,'/');
+    await copyFilesNewer(outputRoot+'/pxseed',pxseedRoot,(name,path)=>{
+        path=path.replace(/\\/g,'/');
+        if(name=='.git'){
+            return true;
+        }
+        return [pxseedRoot+'/npmdeps/node_modules',
+                pxseedRoot+'/www/node_modules',
+                outputRoot].includes(path)
+    });
+    await fs.writeFile(path.join(outputRoot,'index.html'),new TextEncoder().encode(String.raw`
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <script>
+            window.onload=function(){
+                document.getElementById("uainfo").innerHTML=navigator.userAgent
+                document.getElementById("viewinfo").innerHTML=''+window.innerWidth+"X"+window.innerHeight
+                window.open('pxseed/www/index.html?__jsentry=partic2%2FpackageManager%2Fwebui','_self')
+            }
+        </script>
+    </head>
+    <body>
+        <div>
+            this is entry at assets/res/index.html
+        </div>
+        <div>
+            userAgent:<span id="uainfo">
+            </span>
+        </div>
+        view:<span id="viewinfo">
+    
+        </span>
+    </body>
+    </html>
+`))
 
 }
 
