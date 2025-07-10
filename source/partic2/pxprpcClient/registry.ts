@@ -51,14 +51,14 @@ export interface RemoteRegistryFunction{
     anyToString(obj:RpcExtendClientObject):Promise<string>;
 }
 
-let attachedRemoteFunction = Symbol('AttachedRemoteRigstryFunction');
+export let internalProps = Symbol(__name__+'.internalProps');
 
 export async function getRpcFunctionOn(client:RpcExtendClient1,funcName:string,typ:string):Promise<RpcExtendClientCallable|null>{
     let attachedFunc:Record<string,RpcExtendClientCallable|null>={};
-    if(attachedRemoteFunction in client){
-        attachedFunc=(client as any)[attachedRemoteFunction];
+    if(internalProps in client){
+        attachedFunc=(client as any)[internalProps];
     }else{
-        (client as any)[attachedRemoteFunction]=attachedFunc;
+        (client as any)[internalProps]=attachedFunc;
     }
     if(!(funcName in attachedFunc)){
         let fn=await client.getFunc(funcName);
@@ -269,13 +269,13 @@ class RemoteRegistryFunctionImpl implements RemoteRegistryFunction{
 }
 
 export async function getAttachedRemoteRigstryFunction(client1:RpcExtendClient1):Promise<RemoteRegistryFunction>{
-    if(!(attachedRemoteFunction in client1)){
+    if(!(internalProps in client1)){
         let t1=new RemoteRegistryFunctionImpl();
         t1.client1=client1;
         await t1.ensureInit();
-        (client1 as any)[attachedRemoteFunction]=t1;
+        (client1 as any)[internalProps]=t1;
     }
-    return (client1 as any)[attachedRemoteFunction];
+    return (client1 as any)[internalProps];
 }
 
 export async function getConnectionFromUrl(url:string):Promise<Io|null>{
@@ -445,6 +445,8 @@ if('window' in globalThis){
     WebMessage.postMessageOptions.targetOrigin='*'   
 }
 
+let finalizerCallback=globalThis.FinalizationRegistry?new FinalizationRegistry<any>((cb:()=>void)=>{cb();}):null;
+
 //Before typescript support syntax like <typeof import(T)>, we can only tell module type explicitly.
 //Only support plain JSON parameter and return value.
 export async function importRemoteModule<T>(rpc:RpcExtendClient1,moduleName:string):Promise<OnlyAsyncFunctionProps<T>>{
@@ -456,10 +458,14 @@ export async function importRemoteModule<T>(rpc:RpcExtendClient1,moduleName:stri
         get(target,p){
             //Avoid triggle by Promise.resolve
             if(p==='then')return undefined;
+            if(p===internalProps){
+                return {rpcModule:module}
+            }
             return async (...params:any[])=>{
                 return await funcs.callJsonFunction(module,p as string,params);
             }
         }
     });
+    finalizerCallback?.register(proxyModule,()=>module.free().catch(()=>{}));
     return proxyModule as any;
 }
