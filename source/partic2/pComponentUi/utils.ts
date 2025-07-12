@@ -8,56 +8,87 @@ export function docNode2text(node:Node){
     let walker=document.createTreeWalker(node,NodeFilter.SHOW_ELEMENT|NodeFilter.SHOW_TEXT);
     let textParts=[] as {node:Node,text:string}[]
     while(walker.nextNode()){
-        if(walker.currentNode instanceof HTMLDivElement || walker.currentNode instanceof HTMLBRElement || walker.currentNode instanceof HTMLParagraphElement){
-            if(walker.currentNode instanceof HTMLBRElement && walker.currentNode.parentNode!.childNodes.length==1){
-                // only one br in div, ignored.
-            }if(walker.currentNode.previousSibling==null){
-                // The first block element, ignored.
+        if(walker.currentNode instanceof HTMLDivElement || walker.currentNode instanceof HTMLParagraphElement){
+            // Empty div without text, ignored
+            // <br/> in <div/>, insert '\n' when handle <br/>
+            if(walker.currentNode.innerText==''){
+                textParts.push({node:walker.currentNode,text:''});
+            }else if(textParts.length==0){
+                textParts.push({node:walker.currentNode,text:''});
             }else{
-                textParts.push({node:walker.currentNode,text:'\n'});
+                for(let t1=textParts.length-1;t1>=0;t1--){
+                    if(textParts[t1].text=='\n'){
+                        textParts.push({node:walker.currentNode,text:''});
+                        break;
+                    }else if(textParts[t1].text!=''){
+                        textParts.push({node:walker.currentNode,text:'\n'});
+                        break;
+                    }
+                }
             }
+        }else if(walker.currentNode instanceof HTMLBRElement){
+            textParts.push({node:walker.currentNode,text:'\n'});
         }else if(walker.currentNode instanceof Text){
             let prev=walker.currentNode.previousSibling;
             let textData='';
             if(prev!=null){
                 if(prev instanceof HTMLDivElement || prev instanceof HTMLParagraphElement){
                     textData+='\n';
-                }else if(prev instanceof Text){
-                    textData+=' ';
                 }
             }
-            //When paste, a redundancy space will be append after text.
-            let next=walker.currentNode.nextSibling;
-            if(textData==' ' && (next==null || next instanceof HTMLDivElement || next instanceof HTMLParagraphElement)){
+            if(textData==' '){
                  textData='';
             }else{
+                //trim charCode(32) and THEN replace charCode(160)
                 textData+=walker.currentNode.data.replace(/\n|(^ +)|( +$)/g,'').replace(/\u00a0/g,' ');
             }
-            //trim charCode(32) and THEN replace charCode(160)
             textParts.push({node:walker.currentNode,
                 text:textData});
         }
     }
-    return {textParts,concat:function(){return this.textParts.map(v=>v.text).join('')}}
-}
-export function docNodePositionFromTextOffset(node:Node,textOffset:number):{node:Node|null,offset:number}{
-    let {textParts}=docNode2text(node)
-    let offset=0;
-    for(let t1=0;t1<textParts.length;t1++){
-        let nextOffset=offset+textParts[t1].text.length;
-        if(nextOffset>=textOffset){
-            //need verify
-            if(textParts[t1].node instanceof Text){
-                return {node:textParts[t1].node,offset:textOffset-offset}
-            }else{
-                return {node:textParts[t1].node,offset:0}
+    return {textParts,node,
+        concat:function(){return this.textParts.map(v=>v.text).join('')},
+        nodeFromTextOffset(textOffset:number):{node:Node|null,offset:number}{
+            let offset=0;
+            for(let t1=0;t1<this.textParts.length;t1++){
+                let nextOffset=offset+this.textParts[t1].text.length;
+                if(nextOffset>=textOffset){
+                    //need verify
+                    if(this.textParts[t1].node instanceof Text){
+                        return {node:this.textParts[t1].node,offset:textOffset-offset}
+                    }else if(t1<this.textParts.length-1){
+                        return {node:this.textParts[t1+1].node,offset:0}
+                    }else{
+                        return {node:this.textParts[t1].node,offset:0}
+                    }
+                }else{
+                    offset=nextOffset;
+                }
             }
-        }else{
-            offset=nextOffset;
+            return {node:null,offset:-1};
+        },
+        textOffsetFromNode(node:Node,offset:number):number{
+            if(this.node==node && offset==0){
+                return 0;
+            }
+            let offset2=0;
+            for(let t1=0;t1<this.textParts.length;t1++){
+                let part=textParts[t1];
+                if(part.node!=node){
+                    offset2+=part.text.length;
+                }else if(part.node instanceof Text){
+                    offset2+=offset;
+                    break;
+                }else{
+                    offset2+=part.text.length;
+                    break;
+                }
+            }
+            return offset2;
         }
     }
-    return {node:null,offset:-1};
 }
+ 
 
 
 export async function GetCookieNamed(name:string) {

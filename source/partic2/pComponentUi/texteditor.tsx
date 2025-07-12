@@ -1,7 +1,7 @@
 
 import { partial } from 'partic2/jsutils1/base';
 import * as React from 'preact'
-import { docNode2text, docNodePositionFromTextOffset, text2html } from './utils';
+import { docNode2text, text2html } from './utils';
 import { ReactEventTarget, ReactRefEx } from './domui';
 
 export interface TextEditorProps{
@@ -13,7 +13,7 @@ export interface TextEditorProps{
 }
 export class TextEditor extends ReactEventTarget<TextEditorProps,{}>{
     rref={div1:new ReactRefEx<HTMLDivElement>()};
-
+    protected __insertingText=false;
     protected onInputHandler(ev: React.JSX.TargetedEvent<HTMLDivElement,InputEvent>){
         let ch=ev.data;
         if(ev.inputType=='insertParagraph'||(ev.inputType=='insertText' && ch==null)){
@@ -35,24 +35,27 @@ export class TextEditor extends ReactEventTarget<TextEditorProps,{}>{
     }
     //insertText,deleteText will change Selection, but It's not guaranteed in future.
     insertText(text:string){
-        if(this.savedSelection!=undefined){
-            window.getSelection()?.setBaseAndExtent(
-                this.savedSelection.anchorNode!,this.savedSelection.anchorOffset!,
-                this.savedSelection.focusNode!,this.savedSelection.focusOffset!);
-        }
-        this.savedSelection=undefined;
-        //replace it?
-        document.execCommand('insertText',false,text)
+        let fullText=this.getPlainText();
+        let offset=this.getTextCaretOffset();
+        this.rref.div1.current!.innerHTML=text2html(fullText.substring(0,offset)+text+fullText.substring(offset));
+        this.setTextCaretOffset(offset+text.length);
     }
     deleteText(count:number){
-        if(this.savedSelection!=undefined){
-            window.getSelection()?.setBaseAndExtent(
-                this.savedSelection.anchorNode!,this.savedSelection.anchorOffset!,
-                this.savedSelection.focusNode!,this.savedSelection.focusOffset!);
-        }
-        this.savedSelection=undefined;
-        for(let t1=0;t1<count;t1++){
-            document.execCommand('delete')
+        try{
+            if(this.__insertingText)return;
+            this.__insertingText=true;
+            if(this.savedSelection!=undefined){
+                window.getSelection()?.setBaseAndExtent(
+                    this.savedSelection.anchorNode!,this.savedSelection.anchorOffset!,
+                    this.savedSelection.focusNode!,this.savedSelection.focusOffset!);
+            }
+            this.savedSelection=undefined;
+            for(let t1=0;t1<count;t1++){
+                //Performance issue:replace it?
+                document.execCommand('delete')
+            }
+        }finally{
+            this.__insertingText=false;
         }
     }
     protected savedSelection?:{anchorNode:Node|null,anchorOffset:number,focusNode:Node|null,focusOffset:number}
@@ -70,30 +73,6 @@ export class TextEditor extends ReactEventTarget<TextEditorProps,{}>{
         (this.props.divAttr?.onFocus as any|undefined)?.bind(ev.currentTarget)?.(ev.currentTarget);
         this.props.onFocus?.(this);
     }
-    getTextCaretOffset(){
-        let exp1=this.getCaretPart('backward');
-        let caret=docNode2text(exp1.cloneContents()).concat().length;
-        return caret;
-    }
-    setTextCaretOffset(offset:number|'start'|'end'){
-        let sel=window.getSelection();
-        if(sel==null)return;
-        if(typeof offset === 'number'){
-            let pos=this.positionFromTextOffset(offset)
-            sel.setPosition(pos.node,pos.offset)
-        }else if(offset=='start'){
-            let rng1=new Range()
-            rng1.selectNodeContents(this.rref.div1.current!);
-            sel.setPosition(rng1.startContainer,rng1.startOffset);
-        }else if(offset=='end'){
-            let rng1=new Range()
-            rng1.selectNodeContents(this.rref.div1.current!);
-            sel.setPosition(rng1.endContainer,rng1.endOffset);
-        }
-    }
-    positionFromTextOffset(textOffset:number):{node:Node|null,offset:number}{
-        return docNodePositionFromTextOffset(this.rref.div1.current!,textOffset);
-    }
     getHtml(){
         return this.rref.div1.current?.innerHTML;
     }
@@ -109,21 +88,30 @@ export class TextEditor extends ReactEventTarget<TextEditorProps,{}>{
     setPlainText(text:string){
         this.setHtml(text2html(text))
     }
-    getCaretPart(direction:'forward'|'backward'){
-        let sel:typeof this.savedSelection;
-        if(this.savedSelection!=undefined){
-            sel=this.savedSelection;
-        }else{
-            sel=window.getSelection()!;
+    getTextCaretOffset(){
+        let sel=document.getSelection();
+        let textParts=docNode2text(this.rref.div1.current!);
+        if(sel?.focusNode==null){
+            return 0;
         }
-        let rng1=new Range()
-        rng1.selectNodeContents(this.rref.div1.current!);
-        if(direction==='forward'){
-            rng1.setStart(sel!.focusNode!,sel!.focusOffset);
-        }else{
-            rng1.setEnd(sel!.focusNode!,sel!.focusOffset);
+        return textParts.textOffsetFromNode(sel.focusNode,sel.focusOffset)
+    }
+    setTextCaretOffset(offset:number|'start'|'end'){
+        let sel=window.getSelection();
+        let textParts=docNode2text(this.rref.div1.current!);
+        if(sel==null)return;
+        if(typeof offset === 'number'){
+            let pos=textParts.nodeFromTextOffset(offset)
+            sel.setPosition(pos.node,pos.offset)
+        }else if(offset=='start'){
+            let rng1=new Range()
+            rng1.selectNodeContents(this.rref.div1.current!);
+            sel.setPosition(rng1.startContainer,rng1.startOffset);
+        }else if(offset=='end'){
+            let rng1=new Range()
+            rng1.selectNodeContents(this.rref.div1.current!);
+            sel.setPosition(rng1.endContainer,rng1.endOffset);
         }
-        return rng1;
     }
     scrollToBottom(){
         this.rref.div1.current!.scrollTop=this.rref.div1.current!.scrollHeight;
