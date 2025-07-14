@@ -22,25 +22,36 @@ export function wrapReadable(r:Readable):ReadStream4NodeIo{
 
 //tjs.Reader
 class ReadStream4NodeIo implements tjs.Reader{
-    protected chunkQueue=new ArrayWrap2<Buffer|null>([]);
+    protected chunkQueue=new ArrayWrap2<Buffer|null>();
+    protected err:Error|null=null;
     constructor(protected nodeInput:Readable){
         nodeInput.on('data',(chunk)=>{
-            this.chunkQueue.queueBlockPush(chunk);
+            this.chunkQueue.queueSignalPush(chunk);
         });
         nodeInput.on('end',()=>{
-            this.chunkQueue.queueBlockPush(null);
+            this.chunkQueue.queueSignalPush(null);
+        });
+        nodeInput.on('error',(err)=>{
+            this.chunkQueue.queueSignalPush(null);
+            this.err=err;
         })
     }
     protected remainbuf:Buffer|null=null;
     protected endOfStream=false;
     protected remainoff:number=0;
     async read(buf:Uint8Array,offset?:number){
+        if(this.err!=null){
+            throw this.err;
+        }
         offset=offset??0;
         if(this.endOfStream)return null;
         if(this.remainbuf===null){
             this.remainbuf=await this.chunkQueue.queueBlockShift();
             if(this.remainbuf===null){
                 this.endOfStream=true;
+                if(this.err!=null){
+                    throw this.err;
+                }
                 return null
             }
             this.remainoff=this.remainbuf.byteOffset;
