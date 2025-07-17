@@ -38,17 +38,13 @@ remote code call like this
 async function __temp1(arg:any,lib:typeof jsExecLib){
 }
 
-
-
-let attached=new Map<string,RemoteRunCodeContext>();
+let attachedFunc=Symbol('attachedFunc');
 
 export function getRemoteContext(client1:RpcExtendClient1){
-    if(attached.has(client1.id)){
-        return attached.get(client1.id)!;
-    }else{
-        attached.set(client1.id,new RemoteRunCodeContext(client1));
-        return attached.get(client1.id)!;
+    if(!(attachedFunc in client1)){
+        (client1 as any)[attachedFunc]=new RemoteRunCodeContext(client1);
     }
+    return (client1 as any)[attachedFunc] as RemoteRunCodeContext
 }
 
 let rpcfunctionsProps=Symbol(__name__+'/'+'/rpcfunctions')
