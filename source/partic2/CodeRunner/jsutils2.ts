@@ -72,55 +72,44 @@ export class ExtendStreamReader implements ReadableStreamDefaultReader<Uint8Arra
 	cancel(reason?: any): Promise<void> {
 		return this.wrapped.cancel(reason);
 	}
-	async readUntil(mark:Uint8Array|number){
-		let datas=new Array<Uint8Array>();
+	async readUntil(mark:Uint8Array|number):Promise<Uint8Array>{
+		if(typeof mark==='number'){
+			mark=new Uint8Array([mark]);
+		}
 		//Slow but simple
-		if(mark instanceof Uint8Array){
-			assert(mark.length>0);
-			for(let t3=0;t3<0x7fff;t3++){
-				let t4=await this.readUntil(mark.at(-1)!);
-				let lastPart=datas.at(-1);
-				if(lastPart!=undefined && lastPart.buffer===t4.buffer && lastPart.byteOffset+lastPart.byteLength===t4.byteOffset){
-					datas[datas.length-1]=new Uint8Array(t4.buffer,lastPart.byteOffset,lastPart.byteLength+t4.byteLength);
+		let concated:Uint8Array|null=null;
+		for(let t1=0;t1<0x7fffff;t1++){
+			let chunk=await this.read();
+			if(!chunk.done){
+				if(concated==null){
+					concated=chunk.value;
 				}else{
-					datas.push(t4);
+					concated=new Uint8Array(ArrayBufferConcat([concated,chunk.value]));
 				}
-				if(t4.length===0 || t4.at(-1)!==mark.at(-1)){
-					break; //EOF
-				}
-				let allMatched=true;
-				for(let t5=0;t5<mark.length;t5++){
-					if(mark[t5]!==t4[t4.length-mark.length+t5]){
-						allMatched=false;
-						break;
-					}
-				}
-				if(allMatched)break;
-			}
-		}else{
-			for(let t1=0;t1<0x7fff;t1++){
-				let t2=await this.read();
-				if(t2.value!=undefined){
-					let found=t2.value.indexOf(mark);
-					if(found>=0){
-						datas.push(new Uint8Array(t2.value.buffer,t2.value.byteOffset,found+1));
-						if(found<t2.value.length){
-							this.unshiftBuffer(new Uint8Array(
-								t2.value.buffer,t2.value.byteOffset+found+1,
-								t2.value.byteLength-found-1));
+				let markMatched=false;
+				let t2=concated.length-mark.length
+				for(;t2>=0;t2--){
+					markMatched=true;
+					for(let t3=0;t3<mark.length;t3++){
+						if(concated[t2+t3]!==mark[t3]){
+							markMatched=false;
+							break;
 						}
-						break;
-					}else{
-						datas.push(t2.value);
 					}
-				}else{
-					//EOF
-					break;
+					if(markMatched)break;
 				}
+				if(markMatched){
+					if(t2+mark.length<concated.length){
+						this.unshiftBuffer(new Uint8Array(
+							concated.buffer,concated.byteOffset+t2+mark.length,concated.length-t2-mark.length));
+					}
+					return new Uint8Array(concated.buffer,concated.byteOffset,t2+mark.length);
+				}
+			}else{
+				throw new Error('No mark found before EOF occured');
 			}
 		}
-		let concated=(datas.length===1)?datas[0]:new Uint8Array(ArrayBufferConcat(datas));
-		return concated;
+		throw new Error('Too much read try');
 	}
     async readInto(buffer:Uint8Array,writePos?:Ref2<number>){
         let nextPart=await this.read();

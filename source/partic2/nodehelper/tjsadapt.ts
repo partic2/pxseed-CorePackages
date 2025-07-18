@@ -336,6 +336,7 @@ class Process {
                         this.nodeProcess!.stdin.write(buf,(err)=>{
                             if(err!=null){
                                 reject(err);
+                            }else{
                                 resolve(buf.length);
                             }
                         })
@@ -457,9 +458,16 @@ class NodeConnection implements Connection{
     constructor(public sock:Socket){
         this.rawR=wrapReadable(sock);
         this.rawW={
-            write:async (buf: Uint8Array):Promise<number>=>{
-                sock.write(buf);
-                return buf.byteLength;
+            write:(buf: Uint8Array):Promise<number>=>{
+                return new Promise((resolve,reject)=>{
+                    sock.write(buf,(err)=>{
+                        if(err!=null){
+                            reject(err);
+                        }else{
+                            resolve(buf.byteLength)
+                        }
+                    });
+                })
             },
         }
         this.localAddress.ip=sock.localAddress!;
