@@ -2,6 +2,7 @@ export function text2html(src:string){
     let text2=src.replace(/[<>&"\u0020]/g,function(c){
         return {'<':'&lt;','>':'&gt;','&':'&amp','"':'&quot;','\u0020':'\u00a0'}[c]??''
     }).replace(/\n/g,'<br/>');
+    text2=text2.replace(/<br\/>$/,'<div><br/></div>')
     return text2;
 }
 export function docNode2text(node:Node){
@@ -11,7 +12,7 @@ export function docNode2text(node:Node){
         if(walker.currentNode instanceof HTMLDivElement || walker.currentNode instanceof HTMLParagraphElement){
             // Empty div without text, ignored
             // <br/> in <div/>, insert '\n' when handle <br/>
-            if(walker.currentNode.innerText==''){
+            if(walker.currentNode.textContent==''){
                 textParts.push({node:walker.currentNode,text:''});
             }else if(textParts.length==0){
                 textParts.push({node:walker.currentNode,text:''});

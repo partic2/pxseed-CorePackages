@@ -8,7 +8,7 @@ export let __name__=requirejs.getLocalRequireModule(require);
 
 let log=logger.getLogger(__name__);
 
-async function getGitClientConfig(){
+export async function getGitClientConfig(){
     const {fs}=await getNodeCompatApi()
     globalThis.Buffer=(await import('buffer')).Buffer
     async function request(c:{
@@ -113,6 +113,7 @@ async function copyFilesNewer(destDir:string,srcDir:string,ignore?:(name:string,
     }
 }
 
+
 async function fetchCorePackages(){
     const {fs,path,wwwroot}=await getNodeCompatApi()
     let gitcache=path.join(wwwroot,__name__,'/corepkg-gitcache');
@@ -121,7 +122,7 @@ async function fetchCorePackages(){
         await fs.access(path.join(gitcache,'.git'));
         for(let t1 of await listRemotes({...await getGitClientConfig(),dir:gitcache})){
             try{
-                await pull({...await getGitClientConfig(),dir:gitcache});
+                await pull({...await getGitClientConfig(),dir:gitcache,author:{name:'anonymous',email:'anonymous'}});
                 break;
             }catch(e:any){
                 log.info(e.toString());
@@ -487,8 +488,13 @@ export async function uninstallPackage(pkgname:string){
 }
 
 export async function upgradeGitPackage(localPath:string){
-    let {pull}=await import('isomorphic-git');
-    await pull({...await getGitClientConfig(),dir:localPath});
+    let git=await import('isomorphic-git');
+    let gitClient=await getGitClientConfig();
+    let dir=localPath
+    let {fetchHead}=await git.fetch({...gitClient,dir});
+    await git.merge({...gitClient,dir,theirs:fetchHead!,fastForwardOnly:true});
+    //FIXME: git merge add current content into stage, which prevent checkout if force=false.
+    await git.checkout({...gitClient,dir,force:true});
 }
 
 export async function upgradePackage(pkgname:string){
@@ -499,10 +505,19 @@ export async function upgradePackage(pkgname:string){
     if(pmopt?.onUpgrade!=undefined){
         await (await import(pmopt.onUpgrade.module))[pmopt.onUpgrade.function](pkgname,pkgdir);
     }else{
+        let upgradeMode='reinstall';
         try{
             await fs.access(path.join(pkgdir,'.git'));
-            await upgradeGitPackage(pkgdir);
+            upgradeMode='git pull'
         }catch(e){};
+        if(upgradeMode=='git pull'){
+            await upgradeGitPackage(pkgdir);
+        }else if(upgradeMode=='reinstall'){
+            await uninstallPackage(pkgname);
+            await installPackage(pkgname,{upgrade:false});
+        }else{
+            throw new Error('Unsupported upgrade mode '+upgradeMode)
+        }
     }
 }
 
@@ -634,8 +649,12 @@ export async function listPackagesArray(filterString:string){
     return arr;
 }
 
+const defaultInstallOption={
+    upgrade:true
+}
 
-export async function installPackage(source:string){
+export async function installPackage(source:string,opt?:Partial<typeof defaultInstallOption>){
+    opt={...defaultInstallOption,...opt};
     const {fs,path,wwwroot}=await getNodeCompatApi();
     let installProcessed=false;
     let sourceDir=path.join(wwwroot,'..','source');
@@ -678,9 +697,11 @@ export async function installPackage(source:string){
             existed=false;
         }
         if(existed){
-            await upgradePackage(source)
-            let localPath=path.join(sourceDir,source);
-            await installLocalPackage!(localPath); 
+            if(opt.upgrade){
+                await upgradePackage(source)
+                let localPath=path.join(sourceDir,source);
+                await installLocalPackage!(localPath); 
+            }
             installProcessed=true;
         }else{
             let localPath=await fetchPackage(source);

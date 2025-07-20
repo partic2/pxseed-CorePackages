@@ -13,11 +13,11 @@ import {TaskLocalRef,Singleton} from 'partic2/CodeRunner/jsutils2'
 export var __name__=requirejs.getLocalRequireModule(require);
 //remote code context
 
-import * as registryModType from 'partic2/packageManager/registry'
+import type * as registryModType from 'partic2/packageManager/registry'
 import type { PxseedConfig } from 'pxseedBuildScript/buildlib'
 import {openWorkspaceWindowFor} from 'partic2/JsNotebook/workspace'
 import { TextEditor } from 'partic2/pComponentUi/texteditor'
-
+import { setOpenNewWindowImpl } from 'partic2/pComponentUi/workspace'
 
 
 let i18n={
@@ -135,8 +135,7 @@ class PackagePanel extends React.Component<{},{
         try{
             let registry=await remoteModule.registry.get();
             this.setState({
-                packageList:await registry.listPackagesArray(this.filterString),
-                errorMessage:''
+                packageList:await registry.listPackagesArray(this.filterString)
             });
         }catch(err:any){
             this.setState({

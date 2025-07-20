@@ -11,7 +11,7 @@ import { ObjectViewer } from './Component1';
 
 
 export var css={
-    inputCell:css1.simpleCard,
+    inputCell:GenerateRandomString(),
     outputCell:GenerateRandomString(),
 }
 
@@ -36,7 +36,12 @@ interface CodeCellStats{
     focusin:boolean
 }
 
-DynamicPageCSSManager.PutCss('.'+css.outputCell,['overflow:auto'])
+
+DynamicPageCSSManager.PutCss('.'+css.outputCell,['overflow:auto']);
+DynamicPageCSSManager.PutCss('.'+css.inputCell,[
+    'display:inline-block','border:solid black 2px','margin:2px','padding:2px','background-color:white',
+    'font-family:monospace'
+]);
 
 function countBracket(s:string){
     let bracketMatch=0;
@@ -81,7 +86,6 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
                 this.rref.codeInput.current!.getTextCaretOffset())
         });
     },300);
-    protected __tempDisableEnter2RunCode=false;
     protected getRunCodeKey(){
         return this.props.runCodeKey??'Ctl+Ent';
     }
@@ -93,14 +97,12 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
             if(this.getRunCodeKey()=='Enter'){
                 if(ev.ctrlKey){
                     //prevent trigger input('\n').Is there better way?
-                    this.__tempDisableEnter2RunCode=true;
                     this.rref.codeInput.current?.insertText('\n');
-                    setTimeout(()=>this.__tempDisableEnter2RunCode=false,50);
                 }else{
                     let fullText=(await this.rref.codeInput.waitValid()).getPlainText();
                     if(countBracket(fullText)==0){
                         await new Promise(resolve=>requestAnimationFrame(resolve));
-                        this.rref.codeInput.current?.deleteText(1);
+                        this.rref.codeInput.current?.setPlainText(fullText);
                         this.runCode();
                         return;
                     }

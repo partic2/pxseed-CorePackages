@@ -14,7 +14,7 @@ export interface TextEditorProps{
 export class TextEditor extends ReactEventTarget<TextEditorProps,{}>{
     rref={div1:new ReactRefEx<HTMLDivElement>()};
     protected undoHistory:string[]=[];
-    protected undoHistoryCurrent=0;
+    protected undoHistoryCurrent=-1;
     pushHistory(){
         let currText=this.getPlainText();
         if(currText==this.undoHistory.at(this.undoHistoryCurrent))return;
@@ -30,25 +30,25 @@ export class TextEditor extends ReactEventTarget<TextEditorProps,{}>{
         }
     }
     textUndo(){
-        if(this.undoHistoryCurrent==0){
+        if(this.undoHistoryCurrent<0){
             return;
         }
-        if(this.undoHistoryCurrent>=this.undoHistory.length-1){
-            this.pushHistory();
-            this.undoHistoryCurrent--;
-        }
+        this.pushHistory();
+        this.undoHistoryCurrent--;
         let last=this.undoHistory[this.undoHistoryCurrent];
         this.undoHistoryCurrent--;
         this.setPlainText(last);
         this.setTextCaretOffset('end');
     }
     textRedo(){
-        if(this.undoHistoryCurrent>=this.undoHistory.length-1){
-            return;
+        let currText=this.getPlainText();
+        for(;this.undoHistoryCurrent+1<this.undoHistory.length;this.undoHistoryCurrent++){
+            let last=this.undoHistory[this.undoHistoryCurrent+1];
+            if(currText!=last){
+                this.setPlainText(last);
+                break;
+            }
         }
-        this.undoHistoryCurrent++;
-        let last=this.undoHistory[this.undoHistoryCurrent];
-        this.setPlainText(last);
     }
     protected onInputHandler(ev: React.JSX.TargetedEvent<HTMLDivElement,InputEvent>){
         let ch=ev.data;
@@ -61,6 +61,7 @@ export class TextEditor extends ReactEventTarget<TextEditorProps,{}>{
         this.props.onInput?.(this,{char:ch,text:ev.dataTransfer?.getData('text/plain')??null,type:ev.inputType});
     }
     protected onPasteHandler(text:string){
+        this.pushHistory();
         this.insertText(text);
         this.rref.div1.current!.addEventListener('click',()=>{},)
     }
@@ -88,12 +89,13 @@ export class TextEditor extends ReactEventTarget<TextEditorProps,{}>{
         onBlur={(ev)=>this.onBlurHandler(ev)} onFocus={(ev)=>this.onFocusHandler(ev)}
         {...this.props.divAttr} onKeyDown={(ev)=>this.onKeyDownHandler(ev)}> </div>
     }
-    //insertText,deleteText will change Selection, but It's not guaranteed in future.
     insertText(text:string){
+        let {anchor,focus}=this.getTextCaretSelectedRange();
         let fullText=this.getPlainText();
-        let offset=this.getTextCaretOffset();
-        this.rref.div1.current!.innerHTML=text2html(fullText.substring(0,offset)+text+fullText.substring(offset));
-        this.setTextCaretOffset(offset+text.length);
+        let min1=Math.min(anchor,focus);
+        let max1=Math.max(anchor,focus);
+        this.rref.div1.current!.innerHTML=text2html(fullText.substring(0,min1)+text+fullText.substring(max1));
+        this.setTextCaretOffset(min1+text.length);
     }
     deleteText(count:number){
         let offset=this.getTextCaretOffset();
@@ -144,11 +146,11 @@ export class TextEditor extends ReactEventTarget<TextEditorProps,{}>{
         let sel=document.getSelection();
         let textParts=docNode2text(this.rref.div1.current!);
         if(sel?.focusNode==null){
-            return 0;
+            return {anchor:0,focus:0};
         }
         let focusPos=textParts.textOffsetFromNode(sel.focusNode,sel.focusOffset);
         let anchorPos=textParts.textOffsetFromNode(sel.anchorNode!,sel.anchorOffset);
-        return [focusPos,anchorPos];
+        return {anchor:anchorPos,focus:focusPos};
     }
     setTextCaretOffset(offset:number|'start'|'end'){
         let sel=window.getSelection();
