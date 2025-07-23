@@ -206,6 +206,8 @@ defaultFuncMap['pxseedServer2023.serverCommand']=new RpcExtendServerCallable(asy
     }else if(cmd=='getConfig'){
         await loadConfig();
         return JSON.stringify(config);
+    }else if(cmd=='exit'){
+        command.exit();
     }else if(cmd.startsWith('saveConfig ')){
         let startAt=cmd.indexOf(' ')+1;
         await saveConfig(JSON.parse(cmd.substring(startAt)));
