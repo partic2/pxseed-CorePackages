@@ -206,6 +206,8 @@ defaultFuncMap['pxseedServer2023.serverCommand']=new RpcExtendServerCallable(asy
     }else if(cmd=='getConfig'){
         await loadConfig();
         return JSON.stringify(config);
+    }else if(cmd=='exit'){
+        command.exit();
     }else if(cmd.startsWith('saveConfig ')){
         let startAt=cmd.indexOf(' ')+1;
         await saveConfig(JSON.parse(cmd.substring(startAt)));
@@ -312,7 +314,7 @@ export async function startServer(){
             if(subprocs[index].exitCode==null){
                 let subCfg=rootConfig.deamonMode!.subprocessConfig[index];
                 let client1=new RpcExtendClient1(new Client(await new WebSocketIo().connect(
-                    `ws://127.0.0.1:${subCfg.listenOn!.port}${subCfg.pxseedBase??config.pxseedBase}${subCfg.pxprpcPath??config.pxprpcPath}?key=${subCfg.pxprpcKey??config.pxprpcKey}`)))
+                    `ws://127.0.0.1:${subCfg.listenOn!.port}${subCfg.pxseedBase??config.pxseedBase}${subCfg.pxprpcPath??config.pxprpcPath}?key=${encodeURIComponent(subCfg.pxprpcKey??config.pxprpcKey??'')}`)))
                 await client1.init();
                 let {PxseedServer2023Function}=await import('./clientFunction');
                 let func=new PxseedServer2023Function();

@@ -149,7 +149,7 @@ export async function getServerConfig():Promise<null|{root:PxseedServer2023Start
 export async function restartSubprocessSelf(){
     let {current,root}=(await getServerConfig())!;
     assert(current.subprocessIndex!=undefined)
-    let client1=new RpcExtendClient1(new Client(await new WebSocketIo().connect(`ws://127.0.0.1:${root.listenOn!.port}${root.pxseedBase}${root.pxprpcPath}`)))
+    let client1=new RpcExtendClient1(new Client(await new WebSocketIo().connect(`ws://127.0.0.1:${root.listenOn!.port}${root.pxseedBase}${root.pxprpcPath}?key=${encodeURIComponent(root.pxprpcKey??'')}`)))
     await client1.init();
     let func=new PxseedServer2023Function();
     await func.init(client1);
