@@ -1,30 +1,76 @@
 
 import * as React from 'preact'
-import { css, ReactRefEx } from './domui';
+import { css, DomComponent, ReactRefEx } from './domui';
+import { css as windowCss } from './window';
 import {Ref2, copy, future} from 'partic2/jsutils1/base'
 import { appendFloatWindow, removeFloatWindow, WindowComponent } from './window';
 
 
+class CNewWindowHandleLists extends EventTarget{
+    value=new Array<NewWindowHandle>();
+}
+export let NewWindowHandleLists=new CNewWindowHandleLists();
+
 interface OpenNewWindopwOption{
     title?:string
 }
-interface NewWindowHandle{
+interface NewWindowHandle extends OpenNewWindopwOption{
     onClose:()=>Promise<void>,
-    close:()=>void
+    close:()=>void,
+    windowVNode:React.VNode
+    windowRef:ReactRefEx<WindowComponent>,
+    active:()=>Promise<void>,
+    hide:()=>Promise<void>,
+    isHidden:()=>Promise<boolean>
 }
-export let openNewWindow=async function(contentVNode:React.VNode,options?:OpenNewWindopwOption){
+export let openNewWindow=async function(contentVNode:React.VNode,options?:OpenNewWindopwOption):Promise<NewWindowHandle>{
+    options=options??{};
     let closeFuture=new future<boolean>();
-    let windowVNode=<WindowComponent onClose={()=>closeFuture.setResult(true)} title={options?.title}>{contentVNode}</WindowComponent>;
+    let windowRef=new ReactRefEx<WindowComponent>();
+    let windowVNode=<WindowComponent ref={windowRef} onClose={()=>{
+        closeFuture.setResult(true);
+        removeFloatWindow(windowVNode);
+        let at=NewWindowHandleLists.value.indexOf(handle);
+        if(at>=0)NewWindowHandleLists.value.splice(at,1);
+        NewWindowHandleLists.dispatchEvent(new Event('change'));
+    }} onComponentDidUpdate={()=>{
+        NewWindowHandleLists.dispatchEvent(new Event('change'));
+    }} title={options.title}>{contentVNode}</WindowComponent>;
     appendFloatWindow(windowVNode,true);
-    return {
+    let handle={
+        ...options,
         onClose:async function(){
             await closeFuture.get();
-            this.close()
-            return
         },
-        close:function(){removeFloatWindow(windowVNode);}
+        close:function(){removeFloatWindow(windowVNode);},
+        async active(){
+            (await this.windowRef.waitValid()).active();
+        },
+        async hide(){
+            (await this.windowRef.waitValid()).hide();
+        },
+        async isHidden(){
+            return (await this.windowRef.waitValid()).isHidden()
+        },
+        windowVNode,windowRef
     }
+    NewWindowHandleLists.value.push(handle);
+    NewWindowHandleLists.dispatchEvent(new Event('change'));
+    return handle;
 }
+
+
+let baseWindowComponnet:React.VNode|null=null
+export function setBaseWindowView(vnode:React.VNode){
+    if(baseWindowComponnet!=null){
+        removeFloatWindow(baseWindowComponnet);
+    }
+    appendFloatWindow(<WindowComponent disablePassiveActive={true} noTitleBar={true} position='fill' 
+        windowDivClassName={windowCss.borderlessWindowDiv}>
+        {vnode}
+    </WindowComponent>)
+}
+
 
 export function setOpenNewWindowImpl(impl:(contentVNode:React.VNode,options?:OpenNewWindopwOption)=>Promise<NewWindowHandle>){
     openNewWindow=impl;

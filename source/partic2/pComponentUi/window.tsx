@@ -1,6 +1,6 @@
 
 import * as React from 'preact'
-import { css as cssBase, DomRootComponent, FloatLayerComponent, ReactRefEx, ReactRender, RefChangeEvent } from './domui';
+import { css as cssBase, DomDivComponent, DomRootComponent, FloatLayerComponent, ReactRefEx, ReactRender, RefChangeEvent } from './domui';
 import { ArrayWrap2, future, GenerateRandomString, GetCurrentTime } from 'partic2/jsutils1/base';
 import { DynamicPageCSSManager } from 'partic2/jsutils1/webutils';
 import { PointTrace, TransformHelper } from './transform';
@@ -8,14 +8,22 @@ import { PointTrace, TransformHelper } from './transform';
 
 
 interface WindowComponentProps{
-    closeIcon?:string|null,
-    foldIcon?:string|null,
-    expandIcon?:string|null,
-    maximize?:string|null,
-    title?:string,
-    windowClassName?:string,
-    onClose?:()=>void,
-    position?:'keep center'|'initial center'|'static'
+    closeIcon?:string|null
+    foldIcon?:string|null
+    expandIcon?:string|null
+    maximize?:string|null
+    title?:string
+    onClose?:()=>void
+    position?:'keep center'|'initial center'|'fill'
+    noTitleBar?:boolean
+    noResizeHandle?:boolean
+    disablePassiveActive?:boolean
+    keepTop?:boolean
+    contentDivClassName?:string
+    windowDivClassName?:string
+    contentDivInlineStyle?:React.JSX.CSSProperties
+    windowDivInlineStyle?:React.JSX.CSSProperties
+    onComponentDidUpdate?:()=>void
 }
 
 interface WindowComponentStats{
@@ -28,12 +36,16 @@ interface WindowComponentStats{
 import {getIconUrl} from 'partic2/pxseedMedia1/index1'
 
 export let css={
-    windowContainer:GenerateRandomString(),
-    defaultWindowClass:GenerateRandomString()
+    defaultWindowDiv:GenerateRandomString(),
+    borderlessWindowDiv:GenerateRandomString(),
+    defaultContentDiv:GenerateRandomString(),
+    defaultTitleStyle:GenerateRandomString(),
 }
 
-DynamicPageCSSManager.PutCss('.'+css.windowContainer,['max-height:100vh','max-width:100vw']);
-DynamicPageCSSManager.PutCss('.'+css.defaultWindowClass ,['background-color:white','flex-grow:1'])
+DynamicPageCSSManager.PutCss('.'+css.defaultWindowDiv,['max-height:100vh','max-width:100vw','border:solid black 1px']);
+DynamicPageCSSManager.PutCss('.'+css.borderlessWindowDiv,['max-height:100vh','max-width:100vw']);
+DynamicPageCSSManager.PutCss('.'+css.defaultContentDiv ,['flex-grow:1','background-color:white','overflow:auto'])
+DynamicPageCSSManager.PutCss('.'+css.defaultTitleStyle ,['background-color:black','color:white'])
 
 export class WindowComponent extends React.Component<WindowComponentProps,WindowComponentStats>{
     static defaultProps:WindowComponentProps={
@@ -52,8 +64,6 @@ export class WindowComponent extends React.Component<WindowComponentProps,Window
         container:new ReactRefEx<HTMLDivElement>(),
         contentDiv:new ReactRefEx<HTMLDivElement>()
     }
-    protected fixContentSize=false;
-
     constructor(props:WindowComponentProps,ctx:any){
         super(props,ctx);
         this.setState({activeTime:-1,folded:false,layout:{left:0,top:0},errorOccured:null});
@@ -81,8 +91,8 @@ export class WindowComponent extends React.Component<WindowComponentProps,Window
         
         let width=this.rref.container.current?.scrollWidth??0;
         let height=this.rref.container.current?.scrollHeight??0;
-        let wndWidth=window.innerWidth;
-        let wndHeight=window.innerHeight;
+        let wndWidth=(rootWindowContainer?.offsetWidth)??0;
+        let wndHeight=(rootWindowContainer?.offsetHeight)??0;
         if(width>wndWidth-5)width=wndWidth-5;
         if(height>wndHeight-5)height=wndHeight-5;
         let left=(wndWidth-width)>>1;
@@ -135,17 +145,22 @@ export class WindowComponent extends React.Component<WindowComponentProps,Window
             evt.preventDefault();
         }
     }
+    protected __initialLayout=false;
     active(){
-        if(this.state.activeTime<0 && ['initial center','keep center'].indexOf(this.props.position!)>=0){
-            this.setState({activeTime:GetCurrentTime().getTime()},()=>{
-                this.makeCenter();
-            });
-        }else{
-            this.setState({activeTime:GetCurrentTime().getTime()});
-        }
+        this.setState({activeTime:GetCurrentTime().getTime()},()=>{
+            if(!this.__initialLayout){
+                if(['initial center','keep center'].indexOf(this.props.position!)>=0){
+                    this.makeCenter();
+                }
+                this.__initialLayout=true;
+            }
+        });
     }
     hide(){
         this.setState({activeTime:-1})
+    }
+    isHidden(){
+        return this.state.activeTime<0&&!this.props.keepTop
     }
     isFolded(){
         return this.state.folded;
@@ -154,7 +169,7 @@ export class WindowComponent extends React.Component<WindowComponentProps,Window
         this.setState({folded:v})
     }
     renderTitle(){
-        return <div className={cssBase.flexRow} style={{borderBottom:'solid black 1px',alignItems:'center',backgroundColor:'#f88'}}>
+        return <div className={[cssBase.flexRow,css.defaultTitleStyle].join(' ')} style={{alignItems:'center'}}>
                 <div style={{flexGrow:'1',cursor:'move',userSelect:'none'}} 
                 onMouseDown={this.__onTitleMouseDownHandler} onTouchStart={this.__onTitleTouchDownHandler} >
                 {(this.props.title??'').replace(/ /g,String.fromCharCode(160))}</div>&nbsp;
@@ -178,13 +193,17 @@ export class WindowComponent extends React.Component<WindowComponentProps,Window
         this.hide();
         this.props.onClose?.();
     }
+    protected beforeMaximizeSize:{left:number,top:number,width?:number,height?:number}|null=null;
     async onMaximizeClick(){
-        if((this.state.layout.width??0)>=window.innerWidth-1 && (this.state.layout.height??0)>=window.innerHeight-1){
-            this.setState({layout:{left:0,top:0,width:undefined,height:undefined}});
-            await new Promise(resolve=>requestAnimationFrame(resolve));
-            this.makeCenter();
+        if(this.beforeMaximizeSize!=null){
+            this.setState({layout:{...this.beforeMaximizeSize}});
+            this.beforeMaximizeSize=null;
         }else{
-            this.setState({layout:{left:0,top:0,width:window.innerWidth,height:window.innerHeight}});
+            this.beforeMaximizeSize={...this.state.layout};
+            let containerDiv=await this.rref.container.waitValid();
+            this.setState({layout:{left:0,top:0,
+                width:(containerDiv.offsetParent as HTMLElement).offsetWidth,
+                height:(containerDiv.offsetParent as HTMLElement).offsetHeight}});
         }
     }
     doRelayout(){
@@ -194,44 +213,52 @@ export class WindowComponent extends React.Component<WindowComponentProps,Window
     }
     renderWindowMain(){
         let windowDivStyle:React.JSX.CSSProperties={
-            border:'solid black 1px',
             boxSizing:'border-box',
             position:'absolute',
             left:this.state.layout.left+'px',
-            top:this.state.layout.top+'px'
+            top:this.state.layout.top+'px',
+            pointerEvents:'auto'
         };
-        if(this.props.position==='static'){
-            windowDivStyle.position='static'
-        }
         if(this.state.layout.width!=undefined && !this.state.folded){
             windowDivStyle.width=this.state.layout.width+'px';
         }
         if(this.state.layout.height!=undefined && !this.state.folded){
             windowDivStyle.height=this.state.layout.height+'px';
         }
+        if(this.props.position=='fill'){
+            windowDivStyle.width='100%';
+            windowDivStyle.height='100%';
+        }
+        if(this.props.windowDivInlineStyle!=undefined){
+            Object.assign(windowDivStyle,this.props.windowDivInlineStyle)
+        }
         let contentDivStyle:React.JSX.CSSProperties={};
         if(this.state.folded){
             contentDivStyle.display='none'
         }
-        return <div className={[cssBase.flexColumn,css.windowContainer].join(' ')} style={windowDivStyle}
+        if(this.props.contentDivInlineStyle!=undefined){
+            Object.assign(contentDivStyle,this.props.contentDivInlineStyle)
+        }
+        return <div className={[cssBase.flexColumn,this.props.windowDivClassName??css.defaultWindowDiv].join(' ')} style={windowDivStyle}
             ref={this.rref.container}
             onMouseDown={()=>{
-                if(this.state.activeTime>=0)
+                if(this.state.activeTime>=0 && !this.props.disablePassiveActive)
                     this.setState({activeTime:GetCurrentTime().getTime()})
             }}
             onTouchStart={()=>{
-                if(this.state.activeTime>=0)
+                if(this.state.activeTime>=0 && !this.props.disablePassiveActive)
                     this.setState({activeTime:GetCurrentTime().getTime()})
             }}>
-                {this.renderTitle()}
+                {this.props.noTitleBar?null:this.renderTitle()}
                 {[
-                    <div style={{overflow:'auto',...contentDivStyle}} className={this.props.windowClassName??css.defaultWindowClass} ref={this.rref.contentDiv}>
+                    <div style={{...contentDivStyle}} 
+                    className={[this.props.contentDivClassName??css.defaultContentDiv].join(' ')} ref={this.rref.contentDiv}>
                         {this.state.errorOccured==null?this.props.children:<pre style={{backgroundColor:'white',color:'black'}}>
                             {this.state.errorOccured.message}
                             {this.state.errorOccured.stack}
                         </pre>}
                     </div>,
-                    this.state.folded?null:<img src={getIconUrl('arrow-down-right.svg')} 
+                    (this.state.folded||this.props.noResizeHandle||this.props.position=='fill')?null:<img src={getIconUrl('arrow-down-right.svg')} 
                     style={{
                         position:'absolute',cursor:'nwse-resize',
                         right:'0px',bottom:'0px',
@@ -241,13 +268,14 @@ export class WindowComponent extends React.Component<WindowComponentProps,Window
                     width="12" height="12"
                     />
                 ]}
-                
-                
         </div>
     }
+    componentDidUpdate(previousProps: Readonly<WindowComponentProps>, previousState: Readonly<WindowComponentStats>, snapshot: any): void {
+        this.props.onComponentDidUpdate?.();
+    }
     render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined; }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChild {
-        if(this.props.position==='static'){
-            return <div>
+        if(this.props.keepTop){
+            return <div className={cssBase.overlayLayer}>
                 {this.renderWindowMain()}
             </div>
         }else{
@@ -260,17 +288,19 @@ export class WindowComponent extends React.Component<WindowComponentProps,Window
 
 
 
-
-let floatWindowContainer:HTMLDivElement|null=null;
-function ensureFloatWindowContainer(){
-    if(floatWindowContainer==null){
-        floatWindowContainer=document.createElement('div');
-        floatWindowContainer.style.position='absolute';
-        floatWindowContainer.style.left='0px';
-        floatWindowContainer.style.top='0px';
-        document.body.appendChild(floatWindowContainer);
+export let rootWindowContainer:HTMLDivElement|null=null;
+export function ensureRootWindowContainer(){
+    if(rootWindowContainer==null){
+        let div=new DomDivComponent();
+        rootWindowContainer=div.getDomElement()! as HTMLDivElement;
+        rootWindowContainer.style.position='absolute';
+        rootWindowContainer.style.left='0px';
+        rootWindowContainer.style.top='0px';
+        rootWindowContainer.style.width='100vw';
+        rootWindowContainer.style.height='100vh';
+        DomRootComponent.addChild(div);
     }
-    return floatWindowContainer;
+    return rootWindowContainer;
 }
 let floatWindowVNodes:React.VNode[]=[];
 
@@ -281,18 +311,20 @@ export function appendFloatWindow(window:React.VNode,active?:boolean){
     if(window.key==undefined){
         window.key=GenerateRandomString();
     }
-    ensureFloatWindowContainer();
+    let container=ensureRootWindowContainer();
     floatWindowVNodes.push(window);
-    ReactRender(floatWindowVNodes,floatWindowContainer!);
+    ReactRender(floatWindowVNodes,container);
     if(active){
-        ref2.waitValid().then((v)=>v.active());
+        ref2.waitValid().then((v)=>v.active?.());
     }
 }
 
 export function removeFloatWindow(window:React.VNode){
     new ArrayWrap2(floatWindowVNodes).removeFirst(v=>v===window);
-    ReactRender(floatWindowVNodes,floatWindowContainer!);
+    let container=ensureRootWindowContainer();
+    ReactRender(floatWindowVNodes,container);
 }
+
 
 let i18n={
     caution:'caution',
@@ -310,7 +342,7 @@ export async function alert(message:string,title?:string){
     let result=new future<null>();
     let floatWindow1=<WindowComponent key={GenerateRandomString()}
     title={title??i18n.caution} onClose={()=>result.setResult(null)}>
-    <div style={{backgroundColor:'#FFF', minWidth:Math.min(window.innerWidth-10,300)}}>
+    <div style={{backgroundColor:'#FFF', minWidth:Math.min((rootWindowContainer?.offsetWidth)??0-10,300)}}>
         {message}
         <div className={cssBase.flexRow}>
             <input type='button' style={{flexGrow:'1'}} onClick={()=>result.setResult(null)} value={i18n.ok}/>
@@ -327,7 +359,7 @@ export async function confirm(message:string,title?:string){
     let result=new future<'ok'|'cancel'>();
     let floatWindow1=<WindowComponent key={GenerateRandomString()}
         title={title??i18n.caution} onClose={()=>result.setResult('cancel')}>
-        <div style={{backgroundColor:'#FFF', minWidth:Math.min(window.innerWidth-10,300)}}>
+        <div style={{backgroundColor:'#FFF', minWidth:Math.min((rootWindowContainer?.offsetWidth)??0-10,300)}}>
             {message}
             <div className={cssBase.flexRow}>
                 <input type='button' style={{flexGrow:'1'}} onClick={()=>result.setResult('ok')} value={i18n.ok}/>

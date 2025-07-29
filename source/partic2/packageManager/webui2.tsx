@@ -6,7 +6,7 @@ import {getPersistentRegistered, getRegistered,importRemoteModule,persistent,Ser
 import { GenerateRandomString, GetBlobArrayBufferContent, Task, assert, future, requirejs } from 'partic2/jsutils1/base'
 import { BuildUrlFromJsEntryModule, GetJsEntry, GetPersistentConfig, RequestDownload, selectFile, useDeviceWidth } from 'partic2/jsutils1/webutils'
 import {JsonForm} from 'partic2/pComponentUi/input'
-import {alert, appendFloatWindow, confirm, prompt, removeFloatWindow, WindowComponent} from 'partic2/pComponentUi/window'
+import {alert, appendFloatWindow, confirm, prompt, css as windowCss, WindowComponent} from 'partic2/pComponentUi/window'
 var registryModuleName='partic2/packageManager/registry';
 import {TaskLocalRef,Singleton} from 'partic2/CodeRunner/jsutils2'
 
@@ -17,7 +17,7 @@ import type * as registryModType from 'partic2/packageManager/registry'
 import type { PxseedConfig } from 'pxseedBuildScript/buildlib'
 import {openWorkspaceWindowFor} from 'partic2/JsNotebook/workspace'
 import { TextEditor } from 'partic2/pComponentUi/texteditor'
-import { setOpenNewWindowImpl } from 'partic2/pComponentUi/workspace'
+import { NewWindowHandleLists, openNewWindow, setBaseWindowView, setOpenNewWindowImpl } from 'partic2/pComponentUi/workspace'
 
 
 let i18n={
@@ -59,6 +59,68 @@ let remoteModule={
     })
 }
 
+import {getIconUrl} from 'partic2/pxseedMedia1/index1'
+import { ReactDragController } from 'partic2/pComponentUi/transform'
+
+class WindowListIcon extends React.Component<{},{
+    hideList:boolean,
+    listWidth:number,
+    listHeight:number,
+    windows:{title:string,visible:boolean}[]
+}>{
+    drag=new ReactDragController();
+    constructor(props:any,ctx:any){
+        super(props,ctx);
+        this.setState({hideList:true,listWidth:250,listHeight:320,windows:[]})
+    }
+    async onExpandClick(){
+        let moved=this.drag.checkIsMovedSinceLastCheck()
+        if(!moved){
+            if(this.state.hideList)
+            await this.onWindowListChange()
+            this.setState({hideList:!this.state.hideList})
+        }
+    }
+    mounted=false;
+    onWindowListChange=async ()=>{
+        let windows=new Array<{title:string,visible:boolean}>();
+        for(let t1 of NewWindowHandleLists.value){
+            windows.push({title:t1.title??'Untitle',visible:!await t1.isHidden()})
+        }
+        this.setState({windows})
+    }
+    async componentDidMount(): Promise<void> {
+        this.setState({listWidth:Math.min(250,window.innerWidth),listHeight:Math.min(320,window.innerHeight-32)});
+        this.mounted=true;
+        NewWindowHandleLists.addEventListener('change',this.onWindowListChange);
+    }
+    componentWillUnmount(): void {
+        this.mounted=false;
+        NewWindowHandleLists.removeEventListener('change',this.onWindowListChange);
+    }
+    render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChildren {
+        return <div style={{display:'inline-block',position:'absolute',pointerEvents:'none'}} 
+        ref={this.drag.draggedRef({left:window.innerWidth-this.state.listWidth-10,top:window.innerHeight-this.state.listHeight-40})}>
+        <div style={{width:this.state.listWidth+'px',height:this.state.listHeight+'px',display:'flex',flexDirection:'column-reverse'}}>{
+            this.state.hideList?null:<div>{
+                this.state.windows.map((t1,t2)=><div className={[css.flexRow,css.simpleCard].join(' ')} style={{backgroundColor:'white',pointerEvents:'auto'}}>
+                    <div style={{display:'flex',flexGrow:'1'}} onClick={()=>NewWindowHandleLists.value[t2].active()}>{t1.title}</div>
+                    <img draggable={false} src={t1.visible?getIconUrl('eye.svg'):getIconUrl('eye-off.svg')} onClick={()=>{
+                        if(t1.visible){
+                            NewWindowHandleLists.value[t2].hide();
+                        }else{
+                            NewWindowHandleLists.value[t2].active();
+                        }
+                    }}/>
+                </div>)
+            }</div>
+        }</div>
+        <div style={{textAlign:'right'}}><img draggable={false} src={getIconUrl('layers.svg')} onClick={()=>this.onExpandClick()} {...this.drag.trigger}
+        style={{pointerEvents:'auto',width:'32px',height:'32px'}}/></div>
+        </div>
+    }
+}
+
 const SimpleButton=(props:React.RenderableProps<{
     onClick: () => void;
 }>)=><a href="javascript:;" onClick={()=>props.onClick()} className={css.simpleCard}>{props.children}</a>;
@@ -78,7 +140,7 @@ class PackagePanel extends React.Component<{},{
         this.setState({packageList:[],errorMessage:''});
     }
     async install(){
-        let dlg=await prompt(<div style={{backgroundColor:'white'}}>
+        let dlg=await prompt(<div className={css.flexRow} style={{backgroundColor:'white',alignItems:'center'}}>
             {i18n.urlOrPackageName}:<TextEditor ref={this.rref.installPackageName} 
                 divClass={[css.simpleCard]}
                 divStyle={{width:Math.min(window.innerWidth-8,300)}}
@@ -116,7 +178,7 @@ class PackagePanel extends React.Component<{},{
     }
     filterString:string='webui'
     async requestListPackage(){
-        let dlg=await prompt(<div style={{backgroundColor:'white'}}>
+        let dlg=await prompt(<div className={css.flexRow} style={{backgroundColor:'white',alignItems:'center'}}>
             {i18n.filter}:<TextEditor ref={this.rref.listFilter}
                 divClass={[css.simpleCard]}
                 divStyle={{width:Math.min(window.innerWidth-8,300)}}/>
@@ -274,11 +336,18 @@ class PackagePanel extends React.Component<{},{
                 if(opt.webui!=undefined){
                     cmd.push({label:i18n.webui,click:async ()=>{
                         let entryModule=await import(opt.webui!.entry);
-                        if(typeof entryModule.main==='function'){
-                            let r=entryModule.main('webui');
-                            if(Symbol.iterator in r){
-                                Task.fork(r).run();
-                            }
+                        if(entryModule.main!=undefined){
+                            Task.fork(function*(){
+                                let r:any=null;
+                                if(entryModule.main.constructor.name=='GeneratorFunction'){
+                                    r=yield* entryModule.main('webui')
+                                }else{
+                                    r=entryModule.main('webui');
+                                    if(r instanceof Promise){
+                                        r=yield r;
+                                    }
+                                }
+                            }).run();
                         }
                     }});
                 }
@@ -332,6 +401,11 @@ class PackagePanel extends React.Component<{},{
 }
 
 export let renderPackagePanel=async()=>{
-    useDeviceWidth()
-    ReactRender(<PackagePanel/>,DomRootComponent);
+    useDeviceWidth();
+    setBaseWindowView(<PackagePanel/>)
+    
+    appendFloatWindow(<WindowComponent keepTop={true} noTitleBar={true} noResizeHandle={true} windowDivClassName={windowCss.borderlessWindowDiv}>
+        <WindowListIcon/>
+    </WindowComponent>)
+    
 };

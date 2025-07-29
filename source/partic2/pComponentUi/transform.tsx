@@ -219,15 +219,19 @@ export class DraggableAndScalable extends TransformHelper{
     }
 }
 
-export class DragController{
+export class ReactDragController extends EventTarget{
     dragged:{
         newPos?:(pos:{left:number,top:number})=>void
         curPos?:()=>{left:number,top:number}
     }={}
-    positionInitialized=false;
-    moved=false;
+    protected positionInitialized=false;
+    protected _ref:ReactRefEx<any>|null=null;
     draggedRef<T2 extends HTMLElement>(initPos?:{left:number,top:number}){
+        if(this._ref!=null){
+            return this._ref;
+        }
         let ref=new ReactRefEx<T2>();
+        this._ref=ref;
         this.dragged.curPos=()=>{
             let elem=ref.current;
             if(elem==null)return {left:0,top:0};
@@ -249,6 +253,7 @@ export class DragController{
         }
         return ref;
     }
+    protected moved=false;
     //Usually used for click handle
     checkIsMovedSinceLastCheck(){
         let moved=this.moved;
@@ -257,18 +262,21 @@ export class DragController{
     }
     protected _moveTrace=new PointTrace({
         onMove:(curr,start)=>{
-            this.dragged.newPos?.({left:curr.x-start.x,top:curr.y-start.y});
-            this.moved=true;
+            this.dragged.newPos?.({left:curr.x-start.x+this.moveStartPos.left,top:curr.y-start.y+this.moveStartPos.top});
+            if(Math.abs(curr.x-start.x)+Math.abs(curr.y-start.y)>5){
+                this.moved=true;
+            }
         }
     });
+    protected moveStartPos={left:0,top:0}
     trigger={
         onMouseDown:(ev:MouseEvent)=>{
-            let {left,top}=this.dragged.curPos?.()??{left:0,top:0};
-            this._moveTrace.start({x:ev.clientX-left,y:ev.clientY-top},true);
+            this.moveStartPos=this.dragged.curPos?.()??{left:0,top:0};
+            this._moveTrace.start({x:ev.clientX,y:ev.clientY},true);
         },
         onTouchStart:(ev:TouchEvent)=>{
-            let {left,top}=this.dragged.curPos?.()??{left:0,top:0};
-            this._moveTrace.start({x:ev.touches[0].clientX-left,y:ev.touches[0].clientY-top},true);
+            this.moveStartPos=this.dragged.curPos?.()??{left:0,top:0};
+            this._moveTrace.start({x:ev.touches[0].clientX,y:ev.touches[0].clientY},true);
         }
     }
 }

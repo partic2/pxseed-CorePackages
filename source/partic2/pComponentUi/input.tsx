@@ -102,7 +102,9 @@ export class SimpleReactForm1<P={},S={}> extends ReactEventTarget<P&{value?:Reco
         return this.valueCollection.getRefForInput(name);
     }
     get value():any{
-        this.__cachedValue={...this.__cachedValue,...this.valueCollection.getValue()};
+        if(this.__valueApplied){
+            this.__cachedValue={...this.__cachedValue,...this.valueCollection.getValue()};
+        }
         return this.__cachedValue;
     }
     protected __cachedValue={};

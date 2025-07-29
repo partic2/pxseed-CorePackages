@@ -12,7 +12,7 @@ import { CodeContextChooser, findRpcClientInfoFromClient } from "./misclib";
 import { LocalRunCodeContext } from "partic2/CodeRunner/CodeContext";
 import { RemoteRunCodeContext } from "partic2/CodeRunner/RemoteCodeContext";
 import { Task, future } from "partic2/jsutils1/base";
-import {openNewWindow} from 'partic2/pComponentUi/workspace'
+import {openNewWindow, setBaseWindowView} from 'partic2/pComponentUi/workspace'
 
 
 
@@ -54,7 +54,6 @@ export function *main(command:string){
         DynamicPageCSSManager.PutCss('body',['margin:0px'])
         let rpc=GetUrlQueryVariable('__rpc');
         await persistent.load();
-        ReactRender(<MainView/>,DomRootComponent);
-        
+        setBaseWindowView(<MainView/>)
     }
 })();

@@ -74,6 +74,9 @@ class CDomRootComponent extends DomComponentGroup{
     public async appendToNode(parent:HTMLElement){
         this.mounted=true;
     }
+    public changeRoot(rootDiv:HTMLElement){
+        this.domElem=rootDiv;
+    }
     public async update(){
         if(!this.mounted){
             await this.appendToNode(document.body);
@@ -171,10 +174,10 @@ DynamicPageCSSManager.PutCss('.'+css.selected,['background-color:rgb(150,150,255
 DynamicPageCSSManager.PutCss('.'+css.simpleCard,['display:inline-block','border:solid black 2px','margin:2px','padding:2px','background-color:white'])
 DynamicPageCSSManager.PutCss('.'+css.simpleTable,['border-collapse:collapse']);
 DynamicPageCSSManager.PutCss('.'+css.simpleTableCell,['border:solid black 2px']);
-DynamicPageCSSManager.PutCss('.'+css.overlayLayer,['z-index:1000','position:absolute','left:0px','top:0px']);
-DynamicPageCSSManager.PutCss('.'+css.activeLayer,['z-index:800','position:absolute','left:0px','top:0px']);
-DynamicPageCSSManager.PutCss('.'+css.inactiveLayer,['z-index:600','position:absolute','left:0px','top:0px']);
-DynamicPageCSSManager.PutCss('.'+css.hideLayer,['z-index:600','position:absolute','display:none','left:0px','top:0px']);
+DynamicPageCSSManager.PutCss('.'+css.overlayLayer,['z-index:1000','position:absolute','left:0px','top:0px','width:100%','height:100%','pointer-events:none']);
+DynamicPageCSSManager.PutCss('.'+css.activeLayer,['z-index:800','position:absolute','left:0px','top:0px','width:100%','height:100%','pointer-events:none']);
+DynamicPageCSSManager.PutCss('.'+css.inactiveLayer,['z-index:600','position:absolute','left:0px','top:0px','width:100%','height:100%','pointer-events:none']);
+DynamicPageCSSManager.PutCss('.'+css.hideLayer,['z-index:600','position:absolute','display:none','left:0px','top:0px','width:100%','height:100%','pointer-events:none']);
 
 export var event={
     layout:'partic2-layout' as const
