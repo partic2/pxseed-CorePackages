@@ -155,9 +155,11 @@ export class WindowComponent extends React.Component<WindowComponentProps,Window
                 this.__initialLayout=true;
             }
         });
+        globalWindowsList.current?.forceUpdate();
     }
     hide(){
-        this.setState({activeTime:-1})
+        this.setState({activeTime:-1});
+        globalWindowsList.current?.forceUpdate();
     }
     isHidden(){
         return this.state.activeTime<0&&!this.props.keepTop
@@ -299,30 +301,43 @@ export function ensureRootWindowContainer(){
         rootWindowContainer.style.width='100vw';
         rootWindowContainer.style.height='100vh';
         DomRootComponent.addChild(div);
+        ReactRender(<WindowsList ref={globalWindowsList}/>,rootWindowContainer);
     }
     return rootWindowContainer;
 }
 let floatWindowVNodes:React.VNode[]=[];
+class WindowsList extends React.Component{
+    windowActiveTimeCompare=(t1:ReactRefEx<React.VNode>,t2:ReactRefEx<React.VNode>)=>{
+        let t3=(t1.current as any)?.state?.activeTime??0;
+        let t4=(t2.current as any)?.state?.activeTime??0;
+        return t3-t4;
+    }
+    render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined; }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChild {
+        floatWindowVNodes.sort((t1,t2)=>this.windowActiveTimeCompare(t1.ref as any,t2.ref as any));
+        return floatWindowVNodes
+    }
+}
+let globalWindowsList=new ReactRefEx<WindowsList>();
 
 export function appendFloatWindow(window:React.VNode,active?:boolean){
     active=active??true;
-    let ref2=new ReactRefEx<WindowComponent>().forward([window.ref].filter(v=>v!=undefined) as React.Ref<any>[]);
+    let ref2=new ReactRefEx<React.VNode>().forward([window.ref].filter(v=>v!=undefined) as React.Ref<any>[]);
     window.ref=ref2;
     if(window.key==undefined){
         window.key=GenerateRandomString();
     }
-    let container=ensureRootWindowContainer();
+    ensureRootWindowContainer();
+    globalWindowsList.current?.forceUpdate();
     floatWindowVNodes.push(window);
-    ReactRender(floatWindowVNodes,container);
     if(active){
-        ref2.waitValid().then((v)=>v.active?.());
+        ref2.waitValid().then((v)=>(v as any).active?.());
     }
 }
 
 export function removeFloatWindow(window:React.VNode){
     new ArrayWrap2(floatWindowVNodes).removeFirst(v=>v===window);
-    let container=ensureRootWindowContainer();
-    ReactRender(floatWindowVNodes,container);
+    ensureRootWindowContainer();
+    globalWindowsList.current?.forceUpdate();
 }
 
 

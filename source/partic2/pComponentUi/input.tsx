@@ -1,4 +1,4 @@
-import { ArrayWrap2 } from "partic2/jsutils1/base"
+import { ArrayWrap2, GenerateRandomString } from "partic2/jsutils1/base"
 import { getIconUrl } from "partic2/pxseedMedia1/index1"
 import { css, ReactEventTarget, ReactRefEx, RefChangeEvent } from "./domui"
 import * as React from 'preact'
@@ -84,7 +84,10 @@ export class ReactInputValueCollection extends EventTarget{
     }
 }
 
-export class SimpleReactForm1<P={},S={}> extends ReactEventTarget<P&{value?:Record<string,any>,onChange?:(newValue:Record<string,any>)=>void},S>{
+export class SimpleReactForm1<P={},S={}> extends ReactEventTarget<P&{
+    value?:any,onChange?:(newValue:any)=>void,
+    children?:(form:SimpleReactForm1)=>React.ComponentChildren
+},S>{
     protected _onChangeListener=()=>{
         this.props.onChange?.(this.value);
     }
@@ -94,8 +97,10 @@ export class SimpleReactForm1<P={},S={}> extends ReactEventTarget<P&{value?:Reco
     }
     public render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined; }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChild {
         //XXX: Is there any better place?
-        this.value=this.props.value
-        return this.props.children;
+        if(this.props.value!=undefined){
+            this.value=this.props.value
+        }
+        return this.props.children?.(this);
     }
     protected valueCollection=new ReactInputValueCollection().forwardChangeEvent(this.eventTarget);
     getRefForInput(name:string){
@@ -118,6 +123,96 @@ export class SimpleReactForm1<P={},S={}> extends ReactEventTarget<P&{value?:Reco
                 this.valueCollection.setValue(this.__cachedValue);
                 this.__valueApplied=true;
             })();
+        }
+    }
+    addEventListener(type:'change',cb:(ev:Event)=>void):void{
+        this.eventTarget.addEventListener(type,cb);
+    }
+    removeEventListener(type:'change',cb:(ev:Event)=>void):void{
+        this.eventTarget.removeEventListener(type,cb);
+    }
+}
+
+let InputInternalAttr=Symbol('InputInternalAttr')
+
+export class InputArray<P={},S={}> extends ReactEventTarget<P&{
+    value?:any[],onChange?:(newValue:any[])=>void,defaultValue?:any
+    divClass?:string[],divStyle?:React.JSX.CSSProperties,
+    children:(inputRef:React.RefObject<any>)=>React.ComponentChildren
+},S>{
+    protected valueCollection=new ReactInputValueCollection().forwardChangeEvent(this.eventTarget);
+    doPushElement=()=>{
+        this.value=[...this.value,this.props.defaultValue??{}];
+        this.dispatchEvent(new Event('change'))
+    }
+    doSliceElement=(delIdx:number)=>{
+        let v=this.value as any[];
+        v.splice(delIdx,1);
+        this.value=v;
+        this.dispatchEvent(new Event('change'));
+    }
+    protected renderElements(tpl:(inputRef:React.RefObject<any>)=>React.ComponentChildren){
+        let r:React.VNode[]=[];
+        this.value.forEach((t2,t1)=>{
+            let t4=tpl(this.valueCollection.getRefForInput('e'+t1));
+            if(t2[t1]!=null && typeof t2[t1] =='object' && React.isValidElement(t4)){
+                if(t2[t1][InputInternalAttr].arrayKey!=undefined){
+                    t4.key=t2[t1][InputInternalAttr].arrayKey
+                }else{
+                    t4.key=t2[t1][InputInternalAttr].arrayKey
+                }
+            }
+            r.push(<div className={[css.flexRow].join(' ')} style={{alignItems:'center',flexGrow:'1'}}>
+                {t4}
+                <img src={getIconUrl('x.svg')} onClick={()=>this.doSliceElement(t1)}/>
+            </div>)
+        });
+        return r;
+    }
+    render(props?: any, state?: Readonly<S> | undefined, context?: any): React.ComponentChild {
+        if(this.props.value!=undefined){
+            this.value=this.props.value
+        }
+        let elem=this.props.children;
+        if(typeof this.props.children!='function'){
+            return this.props.children;
+        }else{
+            return <div className={[css.flexColumn,...(this.props.divClass??[css.simpleCard])].join(' ')}
+                style={{...this.props.divStyle}}>
+                {[
+                    ...this.renderElements(elem),
+                    <div style={{textAlign:'center',height:'16px',backgroundColor:'#ddd'}} onClick={this.doPushElement}>
+                        <img src={getIconUrl('plus.svg')} height="16"/>
+                    </div>
+                ]}
+            </div>;
+        }
+    }
+    get value():any[]{
+        if(this.__valueApplied){
+            let r1:any[]=[]
+            let t2=this.valueCollection.getValue();
+            for(let t1=0;t1<this.__cachedValue.length;t1++){
+                this.__cachedValue[t1]=t2['e'+t1];
+            }
+        }
+        return this.__cachedValue;
+    }
+    protected __cachedValue:any[]=[];
+    protected __valueApplied:boolean=true;
+    set value(val:any[]){
+        this.__cachedValue=[...val];
+        if(this.__valueApplied){
+            this.__valueApplied=false;
+            this.forceUpdate(async ()=>{
+                await this.valueCollection.waitRefValid();
+                let v1:Record<string,any>={};
+                for(let t1=0;t1<this.__cachedValue.length;t1++){
+                    v1['e'+t1]=this.__cachedValue[t1];
+                }
+                this.valueCollection.setValue(v1);
+                this.__valueApplied=true;
+            });
         }
     }
     addEventListener(type:'change',cb:(ev:Event)=>void):void{
@@ -164,7 +259,7 @@ interface ObjectType{
 interface ButtonType{
     type:'button',
     subbtn?:string[]
-    onClick?:(parent:any[] | { [k: string]: any; }|undefined,subbtn?:string)=>void
+    onClick?:(parent:any,subbtn:string)=>void
 }
 
 
@@ -177,61 +272,50 @@ export interface JsonFormPros{
 }
 
 
-export class JsonForm extends ReactEventTarget<JsonFormPros,
-    {elemCount?:number}>{
-    _inputCollector=new ReactInputValueCollection().forwardChangeEvent(this.eventTarget);
+export class JsonForm extends SimpleReactForm1<JsonFormPros>{
     constructor(props:any,ctx:any){
         super(props,ctx);
     }
-    _renderInput(name:string,type:FormType){
+    _renderInput(ref:React.RefObject<any>,type:FormType,name:string|null){
         let jsx2:React.JSX.Element[]=[];
         if(this.props.type.type==='object' && type.type!=='button' && type.type!='boolean'){
             jsx2.push(<div>{name}</div>)
         }
         switch(type.type){
             case 'number':
-                jsx2.push(<input type="number" style={{flexGrow:1}}
-                    ref={this._inputCollector.getRefForInput(name)}
-                />);
+                jsx2.push(<input ref={ref} type="number" style={{flexGrow:1}}/>);
                 break;
             case 'boolean':
-                jsx2.push(<div className={css.flexRow}>{name}:<ValueCheckBox  style={{flexGrow:'1'}}
-                    ref={this._inputCollector.getRefForInput(name)}
-                /></div>);
+                jsx2.push(<div className={css.flexRow}>
+                    {name}:<ValueCheckBox ref={ref} style={{flexGrow:'1'}}/>
+                </div>);
                 break;
             case 'string':
-                jsx2.push(<PlainTextEditorInput 
-                    ref={this._inputCollector.getRefForInput(name)}
+                jsx2.push(<PlainTextEditorInput ref={ref}
                     divStyle={{flexGrow:1}} divClass={[css.simpleCard]}
                 />)
                 break;
             case 'enum':
-                jsx2.push(<select style={{flexGrow:1}}
-                    ref={this._inputCollector.getRefForInput(name)}>
+                jsx2.push(<select style={{flexGrow:1}} ref={ref}>
                     {type.options?.map(opt=><option value={opt.value}>{opt.text}</option>)}
                 </select>)
                 break;
             case 'enumSet':
-                jsx2.push(<select style={{flexGrow:1}} multiple={true}
-                    ref={this._inputCollector.getRefForInput(name)}>
+                jsx2.push(<select style={{flexGrow:1}} multiple={true} ref={ref}>
                     {type.options?.map(opt=><option value={opt.value}>{opt.text}</option>)}
                 </select>)
                 break;
             case 'array':
-                jsx2.push(<JsonForm type={type} divStyle={{flexGrow:'1'}}
-                    ref={this._inputCollector.getRefForInput(name)}>
-                </JsonForm>)
+                jsx2.push(<JsonForm ref={ref} type={type} divStyle={{flexGrow:'1'}}></JsonForm>)
                 break;
             case 'object':
-                jsx2.push(<JsonForm type={type} divStyle={{flexGrow:'1'}}
-                    ref={this._inputCollector.getRefForInput(name)}>
-                </JsonForm>);
+                jsx2.push(<JsonForm ref={ref} type={type} divStyle={{flexGrow:'1'}}></JsonForm>);
                 break;
             case 'button':
                 if(type.subbtn==undefined){
                     jsx2.push(
-                        <input type="button" value={name}
-                        onClick={()=>type.onClick?.(this.value)}  style={{flexGrow:1}}/>)
+                        <input type="button" value={name??'null'}
+                        onClick={()=>type.onClick?.(this.value,'')}  style={{flexGrow:1}}/>)
                 }else{
                     jsx2.push(<div className={css.flexRow} style={{alignItems:'center',flexGrow:'1'}}>
                         {type.subbtn!.map(btn=>
@@ -240,79 +324,50 @@ export class JsonForm extends ReactEventTarget<JsonFormPros,
                         )}
                     </div>)
                 }
-                
                 break;
         }
         return <div style={{flexGrow:'1',alignItems:'left'}} className={css.flexColumn}>{jsx2}</div>;
     }
-    doPushElement=()=>{
-        this.setState({elemCount:(this.state.elemCount??0)+1});
-        this.dispatchEvent(new Event('change'))
+    static defaultValue:Record<FormType['type'],any>={
+        number: 0,
+        boolean: false,
+        object: {},
+        enum: '',
+        button: '',
+        enumSet: '',
+        string: '',
+        array: []
     }
-    doSliceElement=(delIdx:number)=>{
-        let v=this.value as any[];
-        v.splice(delIdx,1);
-        this.value=v;
-        this.setState({elemCount:v.length});
-        this.dispatchEvent(new Event('change'));
-    }
-    
     public render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined; }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChild {
+        super.render(props,state);
         let type2=this.props.type;
         if(type2.type==='array'){
-            return <div className={[css.simpleCard,css.flexColumn,...(this.props.divClass??[])].join(' ')}
-                style={{...this.props.divStyle}}>
-                {[
-                    ...(Array.from(ArrayWrap2.IntSequence(0,this.state.elemCount??0))).map((idx)=>
-                        <div className={[css.flexRow].join(' ')} style={{alignItems:'center',flexGrow:'1'}}>
-                            {this._renderInput(idx.toString(),(type2 as ArrayType).element)}
-                            <img src={getIconUrl('x.svg')} onClick={()=>this.doSliceElement(idx)}/>
-                        </div>),
-                    <div style={{textAlign:'center',height:'16px',backgroundColor:'#ddd'}} onClick={this.doPushElement}>
-                        <img src={getIconUrl('plus.svg')} height="16"/>
-                    </div>
-                ]}
-            </div>
+            return <InputArray divClass={this.props.divClass} divStyle={this.props.divStyle} ref={this.getRefForInput('root')}
+                    defaultValue={JsonForm.defaultValue[type2.element.type]}>
+                {(ref)=>this._renderInput(ref,(type2 as ArrayType).element,null)}
+            </InputArray>
         }else if(type2.type==='object'){
-            return <div className={[css.simpleCard,css.flexColumn,...(this.props.divClass??[])].join(' ')}
-                style={{...this.props.divStyle}}>{
-                type2.fields.map((val)=>this._renderInput(val[0],val[1]))
-            }</div>
+            return <SimpleReactForm1 ref={this.getRefForInput('root')}>{
+                (form)=>
+                    <div className={[css.simpleCard,css.flexColumn,...(this.props.divClass??[])].join(' ')}
+                        style={{...this.props.divStyle}}>
+                        {type2.fields.map((val)=>this._renderInput(form.getRefForInput(val[0]),val[1],val[0]))}
+                    </div>
+            }
+            </SimpleReactForm1>
         }
     }
     get value(){
-        if(this.props.type.type==='array'){
-            let v=this._inputCollector.getValue();
-            let r=[];
-            for(let t1 of ArrayWrap2.IntSequence(0,this.state.elemCount??0)){
-                r.push(v[t1.toString()]);
-            }
-            this.cachedValue=r;
-        }else if(this.props.type.type==='object'){
-            Object.assign(this.cachedValue,this._inputCollector.getValue());
-        }
-        return this.cachedValue;
+        return super.value.root;
     }
-    protected cachedValue:any={};
     set value(v:any){
-        if(this.props.type.type==='array'){
-            let v2=v as Array<any>|undefined;
-            let r={} as any;
-            if(v2!=undefined){
-                for(let t1=0;t1<v2.length;t1++){
-                    r[t1.toString()]=v2[t1]
+        if(this.props.type.type==='object'){
+            for(let [k1,t1] of this.props.type.fields){
+                if(v[k1]==undefined){
+                    v[k1]=JsonForm.defaultValue[t1.type];
                 }
-                this.setState({elemCount:v2.length},()=>{
-                    this._inputCollector.setValue(r);
-                });
-            }
-        }else if(this.props.type.type==='object'){
-            if(v!=undefined){
-                this.forceUpdate(()=>{
-                    this._inputCollector.setValue(v);
-                });
             }
         }
-        this.cachedValue=v;
+        super.value={root:v};
     }
 }
