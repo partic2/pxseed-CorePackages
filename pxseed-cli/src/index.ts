@@ -50,7 +50,7 @@
             }
         }
         if(!await fileExisted(path.join(pxseedHome,'www','pxseedServer2023','nodecli.js'))){
-            console.info("builod pxseed...");
+            console.info("build pxseed...");
             await runCommand2([process.execPath,path.join(pxseedHome,'script','buildEnviron.js')]);
             await runCommand2([process.execPath,path.join(pxseedHome,'script','buildPackages.js')]);
         }

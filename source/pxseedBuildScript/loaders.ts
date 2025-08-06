@@ -104,7 +104,7 @@ export let pxseedBuiltinLoader={
                 }
             }
         }else{
-            let tscPath=path.join(outputDir,'node_modules','typescript','bin','tsc');
+            let tscPath=path.join(outputDir,'..','npmdeps','node_modules','typescript','bin','tsc');
             let sourceRootPath=dir.substring(sourceDir.length+1).split(/[\\/]/).map(v=>'..').join('/');
             let include=config.include??["./**/*.ts","./**/*.tsx"];
             try{
@@ -114,7 +114,7 @@ export let pxseedBuiltinLoader={
                     let tsconfig={
                         "compilerOptions": {
                         "paths": {
-                            "*":[`${sourceRootPath}/*`,`${sourceRootPath}/../www/node_modules/*`]
+                            "*":[`${sourceRootPath}/*`,`${sourceRootPath}/../npmdeps/node_modules/*`]
                         },
                         },
                         "extends":`${sourceRootPath}/tsconfig.base.json`,
@@ -167,7 +167,7 @@ export let pxseedBuiltinLoader={
                 let replacer=(await import('@rollup/plugin-replace')).default;
                 console.info(`create bundle for ${mod}`);
                 let plugins=[
-                    nodeResolve({modulePaths:[path.join(outputDir,'node_modules')],browser:true,preferBuiltins:false}),
+                    nodeResolve({modulePaths:[path.join(outputDir,'..','npmdeps','node_modules')],browser:true,preferBuiltins:false}),
                     commonjs(),
                     json(),
                     //Slow the rollup, But some library need this.

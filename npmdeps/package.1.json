@@ -26,7 +26,7 @@
     "koa-router": "^12.0.0",
     "preact": "^10.20.1",
     "rollup": "^3.29.4",
-    "typescript": "^5.7.2",
+    "typescript": "~5.8.3",
     "ws": "^8.16.0",
     "isomorphic-git": "^1.32.1",
     "buffer": "^6.0.3"

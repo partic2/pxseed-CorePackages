@@ -50,39 +50,8 @@ async function updateFileIfNewer(sdir,ddir){
     }
     //npm i
     await runCommand('npm i',path.join(path.dirname(__dirname),'npmdeps'))
-    let inited=true;
-    try{
-        console.log('check www/node_modules...')
-        let wwwModule=await fs.lstat(path.join(path.dirname(__dirname),'www','node_modules'));    
-        if(!wwwModule.isSymbolicLink()){
-            throw new Error('TODO: copy mode');
-        }
-    }catch(e){
-        if(e.toString().indexOf('no such file or directory')<0){
-            throw e;
-        }
-        inited=false;
-    }
-    if(!inited){
-        inited=true;
-        console.log('create symbol link...')
-        try{
-            await fs.mkdir(path.join(path.dirname(__dirname),'www'),{recursive:true});
-            await fs.symlink(path.join(path.dirname(__dirname),'npmdeps','node_modules'),
-                path.join(path.dirname(__dirname),'www','node_modules'),
-                'dir');
-        }catch(e){
-            console.log('failed,' +e.toString()+'fallback copy mode.')
-            inited=false;
-        }
-    }
-    if(!inited){
-        inited=true;
-        console.log('create directory...')
-        await fs.mkdir(path.join(path.dirname(__dirname),'www','node_modules'),{recursive:true});
-        throw new Error('TODO: copy mode');
-    }
+    
     let buildProj=path.join(path.dirname(__dirname),'source','pxseedBuildScript')
-    let tscPath=path.join(path.dirname(__dirname),'www','node_modules','typescript','bin','tsc');
+    let tscPath=path.join(path.dirname(__dirname),'npmdeps','node_modules','typescript','bin','tsc');
     await runCommand(`${process.execPath} "${tscPath}" -p "${buildProj}"`)
 })()

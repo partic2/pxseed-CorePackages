@@ -22,7 +22,7 @@ process.on('uncaughtException', (error) => {
 let nodeRequire=require
 class NodeScriptLoader{
     currentDefiningModule=null
-    useLegacyRequire=false;
+    npmresolver=null
     async loadModuleAsync(moduleId,url){
         try{
             let filename=await fs.realpath(url);
@@ -39,37 +39,22 @@ class NodeScriptLoader{
                 throw e;
             }
         }
-        if(!this.useLegacyRequire){
-            try{
-                let nodeImportName=moduleId;
-                let mod;
-                mod=await import(nodeImportName);
-                define(moduleId,[],mod)
-                return null;
-            }catch(e){
-                if(e.code=='MODULE_NOT_FOUND'){
-                    //mute
-                }else{
-                    console.warn(e);
+        if(this.npmresolver!==false){
+            if(this.npmresolver===null){
+                try{
+                    this.npmresolver=nodeRequire('../npmdeps/npmmoduleresolver').npmimport
+                }catch(err){
+                    this.npmresolver=false;
                 }
             }
-        }else{
-            //For these version NOT support dynamic import.
-            try{
-                let nodeImportName=moduleId;
-                let mod;
-                mod=require(nodeImportName);
-                define(moduleId,[],{...mod,default:mod});
-                return null;
-            }catch(e){
-                if(e.code=='MODULE_NOT_FOUND'){
-                    //mute
-                }else{
-                    console.warn(e);
+            if(this.npmresolver!==false){
+                let mod=await this.npmresolver(moduleId);
+                if(mod!=null){
+                    define(moduleId,[],mod);
+                    return
                 }
             }
         }
-        
         return new Error('NodeScriptLoader:Cannot find module '+moduleId);
     }
     loadModule(moduleId,url,done){
@@ -80,9 +65,10 @@ class NodeScriptLoader{
     }
 }
 
+
+
 exports.main=async (entry)=>{
     //require('inspector').open(9229,'127.0.0.1',true);
-    
     let content=await fs.readFile(__dirname+'/require.js',{ encoding: 'utf8' })
     let exportsScript=';globalThis.require=require;globalThis.define=define;globalThis.requirejs=requirejs;';
     new Function(content+exportsScript)();

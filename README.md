@@ -4,6 +4,7 @@
 
 ## Usage
 
+We recommand you to use pxseed from source 
 You can run all-in-one script
 ```sh
 node script/buildAndRun.js
@@ -26,7 +27,14 @@ node script/buildPackages.js
 node www/noderun.js pxseedServer2023/entry
 ```
 
-4. Open package manager ui(url:http://localhost:8088/pxseed/www/index.html?__jsentry=partic2%2fpackageManager%2fwebui) in browser.
+1. Open package manager in browser.
+
+
+You can also get installer from npm 
+```sh
+npm i -g @partic2/pxseed-cli
+pxseed-cli
+```
 
 ## Develope
 

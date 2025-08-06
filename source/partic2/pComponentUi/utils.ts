@@ -1,6 +1,6 @@
 export function text2html(src:string){
     let text2=src.replace(/[<>&"\u0020]/g,function(c){
-        return {'<':'&lt;','>':'&gt;','&':'&amp','"':'&quot;','\u0020':'\u00a0'}[c]??''
+        return {'<':'&lt;','>':'&gt;','&':'&amp','"':'&quot;','\u0020':'&nbsp;'}[c]??''
     }).replace(/\n/g,'<br/>');
     text2=text2.replace(/<br\/>$/,'<div><br/></div>')
     return text2;
@@ -72,6 +72,10 @@ export function docNode2text(node:Node){
             if(this.node==node && offset==0){
                 return 0;
             }
+            if(!(this.node instanceof Text) && offset!=0){
+                node=node.childNodes.item(offset);
+                offset=0;
+            }
             let offset2=0;
             for(let t1=0;t1<this.textParts.length;t1++){
                 let part=textParts[t1];
@@ -81,7 +85,13 @@ export function docNode2text(node:Node){
                     offset2+=offset;
                     break;
                 }else{
-                    offset2+=part.text.length;
+                    for(let t2=t1;t2<this.textParts.length;t2++){
+                        let part2=this.textParts[t2].text;
+                        if(part2!=''){
+                            offset2+=part2.length;
+                            break;
+                        }
+                    }
                     break;
                 }
             }

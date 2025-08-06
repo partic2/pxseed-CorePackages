@@ -5,7 +5,7 @@
       "jsx": "react", 
       "module": "AMD", 
       "moduleResolution": "node", 
-      "typeRoots": ["../www/node_modules/@types"],
+      "typeRoots": ["../npmdeps/node_modules/@types"],
       "rootDir":"./",
       "allowJs": false,
       "checkJs": false,

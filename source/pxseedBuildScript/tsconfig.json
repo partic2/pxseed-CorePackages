@@ -2,7 +2,7 @@
     "extends":"../tsconfig.base.json",
     "compilerOptions": {
         "paths": {
-            "*":["../*","../../www/node_modules/*"]
+            "*":["../*","../../npmdeps/node_modules/*"]
         }
     },
     "include": ["./**/*.ts"]
