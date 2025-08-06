@@ -245,8 +245,8 @@ export class LocalRunCodeContext implements RunCodeContext{
         ancestor(result,{
             VariableDeclaration(node,state,ancetors){
                 if(ancetors.find(v=>v.type==='FunctionExpression'))return;
-                if(ancetors.find(v=>v.type==='BlockStatement')!==undefined && node.kind==='let')return;
-                replacePlan.plan.push({start:node.start,end:node.start+3,newString:' '})
+                if(ancetors.find(v=>v.type==='BlockStatement')!==undefined && node.kind!=='var')return;
+                replacePlan.plan.push({start:node.start,end:node.declarations[0].start,newString:' '})
                 node.declarations.forEach(v=>{
                     if(v.id.type==='Identifier'){
                         foundDecl.push(v.id.name);
