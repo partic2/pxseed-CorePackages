@@ -1,34 +1,28 @@
 export function text2html(src:string){
-    let text2=src.replace(/[<>&"\u0020]/g,function(c){
+    let lines=src.split('\n').map(t1=>t1.replace(/[<>&"\u0020]/g,function(c){
         return {'<':'&lt;','>':'&gt;','&':'&amp','"':'&quot;','\u0020':'&nbsp;'}[c]??''
-    }).replace(/\n/g,'<br/>');
-    text2=text2.replace(/<br\/>$/,'<div><br/></div>')
-    return text2;
+    }));
+    return lines.map(t1=>'<div>'+((t1==='')?'<br/>':t1)+'</div>').join('');
 }
 export function docNode2text(node:Node){
     let walker=document.createTreeWalker(node,NodeFilter.SHOW_ELEMENT|NodeFilter.SHOW_TEXT);
-    let textParts=[] as {node:Node,text:string}[]
+    let textParts=[] as {node:Node|'phony',text:string}[]
     while(walker.nextNode()){
         if(walker.currentNode instanceof HTMLDivElement || walker.currentNode instanceof HTMLParagraphElement){
-            // Empty div without text, ignored
-            // <br/> in <div/>, insert '\n' when handle <br/>
-            if(walker.currentNode.textContent==''){
+            if(walker.currentNode.previousSibling==null){
                 textParts.push({node:walker.currentNode,text:''});
-            }else if(textParts.length==0){
+            }else if(walker.currentNode.previousSibling instanceof HTMLBRElement){
                 textParts.push({node:walker.currentNode,text:''});
             }else{
-                for(let t1=textParts.length-1;t1>=0;t1--){
-                    if(textParts[t1].text=='\n'){
-                        textParts.push({node:walker.currentNode,text:''});
-                        break;
-                    }else if(textParts[t1].text!=''){
-                        textParts.push({node:walker.currentNode,text:'\n'});
-                        break;
-                    }
-                }
+                textParts.push({node:'phony',text:'\n'});
+                textParts.push({node:walker.currentNode,text:''});
             }
         }else if(walker.currentNode instanceof HTMLBRElement){
-            textParts.push({node:walker.currentNode,text:'\n'});
+            if(walker.currentNode.previousSibling!=null){
+                textParts.push({node:walker.currentNode,text:'\n'});
+            }else{
+                textParts.push({node:walker.currentNode,text:''});
+            }
         }else if(walker.currentNode instanceof Text){
             let prev=walker.currentNode.previousSibling;
             let textData='';
@@ -53,14 +47,12 @@ export function docNode2text(node:Node){
             let offset=0;
             for(let t1=0;t1<this.textParts.length;t1++){
                 let nextOffset=offset+this.textParts[t1].text.length;
-                if(nextOffset>=textOffset){
-                    //need verify
-                    if(this.textParts[t1].node instanceof Text){
-                        return {node:this.textParts[t1].node,offset:textOffset-offset}
-                    }else if(t1<this.textParts.length-1){
-                        return {node:this.textParts[t1+1].node,offset:0}
+                let curNode=this.textParts[t1].node;
+                if(nextOffset>=textOffset && curNode!=='phony'){
+                    if(curNode instanceof Text){
+                        return {node:curNode,offset:textOffset-offset}
                     }else{
-                        return {node:this.textParts[t1].node,offset:0}
+                        return {node:curNode,offset:0}
                     }
                 }else{
                     offset=nextOffset;
@@ -72,7 +64,7 @@ export function docNode2text(node:Node){
             if(this.node==node && offset==0){
                 return 0;
             }
-            if(!(this.node instanceof Text) && offset!=0){
+            if(!(node instanceof Text) && offset!=0){
                 node=node.childNodes.item(offset);
                 offset=0;
             }
@@ -85,13 +77,6 @@ export function docNode2text(node:Node){
                     offset2+=offset;
                     break;
                 }else{
-                    for(let t2=t1;t2<this.textParts.length;t2++){
-                        let part2=this.textParts[t2].text;
-                        if(part2!=''){
-                            offset2+=part2.length;
-                            break;
-                        }
-                    }
                     break;
                 }
             }
