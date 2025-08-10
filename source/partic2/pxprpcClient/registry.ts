@@ -213,7 +213,7 @@ class RemoteCallFunctionError extends Error{
 
 class RemoteRegistryFunctionImpl implements RemoteRegistryFunction{
     
-    funcs:(RpcExtendClientCallable|undefined)[]=[]
+    funcs:(RpcExtendClientCallable|null)[]=[]
     client1?:RpcExtendClient1;
 
     async loadModule(name: string): Promise<RpcExtendClientObject> {
@@ -253,15 +253,15 @@ class RemoteRegistryFunctionImpl implements RemoteRegistryFunction{
     async ensureInit(){
         if(this.funcs.length==0){
             this.funcs=[
-                (await this.client1!.getFunc(__name__+'.loadModule'))?.typedecl('s->o'),
-                (await this.client1!.getFunc(__name__+'.getConnectionFromUrl'))?.typedecl('s->o'),
-                (await this.client1!.getFunc('pxprpc_pp.io_send'))?.typedecl('ob->'),
-                (await this.client1!.getFunc('pxprpc_pp.io_receive'))?.typedecl('o->b'),
-                (await this.client1!.getFunc('builtin.jsExec'))?.typedecl('so->o'),
-                (await this.client1!.getFunc('builtin.bufferData'))?.typedecl('o->b'), //[5]
-                (await this.client1!.getFunc('builtin.anyToString'))?.typedecl('o->s'),
-                (await this.client1!.getFunc(__name__+'.callJsonFunction'))?.typedecl('oss->s'),
-                (await this.client1!.getFunc(__name__+'.unloadModule'))?.typedecl('s->')
+                await getRpcFunctionOn(this.client1!,__name__+'.loadModule','s->o'),
+                await getRpcFunctionOn(this.client1!,__name__+'.getConnectionFromUrl','s->o'),
+                await getRpcFunctionOn(this.client1!,'pxprpc_pp.io_send','ob->'),
+                await getRpcFunctionOn(this.client1!,'pxprpc_pp.io_receive','o->b'),
+                await getRpcFunctionOn(this.client1!,'builtin.jsExec','so->o'),
+                await getRpcFunctionOn(this.client1!,'builtin.bufferData','o->b'), //[5]
+                await getRpcFunctionOn(this.client1!,'builtin.anyToString','o->s'),
+                await getRpcFunctionOn(this.client1!,__name__+'.callJsonFunction','oss->s'),
+                await getRpcFunctionOn(this.client1!,__name__+'.unloadModule','s->')
             ]
         }
     }
@@ -269,13 +269,10 @@ class RemoteRegistryFunctionImpl implements RemoteRegistryFunction{
 }
 
 export async function getAttachedRemoteRigstryFunction(client1:RpcExtendClient1):Promise<RemoteRegistryFunction>{
-    if(!(internalProps in client1)){
-        let t1=new RemoteRegistryFunctionImpl();
-        t1.client1=client1;
-        await t1.ensureInit();
-        (client1 as any)[internalProps]=t1;
-    }
-    return (client1 as any)[internalProps];
+    let t1=new RemoteRegistryFunctionImpl();
+    t1.client1=client1;
+    await t1.ensureInit();
+    return t1;
 }
 
 export async function getConnectionFromUrl(url:string):Promise<Io|null>{

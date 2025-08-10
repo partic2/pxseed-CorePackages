@@ -1,6 +1,7 @@
 import { RpcExtendClient1, RpcExtendClientCallable, RpcExtendClientObject } from 'pxprpc/extend'
-import { getDefaultClient } from './pxprpc_config';
+import { getRpcFunctionOn } from 'partic2/pxprpcClient/registry';
 import { Serializer } from 'pxprpc/base';
+import { getRpc4XplatjCServer } from './rpcregistry';
 export class Invoker {
     RemoteName = 'pxprpc_libuv';
     rpc__client?: RpcExtendClient1;
@@ -9,15 +10,9 @@ export class Invoker {
         this.rpc__client = client;
         this.rpc__RemoteFuncs = {}
     }
-    async ensureFunc(name: string, typedecl: string) {
-        let __v1 = this.rpc__RemoteFuncs[name];
-        if (__v1 == undefined) {
-            __v1 = await this.rpc__client!.getFunc(this.RemoteName + '.' + name);
-            this.rpc__RemoteFuncs[name] = __v1
-            __v1!.typedecl(typedecl);
-        }
-        return __v1;
-    }
+    async ensureFunc(name:string,typedecl:string){
+        return await getRpcFunctionOn(this.rpc__client!,this.RemoteName+'.'+name, typedecl);
+     }
     async fs_open(path: string, flag: 'r' | 'w' | 'r+'): Promise<RpcExtendClientObject> {
         let __v1 = await this.ensureFunc('fs_open', 'ss->o');
         let __v2 = await __v1!.call(path, flag);
@@ -182,11 +177,11 @@ export class Invoker {
     }
 }
 
-let defaultInvoker: Invoker | null = null;
-export async function getDefault() {
-    if (defaultInvoker === null) {
-        defaultInvoker = new Invoker();
-        await defaultInvoker.useClient(await getDefaultClient());
+export let defaultInvoker:Invoker|null=null
+
+export async function ensureDefaultInvoker(){
+    if(defaultInvoker==null){
+        defaultInvoker=new Invoker();
+        defaultInvoker.useClient(await getRpc4XplatjCServer());
     }
-    return defaultInvoker;
 }
