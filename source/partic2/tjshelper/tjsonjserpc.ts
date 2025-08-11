@@ -1,7 +1,7 @@
 //Implement tjs base on pxprpc
 
 import { RpcExtendClient1, RpcExtendClientObject, TableSerializer } from "pxprpc/extend";
-import { Invoker,getDefault } from "partic2/pxprpcBinding/JseHelper__JseIo";
+import { defaultInvoker, ensureDefaultInvoker, Invoker } from "partic2/pxprpcBinding/JseHelper__JseIo";
 import {  future,copy } from "partic2/jsutils1/base";
 
 import type {} from '@txikijs/types/src/index'
@@ -667,6 +667,6 @@ export async function setup(tjsObject?:any){
         }
         tjsObject=(globalThis as any).tjs;
     }
-    let jseio=await getDefault()
-    copy(await tjsFrom(jseio),tjsObject,1);
+    await ensureDefaultInvoker();
+    copy(await tjsFrom(defaultInvoker!),tjsObject,1);
 }
