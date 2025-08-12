@@ -146,20 +146,20 @@ export class WindowComponent extends React.Component<WindowComponentProps,Window
         }
     }
     protected __initialLayout=false;
-    active(){
-        this.setState({activeTime:GetCurrentTime().getTime()},()=>{
+    active(activeTime?:number){
+        this.setState({activeTime:activeTime??GetCurrentTime().getTime()},()=>{
             if(!this.__initialLayout){
                 if(['initial center','keep center'].indexOf(this.props.position!)>=0){
                     this.makeCenter();
                 }
                 this.__initialLayout=true;
             }
+            windowsContainerForceUpdate();
         });
-        globalWindowsList.current?.forceUpdate();
     }
     hide(){
         this.setState({activeTime:-1});
-        globalWindowsList.current?.forceUpdate();
+        windowsContainerForceUpdate();
     }
     isHidden(){
         return this.state.activeTime<0&&!this.props.keepTop
@@ -327,7 +327,7 @@ export function appendFloatWindow(window:React.VNode,active?:boolean){
         window.key=GenerateRandomString();
     }
     ensureRootWindowContainer();
-    globalWindowsList.current?.forceUpdate();
+    windowsContainerForceUpdate();
     floatWindowVNodes.push(window);
     if(active){
         ref2.waitValid().then((v)=>(v as any).active?.());
@@ -340,6 +340,14 @@ export function removeFloatWindow(window:React.VNode){
     globalWindowsList.current?.forceUpdate();
 }
 
+export async function windowsContainerForceUpdate(){
+    return new Promise<void>((resolve)=>globalWindowsList.current?.forceUpdate(resolve));
+}
+
+
+export function getFloatWindowRefList(){
+    return floatWindowVNodes.map(t1=>t1.ref);
+}
 
 let i18n={
     caution:'caution',
