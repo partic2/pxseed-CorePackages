@@ -246,16 +246,20 @@ export class LocalRunCodeContext implements RunCodeContext{
             VariableDeclaration(node,state,ancetors){
                 if(ancetors.find(v=>v.type==='FunctionExpression'))return;
                 if(ancetors.find(v=>v.type==='BlockStatement')!==undefined && node.kind!=='var')return;
-                replacePlan.plan.push({start:node.start,end:node.declarations[0].start,newString:' '})
+                let declNames:string[]=[];
                 node.declarations.forEach(v=>{
                     if(v.id.type==='Identifier'){
-                        foundDecl.push(v.id.name);
+                        declNames.push(v.id.name);
                     }else if(v.id.type==='ObjectPattern'){
-                        foundDecl.push(...v.id.properties.map(v2=>(v2 as any).key.name))
+                        declNames.push(...v.id.properties.map(v2=>(v2 as any).value.name))
                     }else if(v.id.type==='ArrayPattern'){
-                        foundDecl.push(...v.id.elements.filter(v2=>v2!=null).map(v2=>(v2 as acorn.Identifier).name))
+                        declNames.push(...v.id.elements.filter(v2=>v2!=null).map(v2=>(v2 as acorn.Identifier).name))
                     }
                 });
+                foundDecl.push(...declNames);
+                replacePlan.plan.push({start:node.start,end:node.start,newString:'{'});
+                replacePlan.plan.push({start:node.end,end:node.end,
+                    newString:`;${declNames.map(t1=>`_ENV.${t1}=${t1};`).join('')}}`})
             },
             FunctionDeclaration(node,state,ancetors){
                 if(node.expression || 
@@ -286,11 +290,12 @@ export class LocalRunCodeContext implements RunCodeContext{
                     foundDecl.push(spec.local.name)
                 }else if(node.specifiers.length>0 && node.specifiers[0].type==='ImportSpecifier'){
                     let specs=node.specifiers as acorn.ImportSpecifier[];
-                    let importStat=[]
+                    let importStat=[`{let __timp=(await _ENV.__priv_import('${node.source.value}'));`]
                     for(let spec of specs){
-                        importStat.push(`${spec.local.name}=(await _ENV.__priv_import('${node.source.value}')).${(spec.imported as acorn.Identifier).name};`)
+                        importStat.push(`_ENV.${spec.local.name}=__timp.${(spec.imported as acorn.Identifier).name};`)
                         foundDecl.push(spec.local.name)
                     }
+                    importStat.push('}')
                     replacePlan.plan.push({start:node.start,end:node.end,newString:importStat.join('')});
                 }else if(node.specifiers.length===1 && node.specifiers[0].type==='ImportDefaultSpecifier'){
                     let spec=node.specifiers[0];
