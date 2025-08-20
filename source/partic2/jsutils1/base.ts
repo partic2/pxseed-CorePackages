@@ -553,8 +553,7 @@ export function GenerateRandomString(maxRandLenX4?:number) {
 }
 
 export class ErrorChain extends Error{
-    causedBy?:Error;
-    public constructor(message?:string){
+    public constructor(message?:string,public causeBy?:Error){
         super(message)
     }
 }
@@ -825,9 +824,9 @@ export function partial<T>(o:T,fields:Generator<keyof T,keyof T>|(ReadonlyArray<
 }
 
 
-export type CommonMimeType='text/html'|'text/xml'|'text/javascript'|'application/xhtml+xml'|'text/plain'|'application/pdf'|'image/png'|'image/gif'|'image/jpeg'|'audio/basic'|'audio/midi'|'audio/x-midi'|'audio/x-pn-realaudio'|'video/mpeg'|'video/x-msvideo'|'application/x-gzip'|'application/x-tar'|'application/octet-stream'|'audio/ogg'|'audio/aac'|'image/svg+xml'|'image/x-icon'
+export type CommonMimeType='text/html'|'text/xml'|'text/javascript'|'application/javascript'|'application/xhtml+xml'|'text/plain'|'application/pdf'|'image/png'|'image/gif'|'image/webp'|'image/bmp'|'image/jpeg'|'audio/basic'|'audio/midi'|'audio/x-midi'|'audio/x-pn-realaudio'|'video/mpeg'|'video/x-msvideo'|'application/x-gzip'|'application/x-tar'|'application/octet-stream'|'audio/ogg'|'audio/aac'|'image/svg+xml'|'image/x-icon'
 
-export function ToDataUrl(data:string|ArrayBuffer,mediaType:CommonMimeType){
+export function ToDataUrl(data:string|ArrayBuffer|Uint8Array,mediaType:CommonMimeType){
     if(typeof data==='string'){
         return 'data:'+mediaType+';base64,'+btoa(data);
     }else{

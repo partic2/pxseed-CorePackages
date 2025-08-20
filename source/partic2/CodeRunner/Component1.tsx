@@ -1,11 +1,17 @@
 import * as React from 'preact'
 import { MiscObject, UnidentifiedObject } from './Inspector';
-import { BytesToHex, GenerateRandomString } from 'partic2/jsutils1/base';
+import { assert, BytesToHex, GenerateRandomString, requirejs, ToDataUrl } from 'partic2/jsutils1/base';
 
+
+let __name__=requirejs.getLocalRequireModule(require)
+
+export const CustomViewerFactoryProp='__Zag7QaCUiZb1ABgM__'
+
+export type ObjectViewerProps={name:string,object:any}
 
 export class ObjectViewer extends React.Component<
     {name:string,object:any},
-    {folded:boolean,identified?:any,object:any}
+    {folded:boolean,identified?:any,object:any,viewer:null|React.ComponentType<ObjectViewerProps>}
 >{
     constructor(props:any,ctx:any){
         super(props,ctx);
@@ -30,13 +36,36 @@ export class ObjectViewer extends React.Component<
             this.setState({folded:true});
         }
     }
-    beforeRender(): void{
+    async beforeRender(){
         if(this.props.object!==this.state.object){
             let folded=false;
             if(this.props.object instanceof UnidentifiedObject){
                 folded=true;
             }
-            this.setState({identified:null,folded,object:this.props.object});
+            this.setState({identified:null,folded,object:this.props.object,viewer:null});
+        }else{
+            try{
+                if(typeof this.state.object=='object' && this.state.object!=null && CustomViewerFactoryProp in this.state.object && 
+                    this.state.viewer==null){
+                    let viewerPath=this.state.object[CustomViewerFactoryProp] as string;
+                    let dotAt=viewerPath.lastIndexOf('.');
+                    let mod=await import(viewerPath.substring(0,dotAt));
+                    let viewerFactory=mod[viewerPath.substring(dotAt+1)];
+                    if(typeof viewerFactory==='function'){
+                        if('render' in viewerFactory.prototype){
+                            this.setState({
+                                viewer:viewerFactory
+                            })
+                        }else{
+                            this.setState({
+                                viewer:await viewerFactory(this.state.object)
+                            });
+                        }
+                    }
+                }
+            }catch(err:any){
+                console.warn(__name__,':',err.toString());
+            };
         }
     }
     render(props?: React.RenderableProps<{ object: any; }, any> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChild {
@@ -44,7 +73,9 @@ export class ObjectViewer extends React.Component<
         let robj=this.state.identified??this.props.object
         let type1=typeof(robj);
         let TypedArray=Object.getPrototypeOf(Object.getPrototypeOf(new Uint8Array())).constructor;
-        if(type1==='string'){
+        if(this.state.viewer!=null){
+            return React.createElement(this.state.viewer,{...this.props})
+        }if(type1==='string'){
             if(robj.indexOf('\n')>=0){
                 return <div>{this.props.name}:<pre>{robj}</pre></div>
             }else{
@@ -94,7 +125,7 @@ export class ObjectViewer extends React.Component<
             return <div>
             {this.props.name}: ArrayBuffer:{BytesToHex(new Uint8Array(robj))}
         </div>
-        }else{
+        }else{            
             let keys=Object.keys(robj)
             return <div>
                 <a href="javascript:;" onClick={()=>this.toggleFolding()}>
@@ -110,3 +141,58 @@ export class ObjectViewer extends React.Component<
         }
     }
 }
+
+
+export class HtmlViewer extends React.Component<{name:string,object:{html?:string}}>{
+    render(props?: React.RenderableProps<ObjectViewerProps, any> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChildren {
+        if(this.props.object.html!=undefined){
+            return <div>
+                <div>{this.props.name}</div>
+                <div dangerouslySetInnerHTML={{__html:this.props.object.html}}></div>
+            </div>
+        }else{
+            return null;
+        }
+    }
+}
+export function createViewableHtml(source:{html?:string}){
+    let opt:{html?:string}={};
+    if(source.html!=undefined){
+        opt.html=source.html
+    }
+    return {
+        [CustomViewerFactoryProp]:__name__+'.HtmlViewer',
+        ...opt
+    }
+}
+
+
+export class ImageViewer extends React.Component<{name:string,object:{url?:string}}>{
+    render(props?: React.RenderableProps<ObjectViewerProps, any> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChildren {
+        if(this.props.object.url!=undefined){
+            return <div>
+                <div>{this.props.name}</div>
+                <img src={this.props.object.url}></img>
+            </div>
+        }else{
+            return null;
+        }
+    }
+}
+export function createViewableImage(source:{url?:string,svg?:string,pngdata?:Uint8Array,jpegdata?:Uint8Array}){
+    let opt:{url?:string}={};
+    if(source.url!=undefined){
+        opt.url=source.url
+    }else if(source.svg!=undefined){
+        opt.url=ToDataUrl(source.svg,'image/svg+xml')
+    }else if(source.pngdata!=undefined){
+        opt.url=ToDataUrl(source.pngdata,'image/png')
+    }else if(source.jpegdata!=undefined){
+        opt.url=ToDataUrl(source.jpegdata,'image/jpeg')
+    }
+    return {
+        [CustomViewerFactoryProp]:__name__+'.ImageViewer',
+        ...opt
+    }
+}
+
