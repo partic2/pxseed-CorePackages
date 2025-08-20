@@ -162,10 +162,7 @@ export var css={
     simpleTable:GenerateRandomString(),
     simpleTableCell:GenerateRandomString(),
     selectable:GenerateRandomString(),
-    overlayLayer:GenerateRandomString(),
-    activeLayer:GenerateRandomString(),
-    inactiveLayer:GenerateRandomString(),
-    hideLayer:GenerateRandomString()
+    floatLayer:GenerateRandomString()
 }
 DynamicPageCSSManager.PutCss('.'+css.flexRow,['display:flex','flex-direction:row']);
 DynamicPageCSSManager.PutCss('.'+css.flexColumn,['display:flex','flex-direction:column']);
@@ -174,47 +171,39 @@ DynamicPageCSSManager.PutCss('.'+css.selected,['background-color:rgb(150,150,255
 DynamicPageCSSManager.PutCss('.'+css.simpleCard,['display:inline-block','border:solid black 2px','margin:2px','padding:2px','background-color:white'])
 DynamicPageCSSManager.PutCss('.'+css.simpleTable,['border-collapse:collapse']);
 DynamicPageCSSManager.PutCss('.'+css.simpleTableCell,['border:solid black 2px']);
-DynamicPageCSSManager.PutCss('.'+css.overlayLayer,['z-index:1000','position:absolute','left:0px','top:0px','width:100%','height:100%','pointer-events:none']);
-DynamicPageCSSManager.PutCss('.'+css.activeLayer,['z-index:800','position:absolute','left:0px','top:0px','width:100%','height:100%','pointer-events:none']);
-DynamicPageCSSManager.PutCss('.'+css.inactiveLayer,['z-index:600','position:absolute','left:0px','top:0px','width:100%','height:100%','pointer-events:none']);
-DynamicPageCSSManager.PutCss('.'+css.hideLayer,['z-index:600','position:absolute','display:none','left:0px','top:0px','width:100%','height:100%','pointer-events:none']);
+DynamicPageCSSManager.PutCss('.'+css.floatLayer,['position:absolute','left:0px','top:0px','width:100%','height:100%','pointer-events:none']);
 
 export var event={
     layout:'partic2-layout' as const
 }
 
+export let floatLayerZIndexBase=600;
 
 let FloatLayerManager={
-    layerComponents:new Map<FloatLayerComponent,{activeTime:number,layerClass:string}>(),
-    checkRenderLayer:function(c:FloatLayerComponent,activeTime:number):string{
+    layerComponents:new Map<FloatLayerComponent,{activeTime:number,layerZIndex:number}>(),
+    checkRenderLayerStyle:function(c:FloatLayerComponent,activeTime:number):React.JSX.CSSProperties{
         let cur=this.layerComponents.get(c);
         if(cur==null){
-            this.layerComponents.set(c,{activeTime,layerClass:''});
+            this.layerComponents.set(c,{activeTime,layerZIndex:0});
             this.resortAllLayer();
         }else if(cur.activeTime!=activeTime){
-            this.layerComponents.set(c,{activeTime,layerClass:''});
+            this.layerComponents.set(c,{activeTime,layerZIndex:0});
             this.resortAllLayer();
         }
         cur=this.layerComponents.get(c);
-        return cur!.layerClass;
+        let t1:React.JSX.CSSProperties={zIndex:cur!.layerZIndex};
+        if(activeTime<0){
+            t1.display='none'
+        }
+        return t1;
     },
     resortAllLayer(){
-        let activeLayer:[FloatLayerComponent|null,number]=[null,0];''
-        for(let t1 of this.layerComponents.entries()){
-            if(activeLayer[1]<=t1[1].activeTime){
-                activeLayer=[t1[0],t1[1].activeTime];
-            }
-        }
-        for(let t1 of this.layerComponents.entries()){
-            if(t1[1].activeTime<0){
-                t1[1].layerClass=css.hideLayer;
-                t1[0].forceUpdate();
-            }else if(activeLayer[0]==t1[0] && t1[1].layerClass!=css.inactiveLayer){
-                t1[1].layerClass=css.activeLayer;
-                t1[0].forceUpdate();
-            }else if(activeLayer[0]!=t1[0] && t1[1].layerClass!=css.inactiveLayer){
-                t1[1].layerClass=css.inactiveLayer;
-                t1[0].forceUpdate();
+        let ent=Array.from(this.layerComponents.entries());
+        ent.sort((t1,t2)=>t1[1].activeTime-t2[1].activeTime);
+        for(let [t1,t2] of ent.entries()){
+            if(t2[1].layerZIndex!=floatLayerZIndexBase+t1){
+                t2[1].layerZIndex=floatLayerZIndexBase+t1;
+                t2[0].forceUpdate();
             }
         }
     }
@@ -318,8 +307,8 @@ export class FloatLayerComponent<
     }
     render(): React.ComponentChild {
         return <div ref={this.props.divRef} 
-            className={[FloatLayerManager.checkRenderLayer(this,this.props.activeTime),
-                ...this.props.divClass??[]].join(' ')} >
+            className={[css.floatLayer,
+                ...this.props.divClass??[]].join(' ')} style={FloatLayerManager.checkRenderLayerStyle(this,this.props.activeTime)} >
             {this.props.children}
         </div>
     }

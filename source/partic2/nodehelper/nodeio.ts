@@ -173,26 +173,34 @@ import { defaultFuncMap, RpcExtendServerCallable } from "pxprpc/extend";
 import { GetUrlQueryVariable2 } from "partic2/jsutils1/webutils";
 
 const __name__=requirejs.getLocalRequireModule(require);
-//security issue?
-defaultFuncMap[__name__+'.createPxprpcIoFromTcpTarget']=new RpcExtendServerCallable(async (connectTo:string)=>{
-    let s=new PxprpcIoFromSocket();
-    await s.connect(JSON.parse(connectTo))
-    return s;
-}).typedecl('s->o');
+
 
 export async function createIoPxseedJsUrl(url:string){
-    let type=GetUrlQueryVariable2(url,'type');
+    let type=GetUrlQueryVariable2(url,'type')??'tcp';
     if(type==='tcp'){
         let io=new PxprpcIoFromSocket();
         let host=GetUrlQueryVariable2(url,'host')??'127.0.0.1';
         let port=Number(GetUrlQueryVariable2(url,'port')!);
         await io.connect({host,port});
         return io;
+    }else if(type=='pipe'){
+        let io=new PxprpcIoFromSocket();
+        let path=GetUrlQueryVariable2(url,'pipe');
+        assert(path!=null);
+        await io.connect({path});
+        return io;
+    }else if(type==='ws'){
+        let target=GetUrlQueryVariable2(url,'target');
+        assert(target!=null);
+        let io=await new WebSocketIo().connect(target);
+        return io;
     }
+    throw new Error(`Unsupported type ${type}`)
 }
 
 
 import { WebSocket } from 'ws'
+import { WebSocketIo } from "pxprpc/backend";
 export class NodeWsIo implements Io{
     priv__cached=new ArrayWrap2<Uint8Array>([])
     closed:boolean=false;

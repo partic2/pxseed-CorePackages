@@ -61,14 +61,17 @@ export let openNewWindow=async function(contentVNode:React.VNode,options?:OpenNe
 
 
 let baseWindowComponnet:React.VNode|null=null
+let baseWindowRef=new ReactRefEx<WindowComponent>();
 export function setBaseWindowView(vnode:React.VNode){
     if(baseWindowComponnet!=null){
         removeFloatWindow(baseWindowComponnet);
     }
+    baseWindowComponnet=vnode;
     appendFloatWindow(<WindowComponent disablePassiveActive={true} noTitleBar={true} position='fill' 
-        windowDivClassName={windowCss.borderlessWindowDiv}>
+        windowDivClassName={windowCss.borderlessWindowDiv} ref={baseWindowRef} >
         {vnode}
-    </WindowComponent>)
+    </WindowComponent>);
+    baseWindowRef.waitValid().then((wnd)=>wnd.active(1));
 }
 
 

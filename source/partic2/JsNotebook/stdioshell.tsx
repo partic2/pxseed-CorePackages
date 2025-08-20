@@ -10,6 +10,8 @@ import type { Workspace } from './workspace';
 import { tjsFrom } from 'partic2/tjshelper/tjsonjserpc';
 import { ArrayBufferConcat, copy, GetCurrentTime, partial, WaitUntil } from 'partic2/jsutils1/base';
 import { css, FloatLayerComponent } from 'partic2/pComponentUi/domui';
+import { prompt } from 'partic2/pComponentUi/window';
+import { SimpleReactForm1 } from 'partic2/pComponentUi/input';
 
 /* simple shell pipe stdio */
 
@@ -23,21 +25,19 @@ interface StdioShellStats{
     procAlive:boolean,
     process?:tjs.Process,
     stdoutBuffer:Uint8Array[],
-    switchProcessDialog:number,
 }
 
 export class StdioShell extends React.Component<StdioShellProps,StdioShellStats>{
     rref={
         stdout:React.createRef<TextEditor>(),
         stdin:React.createRef<TextEditor>(),
-        switchProcessInput:React.createRef<HTMLInputElement>()
     }
     inputHistory:string[]=[];
     currentUseHistory:number=-1;
     constructor(p:StdioShellProps,c:any){
         super(p,c)
         this.state={
-            stdoutBuffer:[],procAlive:true,switchProcessDialog:-1
+            stdoutBuffer:[],procAlive:true
         }
         this.startProcess(this.props.cmdline);
     }
@@ -95,12 +95,18 @@ export class StdioShell extends React.Component<StdioShellProps,StdioShellStats>
         this.rref.stdout.current!.scrollToBottom()
     }
     protected async openSwitchProcessDialog(){
-        this.setState({switchProcessDialog:GetCurrentTime().getTime()})
-    }
-    protected async switchProcessDialogOk(){
-        let cmdline=this.rref.switchProcessInput.current!.value;
-        this.startProcess(cmdline)
-        this.setState({switchProcessDialog:-1})
+        let v:any={};
+        let p=await prompt(<SimpleReactForm1 onChange={newVal=>v=newVal}>{
+            (form)=><div>command:<input type="text" ref={form.getRefForInput('command')}/><br/></div>
+            }</SimpleReactForm1>
+                ,'switch process');
+        if(await p.answer.get()=='ok'){
+            let {command}=v;
+            this.startProcess(command)
+        }else{
+            p.close();
+        }
+        
     }
     protected async onStdInAreaKeyDown(ev: React.JSX.TargetedKeyboardEvent<HTMLDivElement>){
         if(ev.code=='ArrowUp'){
@@ -135,14 +141,6 @@ export class StdioShell extends React.Component<StdioShellProps,StdioShellStats>
             <a onClick={()=>this.openSwitchProcessDialog()} href={'javascript:;'}>&nbsp;&nbsp;Switch process&nbsp;&nbsp;</a>
             <span>{this.state.procAlive?'process alive':('process stopped with code '+this.state.exitCode)}</span>
             </div>
-            
-            <FloatLayerComponent activeTime={this.state.switchProcessDialog} divClass={[css.activeLayer,css.simpleCard,css.flexColumn]}>
-                <div>command:<input ref={this.rref.switchProcessInput} type="text"/><br/></div>
-                <div className={css.flexRow}>
-                    <a onClick={()=>this.switchProcessDialogOk()} href="javascript:;" style={{flexGrow:'1'}}>Ok</a>
-                    <a onClick={()=>this.setState({switchProcessDialog:-1})} href="javascript:;" style={{flexGrow:'1'}}>Cancel</a>
-                </div>
-            </FloatLayerComponent>
         </div>
     }
 }

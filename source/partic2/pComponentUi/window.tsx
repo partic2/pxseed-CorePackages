@@ -146,20 +146,23 @@ export class WindowComponent extends React.Component<WindowComponentProps,Window
         }
     }
     protected __initialLayout=false;
-    active(){
-        this.setState({activeTime:GetCurrentTime().getTime()},()=>{
+    active(activeTime?:number){
+        if(this.props.keepTop){
+            activeTime=95617573200000;
+        }
+        this.setState({activeTime:activeTime??GetCurrentTime().getTime()},()=>{
             if(!this.__initialLayout){
                 if(['initial center','keep center'].indexOf(this.props.position!)>=0){
                     this.makeCenter();
                 }
                 this.__initialLayout=true;
             }
+            windowsContainerForceUpdate();
         });
-        globalWindowsList.current?.forceUpdate();
     }
     hide(){
         this.setState({activeTime:-1});
-        globalWindowsList.current?.forceUpdate();
+        windowsContainerForceUpdate();
     }
     isHidden(){
         return this.state.activeTime<0&&!this.props.keepTop
@@ -245,11 +248,11 @@ export class WindowComponent extends React.Component<WindowComponentProps,Window
             ref={this.rref.container}
             onMouseDown={()=>{
                 if(this.state.activeTime>=0 && !this.props.disablePassiveActive)
-                    this.setState({activeTime:GetCurrentTime().getTime()})
+                    this.active()
             }}
             onTouchStart={()=>{
                 if(this.state.activeTime>=0 && !this.props.disablePassiveActive)
-                    this.setState({activeTime:GetCurrentTime().getTime()})
+                    this.active()
             }}>
                 {this.props.noTitleBar?null:this.renderTitle()}
                 {[
@@ -276,15 +279,9 @@ export class WindowComponent extends React.Component<WindowComponentProps,Window
         this.props.onComponentDidUpdate?.();
     }
     render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined; }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChild {
-        if(this.props.keepTop){
-            return <div className={cssBase.overlayLayer}>
-                {this.renderWindowMain()}
-            </div>
-        }else{
-            return <FloatLayerComponent activeTime={this.state.activeTime} onLayout={()=>this.doRelayout()}>
-                {this.renderWindowMain()}
-            </FloatLayerComponent> 
-        }
+        return <FloatLayerComponent activeTime={this.state.activeTime} onLayout={()=>this.doRelayout()}>
+            {this.renderWindowMain()}
+        </FloatLayerComponent> 
     }
 }
 
@@ -313,7 +310,6 @@ class WindowsList extends React.Component{
         return t3-t4;
     }
     render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined; }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChild {
-        floatWindowVNodes.sort((t1,t2)=>this.windowActiveTimeCompare(t1.ref as any,t2.ref as any));
         return floatWindowVNodes
     }
 }
@@ -327,7 +323,7 @@ export function appendFloatWindow(window:React.VNode,active?:boolean){
         window.key=GenerateRandomString();
     }
     ensureRootWindowContainer();
-    globalWindowsList.current?.forceUpdate();
+    windowsContainerForceUpdate();
     floatWindowVNodes.push(window);
     if(active){
         ref2.waitValid().then((v)=>(v as any).active?.());
@@ -340,6 +336,14 @@ export function removeFloatWindow(window:React.VNode){
     globalWindowsList.current?.forceUpdate();
 }
 
+export async function windowsContainerForceUpdate(){
+    return new Promise<void>((resolve)=>globalWindowsList.current?.forceUpdate(resolve));
+}
+
+
+export function getFloatWindowRefList(){
+    return floatWindowVNodes.map(t1=>t1.ref);
+}
 
 let i18n={
     caution:'caution',

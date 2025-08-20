@@ -104,7 +104,7 @@ class WindowListIcon extends React.Component<{},{
         <div style={{width:this.state.listWidth+'px',height:this.state.listHeight+'px',display:'flex',flexDirection:'column-reverse'}}>{
             this.state.hideList?null:<div>{
                 this.state.windows.map((t1,t2)=><div className={[css.flexRow,css.simpleCard].join(' ')} style={{backgroundColor:'white',pointerEvents:'auto'}}>
-                    <div style={{display:'flex',flexGrow:'1'}} onClick={()=>NewWindowHandleLists.value[t2].active()}>{t1.title}</div>
+                    <div style={{display:'flex',flexGrow:'1',wordBreak:'break-all'}} onClick={()=>NewWindowHandleLists.value[t2].active()}>{t1.title}</div>
                     <img draggable={false} src={t1.visible?getIconUrl('eye.svg'):getIconUrl('eye-off.svg')} onClick={()=>{
                         if(t1.visible){
                             NewWindowHandleLists.value[t2].hide();
@@ -115,8 +115,14 @@ class WindowListIcon extends React.Component<{},{
                 </div>)
             }</div>
         }</div>
-        <div style={{textAlign:'right'}}><img draggable={false} src={getIconUrl('layers.svg')} onClick={()=>this.onExpandClick()} {...this.drag.trigger}
-        style={{pointerEvents:'auto',width:'32px',height:'32px'}}/></div>
+        <div className={css.flexRow}>
+            <div style={{flexGrow:'1'}}></div>
+            <div style={{pointerEvents:'auto'}} onPointerUp={()=>this.onExpandClick()}>
+                <img draggable={false} src={getIconUrl('layers.svg')} {...this.drag.trigger}
+                    style={{width:'32px',height:'32px'}}/>
+            </div>
+            
+        </div>
         </div>
     }
 }
