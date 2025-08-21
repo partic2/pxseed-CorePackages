@@ -49,38 +49,38 @@ export class Invoker {
         let __v2 = await __v1!.call(io1,autoClose);
         return __v2;
     }
-    async new_tcp_rpc_server(host:string,port:number):Promise<RpcExtendClient1> {
+    async new_tcp_rpc_server(host:string,port:number):Promise<RpcExtendClientObject> {
         let __v1 = await getRpcFunctionOn(this.rpc__client!,'pxprpc_rtbridge_host.new_tcp_rpc_server', 'si->');
         let __v2 = await __v1!.call(host,port);
         return __v2;
     }
-    async memory_alloc(size:number):Promise<RpcExtendClient1> {
-        let __v1 = await getRpcFunctionOn(this.rpc__client!,'pxprpc_rtbridge_host.memory_alloc', 'i->o');
+    async memory_alloc(size:number):Promise<RpcExtendClientObject> {
+        let __v1 = await getRpcFunctionOn(this.rpc__client!,'pxprpc_rtbridge.memory_alloc', 'i->o');
         let __v2 = await __v1!.call(size);
         return __v2;
     }
-    async memory_access(addr:BigInt,size:number):Promise<RpcExtendClient1> {
-        let __v1 = await getRpcFunctionOn(this.rpc__client!,'pxprpc_rtbridge_host.memory_access', 'li->o');
+    async memory_access(addr:BigInt,size:number):Promise<RpcExtendClientObject> {
+        let __v1 = await getRpcFunctionOn(this.rpc__client!,'pxprpc_rtbridge.memory_access', 'li->o');
         let __v2 = await __v1!.call(addr,size);
         return __v2;
     }
     async memory_read(chunk:RpcExtendClientObject,offset:number,size:number):Promise<Uint8Array> {
-        let __v1 = await getRpcFunctionOn(this.rpc__client!,'pxprpc_rtbridge_host.memory_read', 'oii->b');
+        let __v1 = await getRpcFunctionOn(this.rpc__client!,'pxprpc_rtbridge.memory_read', 'oii->b');
         let __v2 = await __v1!.call(chunk,offset,size);
         return __v2;
     }
     async memory_write(chunk:RpcExtendClientObject,offset:number,data:Uint8Array):Promise<void> {
-        let __v1 = await getRpcFunctionOn(this.rpc__client!,'pxprpc_rtbridge_host.memory_write', 'oib->');
+        let __v1 = await getRpcFunctionOn(this.rpc__client!,'pxprpc_rtbridge.memory_write', 'oib->');
         let __v2 = await __v1!.call(chunk,offset,data);
         return __v2;
     }
     async memory_info(chunk:RpcExtendClientObject):Promise<[BigInt,number]> {
-        let __v1 = await getRpcFunctionOn(this.rpc__client!,'pxprpc_rtbridge_host.memory_info', 'o->li');
+        let __v1 = await getRpcFunctionOn(this.rpc__client!,'pxprpc_rtbridge.memory_info', 'o->li');
         let __v2 = await __v1!.call(chunk);
         return __v2;
     }
-    async memory_mapfile(path:string,mode:'r'|'w'|'rw',size:number):Promise<RpcExtendClient1> {
-        let __v1 = await getRpcFunctionOn(this.rpc__client!,'pxprpc_rtbridge_host.memory_mapfile', 'ssi->o');
+    async memory_mapfile(path:string,mode:'r'|'w'|'rw',size:number):Promise<RpcExtendClientObject> {
+        let __v1 = await getRpcFunctionOn(this.rpc__client!,'pxprpc_rtbridge.memory_mapfile', 'ssi->o');
         let __v2 = await __v1!.call(path,mode,size);
         return __v2;
     }
