@@ -1,7 +1,7 @@
 import { FloatLayerComponent, ReactRefEx, ReactRender, css } from 'partic2/pComponentUi/domui';
 import * as React from 'preact';
 import {  DummyDirectoryHandler, FileBrowser } from './filebrowser';
-import { TabInfoBase, TabView } from 'partic2/pComponentUi/workspace';
+import { openNewWindow, TabInfoBase, TabView } from 'partic2/pComponentUi/workspace';
 import { ClientInfo } from 'partic2/pxprpcClient/registry';
 import { IJSNBFileHandler, RunCodeTab } from './notebook';
 import { FileTypeHandler, JsModuleHandler, ImageFileHandler, TextFileHandler } from './fileviewer';
@@ -272,26 +272,24 @@ export class Workspace extends React.Component<{rpc?:ClientInfo,fs?:SimpleFileSy
 
 export let defaultOpenWorkspaceWindowFor=async function (supportedContext:'local window'|ClientInfo|RemoteRunCodeContext|LocalRunCodeContext,title?:string){
     let wsref=new ReactRefEx<Workspace>();
-    let appendedWindow:React.VNode[]=[];
-    const onCloseWindow=()=>{
-        appendedWindow.forEach(wnd=>removeFloatWindow(wnd));
+    let newWindowHandle=await (async ()=>{
+        if(supportedContext=='local window' || (supportedContext instanceof LocalRunCodeContext)){
+            return openNewWindow(<Workspace ref={wsref} divStyle={{backgroundColor:'white'}}/>,{title})
+        }else if(supportedContext instanceof ClientInfo){
+            return openNewWindow(<Workspace ref={wsref} rpc={supportedContext} divStyle={{backgroundColor:'white'}}/>,{title})
+        }else if(supportedContext instanceof RemoteRunCodeContext){
+            let rpc=findRpcClientInfoFromClient(supportedContext.client1);
+            assert(rpc!=null);
+            return openNewWindow(<Workspace ref={wsref} rpc={rpc!} divStyle={{backgroundColor:'white'}}/>,{title})
+        }
+    })();
+    if(newWindowHandle!=null){
+        (await wsref.waitValid()).openNotebookFor(supportedContext);
+        newWindowHandle.waitClose().then(async ()=>{
+            let ws=await wsref.waitValid();
+            await ws.saveProfile();
+        })
     }
-    if(supportedContext=='local window' || (supportedContext instanceof LocalRunCodeContext)){
-        appendFloatWindow(<WindowComponent key={GenerateRandomString()} title={title} onClose={onCloseWindow}>
-            <Workspace ref={wsref} divStyle={{backgroundColor:'white'}}/>
-        </WindowComponent>)
-    }else if(supportedContext instanceof ClientInfo){
-        appendFloatWindow(<WindowComponent key={GenerateRandomString()} title={title} onClose={onCloseWindow}>
-            <Workspace ref={wsref} rpc={supportedContext} divStyle={{backgroundColor:'white'}}/>
-        </WindowComponent>)
-    }else if(supportedContext instanceof RemoteRunCodeContext){
-        let rpc=findRpcClientInfoFromClient(supportedContext.client1);
-        assert(rpc!=null);
-        appendFloatWindow(<WindowComponent key={GenerateRandomString()} title={title} onClose={onCloseWindow}>
-            <Workspace ref={wsref} rpc={rpc!} divStyle={{backgroundColor:'white'}}/>
-        </WindowComponent>)
-    }
-    (await wsref.waitValid()).openNotebookFor(supportedContext);
 }
 
 export async function setDefaultOpenWorkspaceWindowFor(openNotebook:typeof openWorkspaceWindowFor){

@@ -9,10 +9,9 @@ import { PointTrace, TransformHelper } from './transform';
 
 interface WindowComponentProps{
     closeIcon?:string|null
-    foldIcon?:string|null
-    expandIcon?:string|null
     maximize?:string|null
     title?:string
+    titleBarButton?:Array<{icon:string,onClick:()=>void}>
     onClose?:()=>void
     position?:'keep center'|'initial center'|'fill'
     noTitleBar?:boolean
@@ -28,7 +27,6 @@ interface WindowComponentProps{
 
 interface WindowComponentStats{
     activeTime:number,
-    folded:boolean,
     layout:{left:number,top:number,width?:number,height?:number},
     errorOccured:Error|null,
 }
@@ -50,8 +48,6 @@ DynamicPageCSSManager.PutCss('.'+css.defaultTitleStyle ,['background-color:black
 export class WindowComponent extends React.Component<WindowComponentProps,WindowComponentStats>{
     static defaultProps:WindowComponentProps={
         closeIcon:getIconUrl('x.svg'),
-        foldIcon:getIconUrl('minus.svg'),
-        expandIcon:getIconUrl('plus.svg'),
         maximize:getIconUrl('maximize-2.svg'),
         
         title:'untitled',
@@ -66,7 +62,7 @@ export class WindowComponent extends React.Component<WindowComponentProps,Window
     }
     constructor(props:WindowComponentProps,ctx:any){
         super(props,ctx);
-        this.setState({activeTime:-1,folded:false,layout:{left:0,top:0},errorOccured:null});
+        this.setState({activeTime:-1,layout:{left:0,top:0},errorOccured:null});
     }
     async makeCenter(){
         //wait for layout complete?     
@@ -167,32 +163,19 @@ export class WindowComponent extends React.Component<WindowComponentProps,Window
     isHidden(){
         return this.state.activeTime<0&&!this.props.keepTop
     }
-    isFolded(){
-        return this.state.folded;
-    }
-    setFolded(v:boolean){
-        this.setState({folded:v})
-    }
     renderTitle(){
         return <div className={[cssBase.flexRow,css.defaultTitleStyle].join(' ')} style={{alignItems:'center'}}>
                 <div style={{flexGrow:'1',cursor:'move',userSelect:'none'}} 
                 onMouseDown={this.__onTitleMouseDownHandler} onTouchStart={this.__onTitleTouchDownHandler} >
                 {(this.props.title??'').replace(/ /g,String.fromCharCode(160))}</div>&nbsp;
                 {
+                    (this.props.titleBarButton??[]).map(t1=>this.renderIcon(t1.icon,t1.onClick))
+                }{
                     this.renderIcon(this.props.maximize!,()=>this.onMaximizeClick())
-                }{this.state.folded?
-                    this.renderIcon(this.props.expandIcon!,()=>this.onExpandClick()):
-                    this.renderIcon(this.props.foldIcon!,()=>this.onFoldClick())
                 }{
                     this.renderIcon(this.props.closeIcon!,()=>this.onCloseClick())
                 }
         </div>
-    }
-    async onFoldClick(){
-        this.setState({folded:true})
-    }
-    async onExpandClick(){
-        this.setState({folded:false})
     }
     async onCloseClick(){
         this.hide();
@@ -224,10 +207,10 @@ export class WindowComponent extends React.Component<WindowComponentProps,Window
             top:this.state.layout.top+'px',
             pointerEvents:'auto'
         };
-        if(this.state.layout.width!=undefined && !this.state.folded){
+        if(this.state.layout.width!=undefined){
             windowDivStyle.width=this.state.layout.width+'px';
         }
-        if(this.state.layout.height!=undefined && !this.state.folded){
+        if(this.state.layout.height!=undefined){
             windowDivStyle.height=this.state.layout.height+'px';
         }
         if(this.props.position=='fill'){
@@ -238,9 +221,6 @@ export class WindowComponent extends React.Component<WindowComponentProps,Window
             Object.assign(windowDivStyle,this.props.windowDivInlineStyle)
         }
         let contentDivStyle:React.JSX.CSSProperties={};
-        if(this.state.folded){
-            contentDivStyle.display='none'
-        }
         if(this.props.contentDivInlineStyle!=undefined){
             Object.assign(contentDivStyle,this.props.contentDivInlineStyle)
         }
@@ -263,7 +243,7 @@ export class WindowComponent extends React.Component<WindowComponentProps,Window
                             {this.state.errorOccured.stack}
                         </pre>}
                     </div>,
-                    (this.state.folded||this.props.noResizeHandle||this.props.position=='fill')?null:<img src={getIconUrl('arrow-down-right.svg')} 
+                    (this.props.noResizeHandle||this.props.position=='fill')?null:<img src={getIconUrl('arrow-down-right.svg')} 
                     style={{
                         position:'absolute',cursor:'nwse-resize',
                         right:'0px',bottom:'0px',

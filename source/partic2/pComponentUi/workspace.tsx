@@ -4,6 +4,7 @@ import { css, DomComponent, ReactRefEx } from './domui';
 import { css as windowCss } from './window';
 import {Ref2, copy, future} from 'partic2/jsutils1/base'
 import { appendFloatWindow, removeFloatWindow, WindowComponent } from './window';
+import { getIconUrl } from 'partic2/pxseedMedia1/index1';
 
 
 class CNewWindowHandleLists extends EventTarget{
@@ -14,8 +15,8 @@ export let NewWindowHandleLists=new CNewWindowHandleLists();
 interface OpenNewWindopwOption{
     title?:string
 }
-interface NewWindowHandle extends OpenNewWindopwOption{
-    onClose:()=>Promise<void>,
+export interface NewWindowHandle extends OpenNewWindopwOption{
+    waitClose:()=>Promise<void>,
     close:()=>void,
     windowVNode:React.VNode
     windowRef:ReactRefEx<WindowComponent>,
@@ -35,11 +36,15 @@ export let openNewWindow=async function(contentVNode:React.VNode,options?:OpenNe
         NewWindowHandleLists.dispatchEvent(new Event('change'));
     }} onComponentDidUpdate={()=>{
         NewWindowHandleLists.dispatchEvent(new Event('change'));
-    }} title={options.title}>{contentVNode}</WindowComponent>;
+    }} titleBarButton={[{
+        icon:getIconUrl('minus.svg'),
+        onClick:async()=>handle.hide()
+    }]} title={options.title}
+    >{contentVNode}</WindowComponent>;
     appendFloatWindow(windowVNode,true);
     let handle={
         ...options,
-        onClose:async function(){
+        waitClose:async function(){
             await closeFuture.get();
         },
         close:function(){removeFloatWindow(windowVNode);},
