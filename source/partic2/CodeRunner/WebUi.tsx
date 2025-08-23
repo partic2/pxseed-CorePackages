@@ -7,6 +7,7 @@ import { DynamicPageCSSManager } from 'partic2/jsutils1/webutils';
 import { TextEditor } from 'partic2/pComponentUi/texteditor';
 import { DelayOnceCall,CodeContextRemoteObjectFetcher, fromSerializableObject, inspectCodeContextVariable, CodeCompletionItem, toSerializableObject } from './Inspector';
 import { ObjectViewer } from './Component1';
+import { text2html } from 'partic2/pComponentUi/utils';
 
 
 
@@ -237,7 +238,9 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
             <div>{this.renderActionButton()}</div>
             <div>{this.renderCodeComplete()}</div>
             <div>{this.renderTooltip()}</div>
-            <ObjectViewer object={this.state.cellOutput} name={''} />
+            <div style={{overflow:'auto'}}>
+                <ObjectViewer object={this.state.cellOutput} name={''} />
+            </div>
         </div>
     }
     async setAsEditTarget(){
@@ -352,12 +355,12 @@ export class DefaultCodeCellList extends React.Component<
                     {...this.props.cellProps}
                 />];
                 if(v.key in this.state.consoleOutput){
-                    r.push(<pre>{this.state.consoleOutput[v.key].content}</pre>)
+                    r.push(<div style={{wordBreak:'break-all'}} dangerouslySetInnerHTML={{__html:text2html(this.state.consoleOutput[v.key].content)}}></div>)
                 }
                 return r;
             }))}
             </div>:
-            <div><pre>{this.state.error}</pre>
+            <div style={{width:'100%',overflow:'auto'}}><pre>{this.state.error}</pre>
             <a href="javascript:;" onClick={()=>this.resetState()}>Reset</a>
             </div>
     }
