@@ -244,7 +244,7 @@ export class Workspace extends React.Component<{rpc?:ClientInfo,fs?:SimpleFileSy
             </WindowComponent>
             <div style={{flexBasis:(this.state.panel12SplitX??302-2)+'px',flexShrink:'0'
                 ,height:'100%',overflowY:'auto'}} ref={this.rref.panel1}>
-                <a href="javascript:;" onClick={()=>this.rref.rpcRegistry.current?.active()}>RpcRegistry</a><span>&nbsp;&nbsp;</span>
+                <a href="javascript:;" onClick={()=>this.rref.rpcRegistry.current?.activate()}>RpcRegistry</a><span>&nbsp;&nbsp;</span>
                 <div style={{flexGrow:1}}>
                 <FileBrowser ref={this.rref.fb} sfs={this.state.fs} initDir={this.state.initFileDir} workspace={this}
             onOpenRequest={(path)=>this.doOpenFileRequest(path)} onCreateRequest={(dir)=>this.doCreateFileRequest(dir)}/>

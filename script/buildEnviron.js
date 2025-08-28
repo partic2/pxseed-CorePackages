@@ -53,5 +53,5 @@ async function updateFileIfNewer(sdir,ddir){
     
     let buildProj=path.join(path.dirname(__dirname),'source','pxseedBuildScript')
     let tscPath=path.join(path.dirname(__dirname),'npmdeps','node_modules','typescript','bin','tsc');
-    await runCommand(`${process.execPath} "${tscPath}" -p "${buildProj}"`)
+    await runCommand(`"${process.execPath}" "${tscPath}" -p "${buildProj}"`)
 })()

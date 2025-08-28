@@ -20,7 +20,7 @@ export interface NewWindowHandle extends OpenNewWindopwOption{
     close:()=>void,
     windowVNode:React.VNode
     windowRef:ReactRefEx<WindowComponent>,
-    active:()=>Promise<void>,
+    activate:()=>Promise<void>,
     hide:()=>Promise<void>,
     isHidden:()=>Promise<boolean>
 }
@@ -48,8 +48,8 @@ export let openNewWindow=async function(contentVNode:React.VNode,options?:OpenNe
             await closeFuture.get();
         },
         close:function(){removeFloatWindow(windowVNode);},
-        async active(){
-            (await this.windowRef.waitValid()).active();
+        async activate(){
+            (await this.windowRef.waitValid()).activate();
         },
         async hide(){
             (await this.windowRef.waitValid()).hide();
@@ -72,11 +72,11 @@ export function setBaseWindowView(vnode:React.VNode){
         removeFloatWindow(baseWindowComponnet);
     }
     baseWindowComponnet=vnode;
-    appendFloatWindow(<WindowComponent disablePassiveActive={true} noTitleBar={true} position='fill' 
+    appendFloatWindow(<WindowComponent disableUserInputActivate={true} noTitleBar={true} position='fill' 
         windowDivClassName={windowCss.borderlessWindowDiv} ref={baseWindowRef} >
         {vnode}
     </WindowComponent>);
-    baseWindowRef.waitValid().then((wnd)=>wnd.active(1));
+    baseWindowRef.waitValid().then((wnd)=>wnd.activate(1));
 }
 
 

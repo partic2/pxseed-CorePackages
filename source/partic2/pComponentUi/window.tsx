@@ -13,10 +13,10 @@ interface WindowComponentProps{
     title?:string
     titleBarButton?:Array<{icon:string,onClick:()=>void}>
     onClose?:()=>void
-    position?:'keep center'|'initial center'|'fill'
+    position?:'auto center'|'fill'
     noTitleBar?:boolean
     noResizeHandle?:boolean
-    disablePassiveActive?:boolean
+    disableUserInputActivate?:boolean
     keepTop?:boolean
     contentDivClassName?:string
     windowDivClassName?:string
@@ -26,7 +26,7 @@ interface WindowComponentProps{
 }
 
 interface WindowComponentStats{
-    activeTime:number,
+    activateTime:number,
     layout:{left:number,top:number,width?:number,height?:number},
     errorOccured:Error|null,
 }
@@ -49,9 +49,8 @@ export class WindowComponent extends React.Component<WindowComponentProps,Window
     static defaultProps:WindowComponentProps={
         closeIcon:getIconUrl('x.svg'),
         maximize:getIconUrl('maximize-2.svg'),
-        
         title:'untitled',
-        position:'initial center'
+        position:'auto center'
     }
     static getDerivedStateFromError(error: any): object | null {
         return {errorOccured:error};
@@ -62,10 +61,9 @@ export class WindowComponent extends React.Component<WindowComponentProps,Window
     }
     constructor(props:WindowComponentProps,ctx:any){
         super(props,ctx);
-        this.setState({activeTime:-1,layout:{left:0,top:0},errorOccured:null});
+        this.setState({activateTime:-1,layout:{left:0,top:0},errorOccured:null});
     }
-    async makeCenter(){
-        //wait for layout complete?     
+    async makeCenter(){   
         await (async()=>{
             let width=0;
             let height=0;
@@ -93,9 +91,11 @@ export class WindowComponent extends React.Component<WindowComponentProps,Window
         if(height>wndHeight-5)height=wndHeight-5;
         let left=(wndWidth-width)>>1;
         let top=(wndHeight-height)>>1;
-        await new Promise((resolve)=>{
-            this.setState({layout:{left:left,top:top}},()=>resolve(null))
-        });
+        if(left!=this.state.layout.left || top!=this.state.layout.top){
+            await new Promise((resolve)=>{
+                this.setState({layout:{left:left,top:top}},()=>resolve(null))
+            });
+        }
     }
     renderIcon(url:string|null,onClick:()=>void){
         if(url==null){
@@ -141,27 +141,20 @@ export class WindowComponent extends React.Component<WindowComponentProps,Window
             evt.preventDefault();
         }
     }
-    protected __initialLayout=false;
-    active(activeTime?:number){
+    activate(activateTime?:number){
         if(this.props.keepTop){
-            activeTime=95617573200000;
+            activateTime=95617573200000;
         }
-        this.setState({activeTime:activeTime??GetCurrentTime().getTime()},()=>{
-            if(!this.__initialLayout){
-                if(['initial center','keep center'].indexOf(this.props.position!)>=0){
-                    this.makeCenter();
-                }
-                this.__initialLayout=true;
-            }
+        this.setState({activateTime:activateTime??GetCurrentTime().getTime()},()=>{
             windowsContainerForceUpdate();
         });
     }
     hide(){
-        this.setState({activeTime:-1});
+        this.setState({activateTime:-1});
         windowsContainerForceUpdate();
     }
     isHidden(){
-        return this.state.activeTime<0&&!this.props.keepTop
+        return this.state.activateTime<0&&!this.props.keepTop
     }
     renderTitle(){
         return <div className={[cssBase.flexRow,css.defaultTitleStyle].join(' ')} style={{alignItems:'center'}}>
@@ -194,11 +187,6 @@ export class WindowComponent extends React.Component<WindowComponentProps,Window
                 height:(containerDiv.offsetParent as HTMLElement).offsetHeight}});
         }
     }
-    doRelayout(){
-        if(this.props.position==='keep center'){
-            this.makeCenter();
-        }
-    }
     renderWindowMain(){
         let windowDivStyle:React.JSX.CSSProperties={
             boxSizing:'border-box',
@@ -227,12 +215,12 @@ export class WindowComponent extends React.Component<WindowComponentProps,Window
         return <div className={[cssBase.flexColumn,this.props.windowDivClassName??css.defaultWindowDiv].join(' ')} style={windowDivStyle}
             ref={this.rref.container}
             onMouseDown={()=>{
-                if(this.state.activeTime>=0 && !this.props.disablePassiveActive)
-                    this.active()
+                if(this.state.activateTime>=0 && !this.props.disableUserInputActivate)
+                    this.activate()
             }}
             onTouchStart={()=>{
-                if(this.state.activeTime>=0 && !this.props.disablePassiveActive)
-                    this.active()
+                if(this.state.activateTime>=0 && !this.props.disableUserInputActivate)
+                    this.activate()
             }}>
                 {this.props.noTitleBar?null:this.renderTitle()}
                 {[
@@ -258,8 +246,15 @@ export class WindowComponent extends React.Component<WindowComponentProps,Window
     componentDidUpdate(previousProps: Readonly<WindowComponentProps>, previousState: Readonly<WindowComponentStats>, snapshot: any): void {
         this.props.onComponentDidUpdate?.();
     }
+    protected __firstRender=true;
     render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined; }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChild {
-        return <FloatLayerComponent activeTime={this.state.activeTime} onLayout={()=>this.doRelayout()}>
+        if(this.__firstRender){
+            this.__firstRender=false;
+            if(this.props.position=='auto center'){
+                this.makeCenter();
+            }
+        }
+        return <FloatLayerComponent activateTime={this.state.activateTime}>
             {this.renderWindowMain()}
         </FloatLayerComponent> 
     }
@@ -285,8 +280,8 @@ export function ensureRootWindowContainer(){
 let floatWindowVNodes:React.VNode[]=[];
 class WindowsList extends React.Component{
     windowActiveTimeCompare=(t1:ReactRefEx<React.VNode>,t2:ReactRefEx<React.VNode>)=>{
-        let t3=(t1.current as any)?.state?.activeTime??0;
-        let t4=(t2.current as any)?.state?.activeTime??0;
+        let t3=(t1.current as any)?.state?.activateTime??0;
+        let t4=(t2.current as any)?.state?.activateTime??0;
         return t3-t4;
     }
     render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined; }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChild {
@@ -306,7 +301,11 @@ export function appendFloatWindow(window:React.VNode,active?:boolean){
     windowsContainerForceUpdate();
     floatWindowVNodes.push(window);
     if(active){
-        ref2.waitValid().then((v)=>(v as any).active?.());
+        ref2.waitValid().then((v)=>{
+            if(v instanceof WindowComponent){
+                v.activate();
+            }
+        });
     }
 }
 

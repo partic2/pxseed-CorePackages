@@ -11,6 +11,6 @@ async function runCommand(cmd,cwd){
 }
 
 ;(async()=>{
-    await runCommand(`${process.execPath} "${path.join(__dirname,'buildPackages.js')}"`)
+    await runCommand(`"${process.execPath}" "${path.join(__dirname,'buildPackages.js')}"`)
     require(path.join(path.dirname(__dirname),'www','noderun.js')).main('pxseedServer2023/entry');
 })()

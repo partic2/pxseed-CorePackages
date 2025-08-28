@@ -104,12 +104,12 @@ class WindowListIcon extends React.Component<{},{
         <div style={{width:this.state.listWidth+'px',height:this.state.listHeight+'px',display:'flex',flexDirection:'column-reverse'}}>{
             this.state.hideList?null:<div>{
                 this.state.windows.map((t1,t2)=><div className={[css.flexRow,css.simpleCard].join(' ')} style={{backgroundColor:'white',pointerEvents:'auto'}}>
-                    <div style={{display:'flex',flexGrow:'1',wordBreak:'break-all'}} onClick={()=>NewWindowHandleLists.value[t2].active()}>{t1.title}</div>
+                    <div style={{display:'flex',flexGrow:'1',wordBreak:'break-all'}} onClick={()=>NewWindowHandleLists.value[t2].activate()}>{t1.title}</div>
                     <img draggable={false} src={t1.visible?getIconUrl('eye.svg'):getIconUrl('eye-off.svg')} onClick={()=>{
                         if(t1.visible){
                             NewWindowHandleLists.value[t2].hide();
                         }else{
-                            NewWindowHandleLists.value[t2].active();
+                            NewWindowHandleLists.value[t2].activate();
                         }
                     }}/>
                 </div>)
@@ -246,7 +246,7 @@ class PackagePanel extends React.Component<{},{
         }
     }
     async showCreatePackage(){
-        this.rref.createPackageGuide.current?.active();
+        this.rref.createPackageGuide.current?.activate();
         this.rref.createPackageForm.current!.value={
             name:'partic2/createPkgDemo',
             loaders:`[

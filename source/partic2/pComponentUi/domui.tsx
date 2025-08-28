@@ -180,26 +180,26 @@ export var event={
 export let floatLayerZIndexBase=600;
 
 let FloatLayerManager={
-    layerComponents:new Map<FloatLayerComponent,{activeTime:number,layerZIndex:number}>(),
-    checkRenderLayerStyle:function(c:FloatLayerComponent,activeTime:number):React.JSX.CSSProperties{
+    layerComponents:new Map<FloatLayerComponent,{activateTime:number,layerZIndex:number}>(),
+    checkRenderLayerStyle:function(c:FloatLayerComponent,activateTime:number):React.JSX.CSSProperties{
         let cur=this.layerComponents.get(c);
         if(cur==null){
-            this.layerComponents.set(c,{activeTime,layerZIndex:0});
+            this.layerComponents.set(c,{activateTime,layerZIndex:0});
             this.resortAllLayer();
-        }else if(cur.activeTime!=activeTime){
-            this.layerComponents.set(c,{activeTime,layerZIndex:0});
+        }else if(cur.activateTime!=activateTime){
+            this.layerComponents.set(c,{activateTime,layerZIndex:0});
             this.resortAllLayer();
         }
         cur=this.layerComponents.get(c);
         let t1:React.JSX.CSSProperties={zIndex:cur!.layerZIndex};
-        if(activeTime<0){
+        if(activateTime<0){
             t1.display='none'
         }
         return t1;
     },
     resortAllLayer(){
         let ent=Array.from(this.layerComponents.entries());
-        ent.sort((t1,t2)=>t1[1].activeTime-t2[1].activeTime);
+        ent.sort((t1,t2)=>t1[1].activateTime-t2[1].activateTime);
         for(let [t1,t2] of ent.entries()){
             if(t2[1].layerZIndex!=floatLayerZIndexBase+t1){
                 t2[1].layerZIndex=floatLayerZIndexBase+t1;
@@ -281,12 +281,10 @@ export class ReactRefEx<T> extends EventTarget implements React.RefObject<T>{
     }
 }
 
-//activeTime: The last actived layer (which activeTime is latest.) will be put to activeLayer as foreground layer, 
-//others layer will put to inactiveLayer.
+//activateTime: The last actived layer (which activateTime is latest.) will be put to activeLayer as foreground layer, 
 interface FloatLayerComponentProps{
-    activeTime:number
+    activateTime:number
     divClass?:string[],
-    onLayout?:()=>void,
     divRef?:React.Ref<HTMLDivElement>
 }
 
@@ -302,13 +300,10 @@ export class FloatLayerComponent<
         FloatLayerManager.layerComponents.delete(this);
     }
     containerDiv:HTMLDivElement|null=null;
-    protected cbOnLayout=()=>{
-        this.props.onLayout?.();
-    }
     render(): React.ComponentChild {
         return <div ref={this.props.divRef} 
             className={[css.floatLayer,
-                ...this.props.divClass??[]].join(' ')} style={FloatLayerManager.checkRenderLayerStyle(this,this.props.activeTime)} >
+                ...this.props.divClass??[]].join(' ')} style={FloatLayerManager.checkRenderLayerStyle(this,this.props.activateTime)} >
             {this.props.children}
         </div>
     }

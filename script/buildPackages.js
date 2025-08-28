@@ -25,5 +25,5 @@ async function runCommand(cmd,cwd){
     }
     console.log('run pxseedBuildScript')
     let noderunjs=path.join(path.dirname(__dirname),'www','noderun.js');
-    await runCommand(`${process.execPath} "${noderunjs}" pxseedBuildScript/build`);
+    await runCommand(`"${process.execPath}" "${noderunjs}" pxseedBuildScript/build`);
 })();
