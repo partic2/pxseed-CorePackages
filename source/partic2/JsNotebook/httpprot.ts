@@ -1,6 +1,6 @@
 
 import { ExtendStreamReader } from "partic2/CodeRunner/jsutils2";
-import { future, ArrayWrap2, Ref2, CanceledError, ArrayBufferConcat, throwIfAbortError, assert, BytesToHex } from "partic2/jsutils1/base";
+import { future, ArrayWrap2, Ref2, CanceledError, ArrayBufferConcat, throwIfAbortError, assert } from "partic2/jsutils1/base";
 import {getFileSystemReadableStream, SimpleFileSystem} from 'partic2/CodeRunner/JsEnviron'
 const decode=TextDecoder.prototype.decode.bind(new TextDecoder());
 const encode=TextEncoder.prototype.encode.bind(new TextEncoder());

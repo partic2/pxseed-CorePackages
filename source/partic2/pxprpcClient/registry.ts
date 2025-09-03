@@ -1,4 +1,4 @@
-import { ArrayBufferConcat, ArrayWrap2, ErrorChain, GenerateRandomString, future, mutex, requirejs } from "partic2/jsutils1/base";
+import { ArrayBufferConcat, ArrayWrap2, GenerateRandomString, future, mutex, requirejs } from "partic2/jsutils1/base";
 import { GetPersistentConfig, SavePersistentConfig,IWorkerThread, CreateWorkerThread, lifecycle, GetUrlQueryVariable } from "partic2/jsutils1/webutils";
 import { WebMessage, WebSocketIo } from "pxprpc/backend";
 import { Client, Io, Server } from "pxprpc/base";

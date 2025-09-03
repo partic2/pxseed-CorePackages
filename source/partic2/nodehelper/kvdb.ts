@@ -1,7 +1,7 @@
 
 import * as fs from 'fs/promises'
 import {join} from 'path'
-import { GenerateRandomString ,Base64ToArrayBuffer,ArrayBufferToBase64, BytesToHex, requirejs} from 'partic2/jsutils1/base';
+import { GenerateRandomString ,Base64ToArrayBuffer,ArrayBufferToBase64, requirejs} from 'partic2/jsutils1/base';
 
 import {CKeyValueDb, getWWWRoot, IKeyValueDb, setKvStoreBackend} from 'partic2/jsutils1/webutils'
 

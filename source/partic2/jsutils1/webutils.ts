@@ -261,7 +261,7 @@ export function GetFullPathFromRelativePath(relPath:string):string{
 }
 
 var priv__CachedDownloadLink:HTMLAnchorElement|null=null;
-export function RequestDownload(buff:ArrayBuffer|string,fileName:string){
+export function RequestDownload(buff:ArrayBuffer|string|Uint8Array<ArrayBuffer>,fileName:string){
     if(priv__CachedDownloadLink==null){
         priv__CachedDownloadLink = document.createElement('a');
         priv__CachedDownloadLink.style.display = 'none';

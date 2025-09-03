@@ -1,34 +1,43 @@
-import { ArrayBufferConcat, ArrayWrap2, GenerateRandomString, Ref2, Task, assert, future, requirejs, throwIfAbortError } from "partic2/jsutils1/base";
+import { ArrayBufferConcat, ArrayWrap2, GenerateRandomString, Ref2, Task, assert, future, requirejs, throwIfAbortError ,TaskLocalRef } from "partic2/jsutils1/base";
 import { getPersistentRegistered, importRemoteModule } from "partic2/pxprpcClient/registry";
 
 
 let __name__=requirejs.getLocalRequireModule(require);
 
-export class TaskLocalRef<T> extends Ref2<T>{
-    taskLocalVarName=__name__+'.var-'+GenerateRandomString();
-    constructor(defaultVal:T){
-        super(defaultVal);
-        let loc=Task.locals();
-        if(loc!=undefined){
-            loc[this.taskLocalVarName]=defaultVal;
-        }
+export {TaskLocalRef};
+
+let utf8decoder=new TextDecoder();
+let utf8encoder=new TextEncoder();
+export function utf8conv(s:string):Uint8Array;
+export function utf8conv(u8:Uint8Array):string;
+export function utf8conv(input:string|Uint8Array):Uint8Array|string{
+    if(typeof input==='string'){
+        return utf8encoder.encode(input);
+    }else{
+        return utf8decoder.decode(input);
     }
-    public get(): T {
-        let loc=Task.locals();
-        if(loc!=undefined){
-            return loc[this.taskLocalVarName]??this.__val;
-        }else{
-            return super.get();
-        }
-    }
-    public set(val: T): void {
-        let loc=Task.locals();
-        if(loc!=undefined){
-            loc[this.taskLocalVarName]=val;
-        }else{
-            this.__val=val;
-        }
-    }
+}
+
+export function u8hexconv(s:string):Uint8Array;
+export function u8hexconv(u8:Uint8Array):string;
+export function u8hexconv(input:string|Uint8Array):Uint8Array|string{
+	if(typeof input==='string'){
+		let hex=input;
+		hex=hex.replace(/[^0-9a-fA-F]/g,'');
+		let bytes=new Uint8Array(hex.length>>1);
+		for(let t1=0;t1<hex.length;t1+=2){
+			bytes[t1>>1]=parseInt(hex.substring(t1,t1+2),16);
+		}
+		return bytes;
+	}else{
+		let b=input;
+		let hex='';
+		for(let t1 of b){
+			let ch=t1.toString(16);
+			hex+=ch.length==2?ch:'0'+ch;
+		}
+		return hex; 
+	}
 }
 
 export class ExtendStreamReader implements ReadableStreamDefaultReader<Uint8Array>{
@@ -130,6 +139,36 @@ export class ExtendStreamReader implements ReadableStreamDefaultReader<Uint8Arra
 }
 
 
+//also useful for string template
+export type RecursiveIteratable<T>=Iterable<T|RecursiveIteratable<T>|Promise<T>>;
+export async function FlattenArray<T>(source:RecursiveIteratable<T>){
+    let parts=[] as T[];
+    for(let t1 of source){
+        if(t1 instanceof Promise){
+            parts.push(await t1);
+        }else if(t1==null){
+        }else if(typeof(t1)==='object' && (Symbol.iterator in t1)){
+            parts.push(...await FlattenArray(t1));
+        }else{
+            parts.push(t1);
+        }
+    }
+    return parts;
+}
+//Promise will be ignored
+export function FlattenArraySync<T>(source:RecursiveIteratable<T>){
+    let parts=[] as T[];
+    for(let t1 of source){
+        if(t1 instanceof Promise){
+        }else if(t1==null){
+        }else if(typeof(t1)==='object' && (Symbol.iterator in t1)){
+            parts.push(...FlattenArraySync(t1));
+        }else{
+            parts.push(t1);
+        }
+    }
+    return parts;
+}
 
 export class Singleton<T> extends future<T>{
     constructor(public init:()=>Promise<T>){super()}

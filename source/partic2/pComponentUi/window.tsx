@@ -310,7 +310,8 @@ export function appendFloatWindow(window:React.VNode,active?:boolean){
 }
 
 export function removeFloatWindow(window:React.VNode){
-    new ArrayWrap2(floatWindowVNodes).removeFirst(v=>v===window);
+    let index=floatWindowVNodes.findIndex(v=>v===window);
+    floatWindowVNodes.splice(index,1);
     ensureRootWindowContainer();
     globalWindowsList.current?.forceUpdate();
 }

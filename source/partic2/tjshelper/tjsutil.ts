@@ -1,6 +1,6 @@
 /*jshint node:true */
 
-import { ArrayBufferConcat, ArrayWrap2, BytesToHex, DateDiff, GetCurrentTime, assert, logger, requirejs } from "partic2/jsutils1/base";
+import { ArrayBufferConcat, ArrayWrap2, DateDiff, GetCurrentTime, assert, logger, requirejs } from "partic2/jsutils1/base";
 import { getWWWRoot } from "partic2/jsutils1/webutils";
 
 

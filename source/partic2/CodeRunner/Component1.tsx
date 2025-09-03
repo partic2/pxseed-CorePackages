@@ -1,8 +1,9 @@
 import * as React from 'preact'
 import { MiscObject, UnidentifiedArray, UnidentifiedObject } from './Inspector';
-import { assert, BytesToHex, GenerateRandomString, requirejs, ToDataUrl } from 'partic2/jsutils1/base';
+import { assert, GenerateRandomString, requirejs, ToDataUrl } from 'partic2/jsutils1/base';
 import { text2html } from 'partic2/pComponentUi/utils';
 import { DynamicPageCSSManager } from 'partic2/jsutils1/webutils';
+import {u8hexconv} from './jsutils2'
 
 
 let __name__=requirejs.getLocalRequireModule(require)
@@ -186,11 +187,11 @@ export class ObjectViewer extends React.Component<
         </div>
         }else if(robj instanceof TypedArray){
             return <div style={{wordBreak:'break-all'}}>
-            <span className={css1.propName}>{this.props.name}:</span> {robj.constructor.name}:{BytesToHex(new Uint8Array(robj.buffer,robj.bytesOffset,robj.length*robj.BYTES_PER_ELEMENT))}
+            <span className={css1.propName}>{this.props.name}:</span> {robj.constructor.name}:{u8hexconv(new Uint8Array(robj.buffer,robj.bytesOffset,robj.length*robj.BYTES_PER_ELEMENT))}
         </div>
         }else if(robj instanceof ArrayBuffer){
             return <div style={{wordBreak:'break-all'}}>
-            <span className={css1.propName}>{this.props.name}:</span> ArrayBuffer:{BytesToHex(new Uint8Array(robj))}
+            <span className={css1.propName}>{this.props.name}:</span> ArrayBuffer:{u8hexconv(new Uint8Array(robj))}
         </div>
         }else{            
             let keys=Object.keys(robj)

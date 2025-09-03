@@ -130,7 +130,7 @@ export function getUrlForKvStore(dbName:string|undefined,key:string,options?:{
     return url;
 }
 
-export async function RequestDownloadSW(buff:ArrayBuffer|string,fileName:string){
+export async function RequestDownloadSW(buff:ArrayBuffer|string|Uint8Array<ArrayBuffer>,fileName:string){
     let kvs=await kvStore()
     let tempPath='__temp/'+GenerateRandomString()+'/'+fileName;
     if(typeof buff==='string'){

@@ -320,26 +320,12 @@ export class ArrayWrap2<T>{
         }
         return this;
     }
-    public removeFirst(predict:(v:T,index:number,arr:T[])=>boolean){
-        let idx=this.wrapped.findIndex(predict)
-        if(idx>=0){
-            return this.wrapped.splice(idx,1)[0];
-        }
-    }
-    public insertAfter(predict:(elem:T,index:number)=>boolean,newElem:T){
-        let arr=this.arr();
-        arr.splice(arr.findIndex(predict),1,newElem);
-        this.wrapped=arr;
-    }
-    public last(){
-        return this.arr()[this.arr().length-1]
-    }
     public clone(){
         return new ArrayWrap2<T>([...this.arr()]);
     }
     protected onQueueChange=[] as future<number>[];
     queueSizeLimit?:number
-    protected emitQueueChange(){
+    public emitQueueChange(){
         let e=clone(this.onQueueChange,1);
         this.onQueueChange.splice(0,this.onQueueChange.length);
         for(let t1 of e){
@@ -349,7 +335,7 @@ export class ArrayWrap2<T>{
     public cancelWaiting(){
         this.onQueueChange.forEach(t1=>t1.setException(new CanceledError()));
     }
-    protected async waitForQueueChange(){
+    public async waitForQueueChange(){
         let waitForChange=new future<number>();
         this.onQueueChange.push(waitForChange);
         await waitForChange.get();
@@ -372,17 +358,13 @@ export class ArrayWrap2<T>{
         this.arr().push(elem);
         this.emitQueueChange();
     }
-    public processWrapped(processor:(origArr:Array<T>)=>Array<T>):this{
-        let result=processor(this.arr());
-        if(result!=undefined){
-            this.wrapped=result;
-        }
-        return this;
-    }
     public [Symbol.iterator](){
         return this.arr()[Symbol.iterator];
     }
-    public static *IntSequence(start:number,end:number,step?:number){
+    public static *IntSequence(start:number,end?:number,step?:number){
+        if(end==undefined){
+            end=start;start=0;
+        }
         assert(step!==0);
         step=step??(end>=start?1:-1);
         for(let t1=start;(step>0)?(t1<end):(t1>end);t1+=step){
@@ -420,6 +402,12 @@ export class mutex{
             return true;
         }else{
             return false;
+        }
+    }
+    public async exec<T>(fn:()=>Promise<T>){
+        await this.lock();
+        try{await fn();}finally{
+            await this.unlock()
         }
     }
 }
@@ -552,42 +540,6 @@ export function GenerateRandomString(maxRandLenX4?:number) {
     return s;
 }
 
-export class ErrorChain extends Error{
-    public constructor(message?:string,public causeBy?:Error){
-        super(message)
-    }
-}
-//also useful for string template
-export type RecursiveIteratable<T>=Iterable<T|RecursiveIteratable<T>|Promise<T>>;
-export async function FlattenArray<T>(source:RecursiveIteratable<T>){
-    let parts=[] as T[];
-    for(let t1 of source){
-        if(t1 instanceof Promise){
-            parts.push(await t1);
-        }else if(t1==null){
-        }else if(typeof(t1)==='object' && (Symbol.iterator in t1)){
-            parts.push(...await FlattenArray(t1));
-        }else{
-            parts.push(t1);
-        }
-    }
-    return parts;
-}
-//Promise will be ignored
-export function FlattenArraySync<T>(source:RecursiveIteratable<T>){
-    let parts=[] as T[];
-    for(let t1 of source){
-        if(t1 instanceof Promise){
-        }else if(t1==null){
-        }else if(typeof(t1)==='object' && (Symbol.iterator in t1)){
-            parts.push(...FlattenArraySync(t1));
-        }else{
-            parts.push(t1);
-        }
-    }
-    return parts;
-}
-
 
 export function DateAdd(org:Date, add:{
     days?:number,
@@ -675,6 +627,34 @@ export class Ref2<CT>{
         this.watcher.delete(onUpdated);
     }
 }
+
+export class TaskLocalRef<T> extends Ref2<T>{
+    taskLocalVarName='TaskLocalRef.var-'+GenerateRandomString();
+    constructor(defaultVal:T){
+        super(defaultVal);
+        let loc=Task.locals();
+        if(loc!=undefined){
+            loc[this.taskLocalVarName]=defaultVal;
+        }
+    }
+    public get(): T {
+        let loc=Task.locals();
+        if(loc!=undefined){
+            return loc[this.taskLocalVarName]??this.__val;
+        }else{
+            return super.get();
+        }
+    }
+    public set(val: T): void {
+        let loc=Task.locals();
+        if(loc!=undefined){
+            loc[this.taskLocalVarName]=val;
+        }else{
+            this.__val=val;
+        }
+    }
+}
+
 
 
 export var logger={
@@ -773,26 +753,16 @@ export function Base64ToArrayBuffer(base64: string): ArrayBuffer {
     return arraybuffer;
 };
 
-export function BytesToHex(b:Uint8Array){
-    let hex='';
-    for(let t1 of b){
-        let ch=t1.toString(16);
-        hex+=ch.length==2?ch:'0'+ch;
+export function stringToCharCodes(s:string):number[]{
+    let r=new Array<number>(s.length);
+    for(let t1=0;t1<r.length;t1++){
+        r[t1]=s.charCodeAt(t1);
     }
-    return hex;
+    return r;
 }
-export function BytesFromHex(hex:string){
-    hex=hex.replace(/[^0-9a-fA-F]/g,'');
-    let bytes=new Uint8Array(hex.length>>1);
-    for(let t1=0;t1<hex.length;t1+=2){
-        bytes[t1>>1]=parseInt(hex.substring(t1,t1+2),16);
-    }
-    return bytes;
-}
-
 
 export function ArrayBufferConcat(bufs:Array<{
-    buffer: ArrayBuffer;
+    buffer: ArrayBufferLike;
     byteLength: number;
     byteOffset: number;
 }>){

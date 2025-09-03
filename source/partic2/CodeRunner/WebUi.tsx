@@ -1,5 +1,5 @@
 
-import { FlattenArraySync, GenerateRandomString, assert, sleep } from 'partic2/jsutils1/base';
+import { GenerateRandomString, assert, sleep } from 'partic2/jsutils1/base';
 import { ReactRefEx, css as css1 } from 'partic2/pComponentUi/domui';
 import { CodeContextEvent, ConsoleDataEventData, RunCodeContext } from './CodeContext';
 import * as React from 'preact'
@@ -8,6 +8,7 @@ import { TextEditor } from 'partic2/pComponentUi/texteditor';
 import { DelayOnceCall,CodeContextRemoteObjectFetcher, fromSerializableObject, inspectCodeContextVariable, CodeCompletionItem, toSerializableObject } from './Inspector';
 import { ObjectViewer } from './Component1';
 import { text2html } from 'partic2/pComponentUi/utils';
+import { FlattenArraySync } from './jsutils2';
 
 
 
