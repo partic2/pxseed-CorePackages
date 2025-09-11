@@ -77,7 +77,7 @@ export function addAsyncHook(replacePlan:JsSourceReplacePlan){
             addAsyncEnterExitHook(node,replacePlan);
         },
         AwaitExpression(node,state,ancetors){
-            let awaitHook='Promise.__onAwait(';
+            let awaitHook=' Promise.__onAwait(';
             if(!(replacePlan.source.substring(node.argument.start,node.argument.start+awaitHook.length)===awaitHook)){
                 replacePlan.plan.push({
                     start:node.argument.start,
