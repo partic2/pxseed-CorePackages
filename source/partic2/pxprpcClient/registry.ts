@@ -118,7 +118,7 @@ export class ClientInfo{
     }
     connected(){
         if(this.client===null)return false;
-        return this.client.conn.isRunning();
+        return this.client.baseClient.isRunning();
     }
     async disconnect(){
         this.client?.close();
@@ -132,7 +132,7 @@ export class ClientInfo{
     async ensureConnected():Promise<RpcExtendClient1>{
         try{
             await this.connecting.lock();
-            if(this.client!==null && this.client.conn.isRunning()){
+            if(this.client!==null && this.client.baseClient.isRunning()){
                 return this.client
             }else{
                 let io1=await getConnectionFromUrl(this.url.toString());

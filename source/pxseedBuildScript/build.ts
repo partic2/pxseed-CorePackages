@@ -32,19 +32,7 @@ import { processDirectory,cleanBuildStatus, sourceDir, cleanJsFiles, outputDir }
         };
         if(!buildDone){
             await processDirectory(sourceDir);
-        }
-
-        //Fix preact event handle bug before upstream fix in release.
-        try{
-            let content=new TextDecoder().decode(await fs.readFile(pathJoin(outputDir,'preact.js')));
-            let newContent=content.replace('r in e||"onFocusOut"==n||"onFocusIn"==n','true');
-            if(content.length!=newContent.length){
-                await fs.writeFile(pathJoin(outputDir,'preact.js'),new TextEncoder().encode(newContent));
-            }
-        }catch(e:any){
-            console.warn(e);
-        }
-        
+        }        
     }else if(command=='clean'){
         await cleanBuildStatus(sourceDir)
         if(process.argv.includes('--js')){

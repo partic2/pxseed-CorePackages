@@ -30,7 +30,8 @@ let i18n={
     createPackage:'create package',
     webui:'webui',
     uninstall:'uninstall',
-    error:'error'
+    error:'error',
+    upgradeCorePackages:'upgrade pxseed core',
 }
 
 if(navigator.language.split('-').includes('zh')){
@@ -43,6 +44,7 @@ if(navigator.language.split('-').includes('zh')){
     i18n.createPackage='创建包'
     i18n.uninstall='卸载'
     i18n.error='错误'
+    i18n.upgradeCorePackages='升级PXSEED核心库'
 }
 
 let remoteModule={
@@ -71,7 +73,7 @@ class WindowListIcon extends React.Component<{},{
     drag=new ReactDragController();
     constructor(props:any,ctx:any){
         super(props,ctx);
-        this.setState({hideList:true,listWidth:250,listHeight:320,windows:[]})
+        this.setState({hideList:false,listWidth:250,listHeight:320,windows:[]})
     }
     async onExpandClick(){
         let moved=this.drag.checkIsMovedSinceLastCheck()
@@ -365,6 +367,16 @@ class PackagePanel extends React.Component<{},{
                 </div>
             </div>})
     }
+    async upgradeCorePackages(){
+        try{
+            this.setState({errorMessage:'upgrading package...'});
+            let registry=await remoteModule.registry.get();
+            await registry.UpgradeCorePackages();
+            this.setState({errorMessage:'done'});
+        }catch(err:any){
+            this.setState({errorMessage:'Failed:'+err.toString()});
+        }
+    }
     render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChild {
         return [
         <div className={css.flexColumn}>
@@ -374,6 +386,7 @@ class PackagePanel extends React.Component<{},{
                     <SimpleButton onClick={()=>this.showCreatePackage()}>{i18n.createPackage}</SimpleButton>
                     <SimpleButton onClick={()=>this.exportPackagesInstallation()} >{i18n.exportInstallation}</SimpleButton>
                     <SimpleButton onClick={()=>this.importPackagesInstallation()} >{i18n.importInstallation}</SimpleButton>
+                    <SimpleButton onClick={()=>this.upgradeCorePackages()} >{i18n.upgradeCorePackages}</SimpleButton>
                     <SimpleButton onClick={()=>this.openNotebook()} >notebook</SimpleButton>
                     <div style={{display:'inline-block',color:'red'}}>{this.state.errorMessage}</div>
                 </div>

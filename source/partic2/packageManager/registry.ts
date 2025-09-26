@@ -79,12 +79,12 @@ async function copyFilesNewer(destDir:string,srcDir:string,ignore?:(name:string,
         return;
     }
     const {fs,path}=await getNodeCompatApi()
-    fs.mkdir(destDir,{recursive:true});
+    await fs.mkdir(destDir,{recursive:true});
     let children=await fs.readdir(srcDir,{withFileTypes:true});
     try{
         await fs.access(destDir)
     }catch(e){
-        fs.mkdir(destDir,{recursive:true});
+        await fs.mkdir(destDir,{recursive:true});
     }
     for(let t1 of children){
         if(ignore!=undefined && ignore(t1.name,srcDir+'/'+t1.name)){
@@ -114,85 +114,87 @@ async function copyFilesNewer(destDir:string,srcDir:string,ignore?:(name:string,
 }
 
 
-async function fetchCorePackages(){
-    const {fs,path,wwwroot}=await getNodeCompatApi()
-    let gitcache=path.join(wwwroot,__name__,'/corepkg-gitcache');
-    let {listRemotes,pull}=await import('isomorphic-git');
-    try{
-        await fs.access(path.join(gitcache,'.git'));
-        for(let t1 of await listRemotes({...await getGitClientConfig(),dir:gitcache})){
-            try{
-                await pull({...await getGitClientConfig(),dir:gitcache,author:{name:'anonymous',email:'anonymous'}});
-                break;
-            }catch(e:any){
-                log.info(e.toString());
-            }
-        }
-        return
-    }catch(e){
-    }
-    let repoInfos=await getRepoInfoFromPkgName('partic2/CorePackages');
-    let ok=false;
-    for(let url of repoInfos.urls){
-        try{
-            await fetchGitPackageFromUrl(url,gitcache);
-            ok=true;
-            break
-        }catch(e:any){
-            log.info(e.toString())
-        }
-    }
-    if(!ok){
-        throw new Error('No valid repository for CorePackages');
-    }
-}
-
-export async function CorePackagesUpgradeHandler(moduleName:string){
-    assert(moduleName=='partic2/packageManager');
-    const {fs,path,wwwroot}=await getNodeCompatApi()
-    let gitcache=path.join(wwwroot,__name__,'/corepkg-gitcache');
-    await fetchCorePackages();
-    //copyFile to pxseed dir
-    await copyFilesNewer(path.join(wwwroot,'..'),gitcache,(name)=>name=='.git');
-}
-
-let corePackDirs=[
+let corePackFiles=[
     ['copysource'],
-    ['script'],
     ['npmdeps'],
+    ['pxseed-cli'],
+    ['script'],
     ['source','pxseedBuildScript'],
     ['source','pxseedServer2023'],
     ['source','pxprpc'],
+    ['source','.gitignore'],
+    ['source','tsconfig.base.json'],
     ['source','partic2','CodeRunner'],
     ['source','partic2','JsNotebook'],
     ['source','partic2','jsutils1'],
     ['source','partic2','nodehelper'],
-    ['source','partic2','packageManager'],
     ['source','partic2','pComponentUi'],
+    ['source','partic2','packageManager'],
     ['source','partic2','pxprpcBinding'],
     ['source','partic2','pxprpcClient'],
     ['source','partic2','pxseedMedia1'],
     ['source','partic2','tjshelper']
 ];
-let corePackFiles=[
-    ['source','.gitignore'],
-    ['source','tsconfig.base.json']
-]
 
-export async function CorePackagePublishHandler(moduleName:string){
-    assert(moduleName=='partic2/packageManager');
+
+export async function UpgradeCorePackages(){
     const {fs,path,wwwroot}=await getNodeCompatApi()
-    let gitcache=path.join(wwwroot,__name__,'/corepkg-gitcache');
-    await fetchCorePackages();
-    
-    let sourceDir=path.join(wwwroot,'..','source');
-    for(let t1 of corePackDirs){
-        await copyFilesNewer(path.join(gitcache,...t1),path.join(sourceDir,...t1))
+    let pxseedCorePath=path.join(wwwroot,'..');
+    let err:Error|null=null;
+    try{
+        await upgradeGitPackage(pxseedCorePath);
+    }catch(e:any){
+        log.info('UpgradeCorePackages:git pull failed with '+e.toString());
+        err=e;
     }
-    for(let t1 of corePackFiles){
-        await fs.copyFile(path.join(sourceDir,...t1),path.join(gitcache,...t1))
+    if(err!=null){
+        err=null;
+        let gitcache=path.join(wwwroot,__name__,'/corepkg-gitcache');
+        try{
+            await fs.rm(gitcache,{recursive:true});
+        }catch(err){};
+        let repoInfos=await getRepoInfoFromPkgName('partic2/CorePackages');
+        let fetchDone=false;
+        for(let url of repoInfos.urls){
+            try{
+                await fetchGitPackageFromUrl(url,gitcache);
+                fetchDone=true;
+                break
+            }catch(e:any){
+                log.info('UpgradeCorePackages:Fetch failed for url '+url+','+e.toString())
+            }
+        }
+        log.info('UpgradeCorePackages:Fetch successfully.');
+        if(fetchDone){
+            try{
+                await fs.rm(path.join(pxseedCorePath,'.git'),{recursive:true});
+            }catch(err){};
+            await copyFilesNewer(path.join(pxseedCorePath,'.git'),path.join(gitcache,'.git'),undefined,30);
+            let git=await import('isomorphic-git');
+            await git.checkout({...await getGitClientConfig(),dir:pxseedCorePath,force:true});
+            await fs.rm(gitcache,{recursive:true});
+        }else{
+            log.error('Fetch failed for all url.');
+            throw new Error('UpgradeCorePackages:Fetch failed for all url');
+        }
+    }
+    if(err===null){
+        for(let t1 of corePackFiles){
+            if(t1[0]==='source'){
+                let joinedPath=path.join(pxseedCorePath,...t1);
+                let t2=await fs.stat(joinedPath);
+                if(t2.isDirectory()){
+                    try{
+                        await processDirectory(joinedPath)
+                    }catch(err:any){
+                        log.error('processDirectory failed with '+err.toString());
+                    }
+                }
+            }
+        }
     }
 }
+
 
 export async function packPxseedForXplatj(){
     const {fs,path,wwwroot}=await getNodeCompatApi()
@@ -419,7 +421,7 @@ export async function fetchGitPackageFromUrl(url:string,fetchDir?:string){
     }catch(e){
     };
     await fs.mkdir(tempdir,{recursive:true});
-    await clone({...await getGitClientConfig(),dir:tempdir,url})
+    await clone({...await getGitClientConfig(),dir:tempdir,url,depth:1});
     return tempdir
 }
 
