@@ -20,9 +20,14 @@ export class TjsReaderDataSource implements UnderlyingDefaultSource<Uint8Array>{
 }
 
 export class TjsWriterDataSink implements UnderlyingSink<Uint8Array>{
-	constructor(public tjsWriter:tjs.Writer){}
+	constructor(public tjsWriter:tjs.Writer&{close?:()=>void}){}
 	async write(chunk: Uint8Array, controller: WritableStreamDefaultController): Promise<void>{
 		await this.tjsWriter.write(chunk)
+	}
+	close(){
+		if(this.tjsWriter.close!=undefined){
+			this.tjsWriter.close();
+		}
 	}
 }
 

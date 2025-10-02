@@ -1,7 +1,8 @@
 
 import { ExtendStreamReader } from "partic2/CodeRunner/jsutils2";
-import { future, ArrayWrap2, Ref2, CanceledError, ArrayBufferConcat, throwIfAbortError, assert } from "partic2/jsutils1/base";
+import { future, ArrayWrap2, Ref2, CanceledError, ArrayBufferConcat, throwIfAbortError, assert, Task } from "partic2/jsutils1/base";
 import {getFileSystemReadableStream, SimpleFileSystem} from 'partic2/CodeRunner/JsEnviron'
+
 const decode=TextDecoder.prototype.decode.bind(new TextDecoder());
 const encode=TextEncoder.prototype.encode.bind(new TextEncoder());
 const mimeDb={
@@ -75,11 +76,11 @@ const mimeDb={
 
 //Don't use Response directly, Response limit status range into 200-599
 class ProtocolSwitchResponse extends Response{
-	closed=new future<0>();
 	protected pStatus:number=101;
 	get status(){
 		return this.pStatus;
 	}
+	set status(v:number){}
 	constructor(body?: BodyInit | null, init?: ResponseInit){
 		let pStat=init?.status
 		if(init?.status!=undefined){
@@ -91,7 +92,7 @@ class ProtocolSwitchResponse extends Response{
 }
 
 export class WebSocketServerConnection {
-	closed = false;
+	closed = new future<boolean>();
 	opcodes = { TEXT: 1, BINARY: 2, PING: 9, PONG: 10, CLOSE: 8 };
 	queuedRecvData = new ArrayWrap2<Uint8Array|string>();
 	constructor(public reader: ExtendStreamReader, public writer: WritableStreamDefaultWriter<Uint8Array>) {
@@ -102,89 +103,98 @@ export class WebSocketServerConnection {
 		payloads: Array<Uint8Array>,
 		opcode: number
 	} = null;
+	error:any=null;
 	protected async startProcessWebSocketStream() {
-		while(!this.closed){
-			let readPos = new Ref2<number>(0);
-			while (readPos.get() < 2) {
-				await this.reader.readInto(this.pWsHeaderBuf, readPos);
-			}
-			let view = new DataView(this.pWsHeaderBuf.buffer, 0);
-			let idx = 2,
-				b1 = view.getUint8(0),
-				fin = b1 & 128,
-				opcode = b1 & 15,
-				b2 = view.getUint8(1),
-				hasMask = b2 & 128; //Must true
-			if (this.pCurrPacket == null) {
+		try{
+			while(!this.closed.done){
+				let readPos = new Ref2<number>(0);
+				while (readPos.get() < 2) {
+					await this.reader.readInto(this.pWsHeaderBuf, readPos);
+				}
+				let view = new DataView(this.pWsHeaderBuf.buffer, 0);
+				let idx = 2,
+					b1 = view.getUint8(0),
+					fin = b1 & 128,
+					opcode = b1 & 15,
+					b2 = view.getUint8(1),
+					hasMask = b2 & 128; //Must true
 				if (this.pCurrPacket == null) {
-					this.pCurrPacket = { payloads: [], opcode }
+					if (this.pCurrPacket == null) {
+						this.pCurrPacket = { payloads: [], opcode }
+					}
+				}
+				let length = b2 & 127;
+				if (length > 125) {
+					if (length == 126) {
+						while (readPos.get() < 4) {
+							await this.reader.readInto(this.pWsHeaderBuf, readPos);
+						}
+						length = view.getUint16(2, false);
+						idx += 2;
+					} else if (length == 127) {
+						while (readPos.get() < 10) {
+							await this.reader.readInto(this.pWsHeaderBuf, readPos);
+						}
+						if (view.getUint32(2, false) != 0) {
+							this.close(1009, "");
+						}
+						length = view.getUint32(6, !1);
+						idx += 8;
+					}
+				}
+				while (readPos.get() < idx + 4) {
+					await this.reader.readInto(this.pWsHeaderBuf, readPos);
+				}
+				let maskBytes = this.pWsHeaderBuf.slice(idx, idx + 4);
+				idx += 4;
+				let payload = new Uint8Array(length);
+				if(readPos.get()-idx>0){
+					this.reader.unshiftBuffer(new Uint8Array(this.pWsHeaderBuf.buffer,idx,readPos.get()-idx))
+				}
+				readPos.set(0);
+				while (readPos.get() < length) {
+					await this.reader.readInto(payload, readPos);
+				}
+				for (let i = 0; i < payload.length; i++) {
+					payload[i] = maskBytes[i % 4] ^ payload[i];
+				}
+				this.pCurrPacket.payloads.push(payload);
+				if (fin) {
+					this.handlePacket(this.pCurrPacket);
+					this.pCurrPacket = null;
 				}
 			}
-			let length = b2 & 127;
-			if (length > 125) {
-				if (length == 126) {
-					while (readPos.get() < 4) {
-						await this.reader.readInto(this.pWsHeaderBuf, readPos);
-					}
-					length = view.getUint16(2, false);
-					idx += 2;
-				} else if (length == 127) {
-					while (readPos.get() < 10) {
-						await this.reader.readInto(this.pWsHeaderBuf, readPos);
-					}
-					if (view.getUint32(2, false) != 0) {
-						this.close(1009, "");
-					}
-					length = view.getUint32(6, !1);
-					idx += 8;
-				}
-			}
-			while (readPos.get() < idx + 4) {
-				await this.reader.readInto(this.pWsHeaderBuf, readPos);
-			}
-			let maskBytes = this.pWsHeaderBuf.slice(idx, idx + 4);
-			idx += 4;
-			let payload = new Uint8Array(length);
-			if(readPos.get()-idx>0){
-				this.reader.unshiftBuffer(new Uint8Array(this.pWsHeaderBuf.buffer,idx,readPos.get()-idx))
-			}
-			readPos.set(0);
-			while (readPos.get() < length) {
-				await this.reader.readInto(payload, readPos);
-			}
-			for (let i = 0; i < payload.length; i++) {
-				payload[i] = maskBytes[i % 4] ^ payload[i];
-			}
-			this.pCurrPacket.payloads.push(payload);
-			if (fin) {
-				this.handlePacket(this.pCurrPacket);
-				this.pCurrPacket = null;
-			}
+		}catch(err){
+			this.error=err;
 		}
 	}
-	protected async writeFrame(opcode: number, payload: Uint8Array) {
+	protected async writeFrame(opcode: number, payload: Array<Uint8Array>) {
 		await this.writer.ready;
 		return await this.writer.write(this.encodeMessage(opcode, payload));
 	}
-	async send(obj: Uint8Array | string) {
-		let opcode: number, payload: Uint8Array;
+	async send(obj: Uint8Array | string | Array<Uint8Array>) {
+		let opcode: number, payload: Array<Uint8Array>;
 		if (obj instanceof Uint8Array) {
 			opcode = this.opcodes.BINARY;
-			payload = obj;
+			payload = [obj];
 		} else if (typeof obj == "string") {
 			opcode = this.opcodes.TEXT;
-			payload = encode(obj);
-		} else {
+			payload = [encode(obj)];
+		} else if(obj instanceof Array){
+			opcode=this.opcodes.BINARY;
+			payload=obj
+		}else {
 			throw new Error("Cannot send object. Must be string or Uint8Array");
 		}
 		await this.writeFrame(opcode, payload);
 	}
 	async receive():Promise<Uint8Array|string>{
 		try{
-			if(this.closed)throw new Error('WebSocket closed');
-			return await this.queuedRecvData.queueBlockShift();
+			if(this.closed.done)throw new Error('WebSocket closed');
+			let nextPacket=await this.queuedRecvData.queueBlockShift();
+			return nextPacket;
 		}catch(err){
-			if(err instanceof CanceledError && this.closed){
+			if(err instanceof CanceledError && this.closed.done){
 				throw new Error('WebSocket closed');
 			}else{
 				throw err;
@@ -192,23 +202,23 @@ export class WebSocketServerConnection {
 		}
 	}
 	async close(code?: number, reason?: string) {
-		const opcode = this.opcodes.CLOSE;
-		let buffer: Uint8Array;
-		let reasonU8: Uint8Array | undefined;
-		if (reason != undefined) reasonU8 = encode(reason);
-		if (code != undefined) {
-			buffer = new Uint8Array(reasonU8!.length + 2);
-			const view = new DataView(buffer.buffer);
-			view.setUint16(0, code, !1);
-			buffer.set(reasonU8!, 2);
-		} else {
-			buffer = new Uint8Array(0);
+		if(!this.closed.done){
+			this.closed.setResult(true);
+			const opcode = this.opcodes.CLOSE;
+			let buffer: Uint8Array;
+			let reasonU8: Uint8Array | undefined;
+			if (reason != undefined) reasonU8 = encode(reason);
+			if (code != undefined) {
+				buffer = new Uint8Array(reasonU8!.length + 2);
+				const view = new DataView(buffer.buffer);
+				view.setUint16(0, code, !1);
+				buffer.set(reasonU8!, 2);
+			} else {
+				buffer = new Uint8Array(0);
+			}
+			await this.writeFrame(opcode, [buffer]);
 		}
-		await this.writeFrame(opcode, buffer);
-		await this.writer.closed;
-		this.closed = true;
 		this.queuedRecvData.cancelWaiting();
-		this.handshakeResponse?.closed.setResult(0);
 	}
 
 	protected async handlePacket(packet: {
@@ -227,7 +237,7 @@ export class WebSocketServerConnection {
 				this.queuedRecvData.queueBlockPush(concated);
 				break;
 			case this.opcodes.PING:
-				await this.writeFrame(this.opcodes.PONG, concated);
+				await this.writeFrame(this.opcodes.PONG, [concated]);
 				break;
 			case this.opcodes.PONG:
 				break;
@@ -244,38 +254,36 @@ export class WebSocketServerConnection {
 				this.close(1002, "unknown opcode");
 		}
 	}
-	protected encodeMessage(opcode: number, payload: Uint8Array) {
-		let buf, b1 = 128 | opcode, b2 = 0, length = payload.length;
+	protected encodeMessage(opcode: number, payload: Array<Uint8Array>) {
+		let buf, b1 = 128 | opcode, b2 = 0;
+		let length = payload.reduce((prev,curr)=>prev+curr.length,0);
 		if (length < 126) {
-			buf = new Uint8Array(payload.length + 2 + 0);
+			buf = new Uint8Array(2 + 0);
 			const view = new DataView(buf.buffer);
 			b2 |= length;
 			view.setUint8(0, b1);
 			view.setUint8(1, b2);
-			buf.set(payload, 2);
 		} else if (length < 65536) {
-			buf = new Uint8Array(payload.length + 2 + 2);
+			buf = new Uint8Array(2 + 2);
 			const view = new DataView(buf.buffer);
 			b2 |= 126;
 			view.setUint8(0, b1);
 			view.setUint8(1, b2);
 			view.setUint16(2, length);
-			buf.set(payload, 4);
 		} else {
-			buf = new Uint8Array(payload.length + 2 + 8);
+			buf = new Uint8Array(2 + 8);
 			const view = new DataView(buf.buffer);
 			b2 |= 127;
 			view.setUint8(0, b1);
 			view.setUint8(1, b2);
 			view.setUint32(2, 0, !1);
 			view.setUint32(6, length, !1);
-			buf.set(payload, 10);
 		}
-		return buf;
+		return new Uint8Array(ArrayBufferConcat([buf,...payload]));
 	}
 	static KEY_SUFFIX = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 	handshakeResponse?:ProtocolSwitchResponse
-	async switchToWebsocket(req: Request) {
+	async switchToWebsocketResponse(req: Request) {
 		if(this.handshakeResponse!=undefined)return this.handshakeResponse;
 		// Use Web Cryptography API crypto.subtle where defined
 		let key: string;
@@ -317,27 +325,66 @@ export class WebSocketServerConnection {
 
 export class HttpServer{
 	static requestExp = /^([A-Z-]+) ([^ ]+) HTTP\/([^ \t]+)\r\n$/;
-	onfetch:(this:HttpServer,request:Request,connection:{r:ExtendStreamReader,w:WritableStreamDefaultWriter<Uint8Array>})=>Promise<Response>=async ()=>new Response();
-	controller=new AbortController();
-	signal=this.controller.signal;
+	onfetch:(this:HttpServer,request:Request,controller:{
+		r:ExtendStreamReader,
+		w:WritableStreamDefaultWriter<Uint8Array>,
+	})=>Promise<Response>=async ()=>new Response();
+	onwebsocket:(this:HttpServer,controller:{
+		request:Request
+		accept:()=>Promise<WebSocketServerConnection> //Only accept before 'onwebsocket' resolved.
+	})=>Promise<void>=async ()=>{};
 	async serve(stream:{r:ExtendStreamReader,w:WritableStreamDefaultWriter<Uint8Array>}){
-		while(!this.signal.aborted){
-			let req=await this.pParseHttpRequest(stream.r);
-			let resp=await this.onfetch(req,{...stream});
-			await this.pWriteResponse(stream.w,resp);
-			if(resp instanceof ProtocolSwitchResponse){
-				try{
-					await resp.closed.get();
-				}catch(err:any){
-					throwIfAbortError(err);
+		try{
+			while(true){
+				let req=await this.pParseHttpRequest(stream.r);
+				if(req.headers.get('connection')?.toLowerCase()==='upgrade' && req.headers.get('upgrade')?.toLowerCase()==='websocket'){
+					let that=this;
+					let p={
+						_ws:null as null|WebSocketServerConnection,
+						request:req,
+						accept:async function(){
+							if(this._ws==null){
+								this._ws=new WebSocketServerConnection(stream.r,stream.w);
+								that.pWriteResponse(stream.w,await this._ws.switchToWebsocketResponse(this.request));
+							}
+							return this._ws;
+						}
+					};
+					await this.onwebsocket(p);
+					if(p._ws==null){
+						await this.pWriteResponse(stream.w,new Response("Unsupported",{status:426}))
+					}else{
+						await p._ws.closed.get();;
+					}
+				}else{
+					let resp=await this.onfetch(req,{...stream});
+					await this.pWriteResponse(stream.w,resp);
 				}
-				break;
+				if(req.headers.get('connection')?.toLocaleLowerCase()==='close'){
+					break;
+				}
 			}
+		}catch(err){}
+	}
+	*serveTjs(serverSocket:tjs.Listener){
+		let {TjsReaderDataSource,TjsWriterDataSink}=yield* Task.yieldWrap(import("partic2/tjshelper/tjsutil"));
+		while(!(Task.getAbortSignal()?.aborted??false)){
+			let soc=yield* Task.yieldWrap(serverSocket.accept());
+			let r=new ExtendStreamReader(new ReadableStream(new TjsReaderDataSource(soc)).getReader());
+			let w=new WritableStream(new TjsWriterDataSink(soc)).getWriter();
+			let that=this;
+			Task.fork(function*(){
+				try{
+					yield that.serve({r,w})
+				}finally{
+					w.close();
+				}
+			}).run();
 		}
 	}
 	protected async pParseHttpHeader(r:ExtendStreamReader){
 		const lineSpliter='\n'.charCodeAt(0);
-		let reqHdr=decode(await r.readUntil(lineSpliter));
+		var reqHdr=decode(await r.readUntil(lineSpliter));
 		let matchResult=reqHdr.match(HttpServer.requestExp);
 		assert(matchResult!=null);
 		let method=matchResult[1];
@@ -438,8 +485,7 @@ export class HttpServer{
 			if(chunked){
 				await resp.body.pipeTo(new WritableStream({
 					write:async (chunk: Uint8Array, controller: WritableStreamDefaultController)=>{
-						await w.write(encode(String(chunk.length)+'\r\n'));
-						await w.write(chunk);
+						await w.write(new Uint8Array(ArrayBufferConcat([encode(chunk.length.toString(16)+'\r\n'),chunk,encode('\r\n')])));
 					}
 				}));
 				await w.write(encode('0\r\n\r\n'));
@@ -464,7 +510,11 @@ export class SimpleFileServer{
 			assert(await this.fs.filetype(filepath)==='file','Not a valid file');
             let statResult=await this.fs.stat(filepath);
 			let headers=new Headers();
-			headers.set('content-length',String(statResult.size));
+			if(statResult.size<0x8192){
+				headers.set('content-length',String(statResult.size));
+			}else{
+				headers.set('transfer-encoding','chunked')
+			}
 			let fileNameAt=filepath.lastIndexOf('/');
 			let fileName=filepath.substring(fileNameAt+1);
 			let extStartAt=fileName.lastIndexOf('.');
@@ -482,4 +532,5 @@ export class SimpleFileServer{
             return new Response(err.toString(),{status:404});
         }
     }
+
 }

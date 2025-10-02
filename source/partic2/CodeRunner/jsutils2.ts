@@ -96,8 +96,9 @@ export class ExtendStreamReader implements ReadableStreamDefaultReader<Uint8Arra
 					concated=new Uint8Array(ArrayBufferConcat([concated,chunk.value]));
 				}
 				let markMatched=false;
-				let t2=concated.length-mark.length
-				for(;t2>=0;t2--){
+				let t2=0;
+				let t3=concated.length-mark.length
+				for(t2=0;t2<=t3;t2++){
 					markMatched=true;
 					for(let t3=0;t3<mark.length;t3++){
 						if(concated[t2+t3]!==mark[t3]){

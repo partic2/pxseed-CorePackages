@@ -761,6 +761,9 @@ export class NodeSimpleFileSystem implements SimpleFileSystem{
 export class DirAsRootFS implements SimpleFileSystem{
     pxprpc?: ClientInfo | undefined;
     constructor(public fs:SimpleFileSystem,public rootDir:string){
+        if(!this.rootDir.endsWith('/')){
+            this.rootDir+='/';
+        }
     }
     async ensureInited(): Promise<void> {
         return await this.fs.ensureInited();
