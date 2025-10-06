@@ -13,7 +13,7 @@
     };
     function panic(message) {
         if (!config1.IAMDEE_PRODUCTION_BUILD) {
-            throw Error(message);
+            throw Error('[IAMDEE ERROR]:' + message);
         }
     }
     var HTMLTagScriptLoader = /** @class */ (function () {
@@ -27,7 +27,7 @@
             el.async = true;
             el.src = url;
             el.onerror = function (err) {
-                done(new Error(err.toString()));
+                done(new Error('HTML script node load failed.'));
             };
             el.onload = function () {
                 done(null);
@@ -136,13 +136,6 @@
             currentModule.moduleState == 4 /* ModuleState.ERROR */) {
             return panic("Can not double resolve module " + currentModule.moduleState);
         }
-        // This makes sure script errors are reported
-        // to console and any custom onerror handlers
-        if (module.moduleState == 4 /* ModuleState.ERROR */) {
-            setTimeout(function () {
-                throw module.moduleError;
-            });
-        }
         moduleMap[id] = module;
         currentModule.callbacks.map(function (cb) {
             cb(module);
@@ -203,7 +196,7 @@
             if (isModuleId(moduleIdOrDependencyPathList)) {
                 var module = moduleMap[moduleIdOrDependencyPathList];
                 if (!module || module.moduleState !== 3 /* ModuleState.INITIALIZED */) {
-                    throw Error("#3 " + moduleIdOrDependencyPathList);
+                    throw Error("[IAMDEE ERROR]:dependecies not resolved yet. require module: " + moduleIdOrDependencyPathList);
                 }
                 return module.exports;
             }
@@ -247,7 +240,7 @@
                                 return panic("Unexpected module state when resolving dependencies");
                             }
                             if (module.moduleState == 4 /* ModuleState.ERROR */) {
-                                throw Error("#4 " + id);
+                                throw new Error('[IAMDEE ERROR]: resolve module failed. module:' + id + ', reason:' + module.moduleError.toString());
                             }
                             return module.exports;
                         });
@@ -325,7 +318,7 @@
             else {
                 resolveModule(id, {
                     moduleState: 4 /* ModuleState.ERROR */,
-                    moduleError: Error("#5 " + loaderError.map(function (v) { return v.toString(); }).join(','))
+                    moduleError: new Error("[IAMDEE ERROR]:Module not found." + loaderError.map(function (v) { return v.toString(); }).join(','))
                 });
             }
         }
@@ -396,7 +389,7 @@
                     break;
             }
             if (!expectedModuleId) {
-                throw Error("#1");
+                throw Error("[IAMDEE ERROR]:Module id is required.");
             }
             if (isAnonymousDefineWithDependencies(args)) {
                 doDefine(expectedModuleId, args[0], args[1]);

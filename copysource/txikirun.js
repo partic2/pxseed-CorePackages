@@ -1,15 +1,14 @@
 
 addEventListener('unhandledrejection',function(ev){
-    //txikijs BUG https://github.com/quickjs-ng/quickjs/issues/39
-    //So we have to mute error before it is fixed.
-    //console.error(ev.reason);
+    console.error(ev.reason);
     ev.preventDefault();
 });
 addEventListener('error',function(ev){
+    console.info(ev.error)
     if(globalThis.__workerId!=undefined){
-        console.error('worker '+globalThis.__workerId+'\n'+ev.reason);
+        console.error('worker '+globalThis.__workerId+'\n'+ev.error);
     }else{
-        console.error(ev.reason);
+        console.error(ev.error);
     }
     ev.preventDefault();
 });
@@ -44,19 +43,7 @@ class TxikiScriptLoader{
                 throw e;
             }
         }
-        try{
-            let nodeImportName=moduleId;
-            let mod;
-            mod=await import(nodeImportName);
-            define(moduleId,[],mod)
-            return null;
-        }catch(e){
-            if(e.message.indexOf('Cannot find module')>=0){
-                //mute
-            }else{
-                console.warn(e);
-            }
-        }
+        //We don't fallback now.
         return new Error('TxikiScriptLoader:Cannot find module '+moduleId);
     }
     loadModule(moduleId,url,done){
@@ -83,7 +70,7 @@ export const main=async (entry)=>{
 };
 
 if(globalThis.postMessage==undefined){
-    if(tjs.args[2].endsWith('txikirun.js')){
+    if(tjs.args.length>=3 && tjs.args[2].endsWith('txikirun.js')){
         main(tjs.args[3]);
     }
 }else{
