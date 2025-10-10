@@ -3,9 +3,18 @@ import { ArrayBufferConcat, ArrayWrap2, GenerateRandomString, GetCurrentTime, as
 import { CKeyValueDb, getWWWRoot, kvStore, path } from "partic2/jsutils1/webutils";
 import type {} from '@txikijs/types/src/index'
 import { ClientInfo } from "partic2/pxprpcClient/registry";
-import {path as lpath} from 'partic2/jsutils1/webutils'
 import type { LocalRunCodeContext } from "./CodeContext";
 
+//treat both slash and back slash as sep
+function dirname2(path:string){
+    for(let t1=path.length-1;t1>=0;t1--){
+        let ch=path.charAt(t1);
+        if('\\/'.includes(ch)){
+            return path.substring(0,t1);
+        }
+    }
+    return '';
+}
 
 class MountFileEntry{
     //pxseed url for mounted fs, eg:  "pxseedjs:your/module/name.asynchronizedBuilder?param=xxx"
@@ -82,7 +91,7 @@ export class TjsSfs implements SimpleFileSystem{
         }
     }
     async writeAll(path: string, data: Uint8Array): Promise<void> {
-        let dirname=lpath.dirname(path);
+        let dirname=dirname2(path);
         if(await this.filetype(dirname)!=='dir'){
             await this.mkdir(dirname);
         }
@@ -112,17 +121,16 @@ export class TjsSfs implements SimpleFileSystem{
     }
     protected pathConvert(path:string):string{
         if(path===''){
-            return '/';
+            path='/';
         }
         if(path.startsWith('/') && this.winbasepath){
             if(path.length<=3){
-                return path.substring(1)+'\\';
+                path=path.substring(1)+'\\';
             }else{
-                return path.substring(1);
+                path=path.substring(1);
             }
-        }else{
-            return path;
         }
+        return path;
     }
     async listdir(path: string): Promise<{ name: string; type: 'dir'|'file' }[]> {
         if((path==='/' || path==='') && this.winbasepath){
@@ -171,6 +179,7 @@ export class TjsSfs implements SimpleFileSystem{
         return datadir
     }
     async read(path:string,offset: number, buf: Uint8Array): Promise<number> {
+        path=this.pathConvert(path);
         let fh=await this.impl!.open(path,'r+');
         try{
             let len=await fh.read(buf,offset);
@@ -183,7 +192,13 @@ export class TjsSfs implements SimpleFileSystem{
         }
     }
     async write(path:string, offset:number, buf: Uint8Array): Promise<number> {
-        let fh=await this.impl!.open(path,'r+');
+        path=this.pathConvert(path);
+        let fh:tjs.FileHandle;
+        try{
+            fh=await this.impl!.open(path,'r+');
+        }catch(err){
+            fh=await this.impl!.open(path,'w');
+        }
         try{
             let len=await fh.write(buf,offset);
             return len;
@@ -192,10 +207,12 @@ export class TjsSfs implements SimpleFileSystem{
         }
     }
     async stat(path:string){
+        path=this.pathConvert(path);
         let statRes=await this.impl!.stat(path);
         return {atime:statRes.atim,mtime:statRes.mtim,ctime:statRes.ctim,birthtime:statRes.birthtim,size:statRes.size};
     }
     async truncate(path:string,newSize: number): Promise<void> {
+        path=this.pathConvert(path);
         let f=await this.impl!.open(path,'r+');
         try{
             await f.truncate(newSize);
@@ -674,7 +691,7 @@ export class NodeSimpleFileSystem implements SimpleFileSystem{
         path=this.pathConvert(path);
         let parent=this.nodepath!.dirname(path);
         if(await this.filetype(parent)==='none'){
-            this.mkdir(parent);
+            await this.mkdir(parent);
         }
         await this.nodefs!.writeFile(path,data);
     }
@@ -722,7 +739,7 @@ export class NodeSimpleFileSystem implements SimpleFileSystem{
         await this.nodefs!.rename(path,newPath);
     }
     async dataDir(): Promise<string> {
-        return lpath.dirname(getWWWRoot().replace(/\\/,'/'));
+        return dirname2(getWWWRoot());
     }
     async read(path: string, offset: number, buf: Uint8Array): Promise<number> {
         path=this.pathConvert(path);
@@ -738,7 +755,7 @@ export class NodeSimpleFileSystem implements SimpleFileSystem{
         path=this.pathConvert(path);
         let parent=this.nodepath!.dirname(path);
         if(await this.filetype(parent)==='none'){
-            this.mkdir(parent);
+            await this.mkdir(parent);
         }
         let fh=await this.nodefs!.open(path,'r+');
         try{
@@ -912,7 +929,7 @@ export async function initCodeEnv(_ENV:any,opt?:{codePath?:string}){
             assert(this.simple!=undefined);
             if(path.startsWith('.')){
                 assert(this.codePath!=undefined )
-                path=lpath.dirname(this.codePath)+path.substring(1);
+                path=dirname2(this.codePath)+path.substring(1);
             }
             let jsbin=await this.simple.readAll(path);
             if(jsbin==null){

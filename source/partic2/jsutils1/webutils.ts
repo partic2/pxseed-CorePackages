@@ -212,14 +212,6 @@ export class CKeyValueDb implements IKeyValueDb {
     }
 }
 
-export function ConvertFormDataToObject(data:FormData):any{
-    var r:any={};
-    data.forEach((val,key,parent)=>{
-        r[key]=val;
-    })
-    return r;
-}
-
 export function GetUrlQueryVariable(name:string):string|null{
     return GetUrlQueryVariable2(location.toString(),name);
 }
@@ -252,12 +244,6 @@ export function AddUrlQueryVariable(url:string,vars:{[key:string]:string}):strin
     }
     return url;
     
-}
-
-
-export function GetFullPathFromRelativePath(relPath:string):string{
-    var dir=location.pathname.substring(location.pathname.lastIndexOf('/'));
-    return dir+relPath;
 }
 
 var priv__CachedDownloadLink:HTMLAnchorElement|null=null;
@@ -421,9 +407,6 @@ export async function SavePersistentConfig(modname:string){
     }
 }
 
-
-
-
 //WorkerThread feature require a custom AMD loader https://github.com/partic2/partic2-iamdee
 const WorkerThreadMessageMark='__messageMark_WorkerThread'
 
@@ -579,7 +562,7 @@ declare let __pxseedInit:any
 export function GetJsEntry(){
     return __pxseedInit._entry
 }
-
+//Mainly for http url, So don't modify 'sep' on windows.
 export let path={
     sep:'/',
     join(...args:string[]){

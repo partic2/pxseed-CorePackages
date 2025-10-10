@@ -231,8 +231,7 @@ async function stat(path: string): Promise<StatResult>{
 * @param mode File mode bits applied if the file is created. Defaults to `0o666`.
 */
 async function open(path: string, flags: string, mode?: number): Promise<FileHandle>{
-    //not support yet
-    mode=0;
+    mode=mode??0o666;
     return new FileHandle(await jseio.open(path,flags,mode),path);
 }
 

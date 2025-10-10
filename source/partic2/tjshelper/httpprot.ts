@@ -1,6 +1,6 @@
 
 import { ExtendStreamReader } from "partic2/CodeRunner/jsutils2";
-import { future, ArrayWrap2, Ref2, CanceledError, ArrayBufferConcat, throwIfAbortError, assert, Task } from "partic2/jsutils1/base";
+import { future, ArrayWrap2, Ref2, CanceledError, ArrayBufferConcat, throwIfAbortError, assert, Task, ArrayBufferToBase64 } from "partic2/jsutils1/base";
 import {getFileSystemReadableStream, SimpleFileSystem} from 'partic2/CodeRunner/JsEnviron'
 
 const decode=TextDecoder.prototype.decode.bind(new TextDecoder());
@@ -95,7 +95,16 @@ export class WebSocketServerConnection {
 	closed = new future<boolean>();
 	opcodes = { TEXT: 1, BINARY: 2, PING: 9, PONG: 10, CLOSE: 8 };
 	queuedRecvData = new ArrayWrap2<Uint8Array|string>();
+
+	protected _payloadXor=(mask:Uint8Array,payload:Uint8Array)=>{
+		for (let i = 0; i < payload.length; i++) {
+			payload[i] = mask[i % 4] ^ payload[i];
+		}
+	}
 	constructor(public reader: ExtendStreamReader, public writer: WritableStreamDefaultWriter<Uint8Array>) {
+		if(typeof (WebSocket as any).__tjs_ws_fastXor==='function'){
+			this._payloadXor=(WebSocket as any).__tjs_ws_fastXor;
+		}
 		this.startProcessWebSocketStream();
 	}
 	protected pWsHeaderBuf = new Uint8Array(14);
@@ -155,9 +164,7 @@ export class WebSocketServerConnection {
 				while (readPos.get() < length) {
 					await this.reader.readInto(payload, readPos);
 				}
-				for (let i = 0; i < payload.length; i++) {
-					payload[i] = maskBytes[i % 4] ^ payload[i];
-				}
+				this._payloadXor(maskBytes,payload)
 				this.pCurrPacket.payloads.push(payload);
 				if (fin) {
 					this.handlePacket(this.pCurrPacket);
@@ -287,7 +294,7 @@ export class WebSocketServerConnection {
 		if(this.handshakeResponse!=undefined)return this.handshakeResponse;
 		// Use Web Cryptography API crypto.subtle where defined
 		let key: string;
-		if (globalThis.crypto.subtle) {
+		if (globalThis.crypto?.subtle!=undefined) {
 			key = globalThis.btoa(
 				[
 					...new Uint8Array(
@@ -301,13 +308,11 @@ export class WebSocketServerConnection {
 				].map((s) => String.fromCodePoint(s)).join(""),
 			);
 		} else {
-			const { createHash } = await import("tjs:hashing");
-			const hash = createHash("sha1").update(
-				`${req.headers.get('sec-websocket-key')}${WebSocketServerConnection.KEY_SUFFIX}`,
-			).bytes();
-			key = btoa(
-				String.fromCodePoint(...hash),
-			);
+			//use partic2/txiki.js sha1
+			assert((tjs as any).mbedtls?.sha1!=undefined);
+			let t1=new TextEncoder().encode(`${req.headers.get('sec-websocket-key')}${WebSocketServerConnection.KEY_SUFFIX}`);
+			let hash=(tjs as any).mbedtls.sha1(t1) as Uint8Array;
+			key = ArrayBufferToBase64(hash)
 		}
 		this.handshakeResponse=new ProtocolSwitchResponse(null,{
 			status:101,
@@ -325,11 +330,8 @@ export class WebSocketServerConnection {
 
 export class HttpServer{
 	static requestExp = /^([A-Z-]+) ([^ ]+) HTTP\/([^ \t]+)\r\n$/;
-	onfetch:(this:HttpServer,request:Request,controller:{
-		r:ExtendStreamReader,
-		w:WritableStreamDefaultWriter<Uint8Array>,
-	})=>Promise<Response>=async ()=>new Response();
-	onwebsocket:(this:HttpServer,controller:{
+	onfetch:(request:Request)=>Promise<Response>=async ()=>new Response();
+	onwebsocket:(controller:{
 		request:Request
 		accept:()=>Promise<WebSocketServerConnection> //Only accept before 'onwebsocket' resolved.
 	})=>Promise<void>=async ()=>{};
@@ -357,7 +359,7 @@ export class HttpServer{
 						await p._ws.closed.get();;
 					}
 				}else{
-					let resp=await this.onfetch(req,{...stream});
+					let resp=await this.onfetch(req);
 					await this.pWriteResponse(stream.w,resp);
 				}
 				if(req.headers.get('connection')?.toLocaleLowerCase()==='close'){
@@ -502,32 +504,115 @@ export class HttpServer{
 	}
 }
 
+interface HttpRouterHandler{
+	fetch?:(request:Request)=>Promise<Response>
+	websocket?:(controller:{
+		request:Request
+		accept:()=>Promise<WebSocketServerConnection> //Only accept before 'onwebsocket' resolved.
+	})=>Promise<void>,
+	map?:Record<string,HttpRouterHandler>
+}
+
+export class SimpleHttpServerRouter{
+	constructor(){};
+	root:HttpRouterHandler={map:{}}
+	onfetch=async (req:Request):Promise<Response>=>{
+		let {pathname}=new URL(req.url);
+		let parts=pathname.substring(1).split(/\//).filter(t1=>t1!='');
+		let cur=this.root;
+		for(let t1 of parts){
+			cur=cur.map![t1];
+			if(cur==undefined){
+				return new Response(null,{status:404});
+			}if(cur.fetch!=undefined){
+				return await cur.fetch(req);
+			}
+		}
+		return new Response(null,{status:404});
+	}
+	onwebsocket=async (controller:{
+		request:Request
+		accept:()=>Promise<WebSocketServerConnection>
+	})=>{
+		let req=controller.request;
+		let {pathname}=new URL(req.url);
+		let parts=pathname.substring(1).split(/\//).filter(t1=>t1.length>0);
+		let cur=this.root;
+		for(let t1 of parts){
+			cur=cur.map![t1];
+			if(cur==undefined){
+				break;
+			}if(cur.websocket!=undefined){
+				await cur.websocket(controller);
+				break;
+			}
+		}
+	}
+	setHandler(prefix:string,handler:null|HttpRouterHandler){
+		let parts=prefix.substring(1).split(/\//).filter(t1=>t1.length>0);
+		let cur:HttpRouterHandler|undefined=this.root;
+		let parent:HttpRouterHandler|undefined=undefined;
+		if(parts.length==0 && handler!=null){
+			this.root=handler;
+		}else{
+			for(let t1 of parts){
+				parent=cur;
+				cur=cur!.map![t1];
+				if(cur==undefined){
+					cur={map:{}}
+					parent!.map![t1]=cur;
+				}
+			}
+			if(handler!=null){
+				parent!.map![parts.at(-1)!]=handler
+			}else{
+				delete parent!.map![parts.at(-1)!];
+			}
+		}
+	}
+}
+
 export class SimpleFileServer{
     constructor(public fs:SimpleFileSystem){}
+	pathStartAt=0;
+	showIndex=true;
     onfetch=async (req:Request):Promise<Response>=>{
-        let filepath=new URL(req.url).pathname;
+		let {pathname}=new URL(req.url)
+        let filepath=pathname.substring(this.pathStartAt);
         try{
-			assert(await this.fs.filetype(filepath)==='file','Not a valid file');
-            let statResult=await this.fs.stat(filepath);
-			let headers=new Headers();
-			if(statResult.size<0x8192){
-				headers.set('content-length',String(statResult.size));
+			let filetype=await this.fs.filetype(filepath);
+			if(filetype==='file'){
+				let statResult=await this.fs.stat(filepath);
+				let headers=new Headers();
+				let fileNameAt=filepath.lastIndexOf('/');
+				let fileName=filepath.substring(fileNameAt+1);
+				let extStartAt=fileName.lastIndexOf('.');
+				let ext='';
+				if(extStartAt>=0){
+					ext=fileName.substring(extStartAt+1);
+				}
+				if(ext in mimeDb){
+					headers.set('content-type',(mimeDb as any)[ext]);
+				}
+				if(statResult.size<0x8192){
+					headers.set('content-length',String(statResult.size));
+				}else{
+					headers.set('transfer-encoding','chunked')
+				}
+				return new Response(getFileSystemReadableStream(this.fs,filepath),
+						{headers});
+			}else if(filetype==='dir' && this.showIndex){
+				let children=await this.fs.listdir(filepath);
+				let lastName=pathname.substring(Math.max(0,pathname.lastIndexOf('/')));
+				return new Response(`<!DOCTYPE html>
+				<html><head><meta charset="UTF-8"/></head>
+					<body>${children.map(t1=>`<div><a href=".${lastName}/${t1.name}">${t1.name}</a></div>`).join('')}</body>
+				</html>`,{
+					headers:{'content-type':'text/html'}
+				})
 			}else{
-				headers.set('transfer-encoding','chunked')
+				throw new Error('Unsupported filetype');
 			}
-			let fileNameAt=filepath.lastIndexOf('/');
-			let fileName=filepath.substring(fileNameAt+1);
-			let extStartAt=fileName.lastIndexOf('.');
-			let ext='';
-			if(extStartAt>=0){
-				ext=fileName.substring(extStartAt+1);
-			}
-			if(ext in mimeDb){
-				headers.set('content-type',(mimeDb as any)[ext]);
-			}
-            let t1=new Response(getFileSystemReadableStream(this.fs,filepath),
-				{headers});
-			return t1;
         }catch(err:any){
             return new Response(err.toString(),{status:404});
         }

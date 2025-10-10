@@ -77,10 +77,12 @@ let FuncCallEventType=jsutils1.GenerateRandomString();
 
 class FuncCallEvent extends Event{
     originalFunction:Function|null=null;
+    probe?:CFuncCallProbe
     argv:any[]=[]
 }
 
 class CFuncCallProbe extends EventTarget{
+    name?:string
     constructor(public originalFunction:Function){
         super();
     }
@@ -90,7 +92,12 @@ class CFuncCallProbe extends EventTarget{
             let e=new FuncCallEvent(FuncCallEventType);
             e.argv=argv;
             e.originalFunction=that.originalFunction;
-            that.dispatchEvent(e);
+            e.probe=that;
+            try{
+                that.dispatchEvent(e)
+            }catch(err){
+                //Mute any error, to avoid recursive call.
+            };
             return that.originalFunction.apply(this,argv);
         };
     }
@@ -115,6 +122,7 @@ function ensureFunctionProbe<T>(o:T,p:keyof T):CFuncCallProbe{
         p2=func[CodeContextProp];
         if(p2.funcCallProbe==undefined){
             p2.funcCallProbe=new CFuncCallProbe(func);
+            p2.funcCallProbe.name=p.toString();
             o[p]=p2.funcCallProbe.hooked() as any;
             (o[p] as any)[CodeContextProp]=p2;
         }
@@ -122,6 +130,7 @@ function ensureFunctionProbe<T>(o:T,p:keyof T):CFuncCallProbe{
         p2={
             funcCallProbe:new CFuncCallProbe(func)
         }
+        p2.funcCallProbe!.name=p.toString();
         func[CodeContextProp]=p2;
         o[p]=p2.funcCallProbe!.hooked() as any;
         (o[p] as any)[CodeContextProp]=p2;
@@ -155,7 +164,7 @@ export class LocalRunCodeContext implements RunCodeContext{
     localScopeProxy;
     protected onConsoleLogListener=(e:Event)=>{
         let e2=e as FuncCallEvent;
-        let name=e2.originalFunction!.name;
+        let name=e2.probe?.name??'';
         let outputTexts:string[]=[];
         for(let t1 of e2.argv){
             if(typeof t1=='object'){

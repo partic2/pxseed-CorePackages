@@ -1,5 +1,6 @@
 
 addEventListener('unhandledrejection',function(ev){
+    //XXX:TJS can't catch reject sometime, so we should maybe mute it all?
     console.error(ev.reason);
     ev.preventDefault();
 });

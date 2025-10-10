@@ -116,6 +116,7 @@ export class ExtendStreamReader implements ReadableStreamDefaultReader<Uint8Arra
 					return new Uint8Array(concated.buffer,concated.byteOffset,t2+mark.length);
 				}
 			}else{
+				if(concated!=null)this.unshiftBuffer(concated);
 				throw new Error('No mark found before EOF occured');
 			}
 		}
@@ -135,7 +136,7 @@ export class ExtendStreamReader implements ReadableStreamDefaultReader<Uint8Arra
             if(writePos!=undefined)writePos.set(writeAt+readBytes);
             return readBytes;
         }
-        return null
+        throw new Error('stream closed')
     }
 }
 
@@ -221,20 +222,18 @@ export function setupAsyncHook(){
 		}
 		(Promise as any).__onAwait=async (p:PromiseLike<any>)=>{
 			Task.getAbortSignal()?.throwIfAborted();
-			let saved={
-				task:Task.currentTask,
-				lastAsync:asyncStack.pop()
-			}
-			if(saved.lastAsync!=undefined){
-				if(saved.lastAsync.yielded){
+			let task=Task.currentTask;
+			let lastAsync=asyncStack.pop();
+			if(lastAsync!=undefined){
+				if(lastAsync.yielded){
 					Task.currentTask=null;
 				}else{
-					saved.lastAsync.yielded=true;
+					lastAsync.yielded=true;
 				}
 			}
 			try{return await p;}finally{
-				Task.currentTask=saved.task;
-				if(saved.lastAsync)asyncStack.push(saved.lastAsync);
+				Task.currentTask=task;
+				if(lastAsync)asyncStack.push(lastAsync);
 			}
 		}
 	}

@@ -34,6 +34,10 @@ class ReadStream4NodeIo implements tjs.Reader{
         nodeInput.on('error',(err)=>{
             this.chunkQueue.queueSignalPush(null);
             this.err=err;
+        });
+        nodeInput.on('close',()=>{
+            this.chunkQueue.queueSignalPush(null);
+            this.err=new Error('stream closed.');
         })
     }
     protected remainbuf:Buffer|null=null;

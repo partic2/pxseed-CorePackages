@@ -50,7 +50,7 @@ export async function wsPipeConnectDirectly(id:string):Promise<Io>{
     if(wsPipeApi.wsUrl==undefined){
         if('pxseedServer2023/workerInit' in (await requirejs.getDefined())){
             let {rootConfig}=await import('pxseedServer2023/workerInit');
-            wsPipeApi.wsUrl=`ws://${rootConfig.listenOn!.host}:${rootConfig.listenOn!.port}${rootConfig.pxseedBase}${rootConfig.pxprpcPath}`
+            wsPipeApi.wsUrl=`ws://${rootConfig.listenOn!.host}:${rootConfig.listenOn!.port}${rootConfig.pxseedBase}/pxprpc/0`
         }else{
             wsPipeApi.wsUrl=(await (await import('./webentry')).getPxseedUrl()).wsPipeUrl;
         }
@@ -149,7 +149,7 @@ export async function getServerConfig():Promise<null|{root:PxseedServer2023Start
 export async function restartSubprocessSelf(){
     let {current,root}=(await getServerConfig())!;
     assert(current.subprocessIndex!=undefined)
-    let client1=new RpcExtendClient1(new Client(await new WebSocketIo().connect(`ws://127.0.0.1:${root.listenOn!.port}${root.pxseedBase}${root.pxprpcPath}?key=${encodeURIComponent(root.pxprpcKey??'')}`)))
+    let client1=new RpcExtendClient1(new Client(await new WebSocketIo().connect(`ws://127.0.0.1:${root.listenOn!.port}${root.pxseedBase}/pxprpc/0?key=${encodeURIComponent(root.pxprpcKey??'')}`)))
     await client1.init();
     let func=new PxseedServer2023Function();
     await func.init(client1);

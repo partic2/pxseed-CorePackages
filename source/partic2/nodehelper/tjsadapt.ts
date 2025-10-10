@@ -94,7 +94,8 @@ class FileHandle {
     * @param offset Offset in the file to read from.
     */
     async read(buffer: Uint8Array, offset?: number): Promise<number|null>{
-        let result=await this.nodeFh.read(Buffer.from(buffer.buffer,buffer.byteOffset,buffer.byteLength),offset);
+        Buffer.alloc(buffer.length)
+        let result=await this.nodeFh.read(Buffer.from(buffer.buffer),buffer.byteOffset,buffer.byteLength,offset);
         if(result.bytesRead==0){
             return null;
         }else{
@@ -110,7 +111,7 @@ class FileHandle {
     * @param offset Offset in the file to write to.
     */
     async write(buffer: Uint8Array, offset?: number): Promise<number>{
-        let result=await this.nodeFh.write(Buffer.from(buffer.buffer,buffer.byteOffset,buffer.byteLength),offset)
+        let result=await this.nodeFh.write(Buffer.from(buffer.buffer),buffer.byteOffset,buffer.byteLength,offset)
         return result.bytesWritten
     }
     
@@ -227,6 +228,20 @@ async function rmdir(path: string): Promise<void>{
     await fs.rmdir(path);
 }
 
+async function makeTempFile(template:string){
+    //simple implement, not correctly
+    let prefix="";
+    for(let i=template.length;i>=0;i--){
+        if(template.charAt(i)!='X'){
+            prefix=template.substring(0,i);
+            break;
+        }
+    }
+    
+    let tmppath=os.tmpdir()+fs.mkdtemp(prefix);
+    let fh=new FileHandle(await fs.open(tmppath),tmppath);
+    return fh;
+}
 
 /**
 * Create a directory at the given path.
@@ -433,10 +448,11 @@ interface ConnectOptions {
 
 
 class NodeConnection implements Connection{
-    read(buf: Uint8Array): Promise<number | null> {
-        return this.rawR.read(buf);
+    async read(buf: Uint8Array): Promise<number | null> {
+        let count=await this.rawR.read(buf);
+        return count;
     }
-    write(buf: Uint8Array): Promise<number> {
+    async write(buf: Uint8Array): Promise<number> {
         return this.rawW.write(buf);
     }
     setKeepAlive(enable: boolean, delay: number): void {
@@ -603,6 +619,7 @@ async function listen(transport: Transport, host: string, port?: string | number
         readDir:readdir,
         system:{platform:platform},
         listen,connect,
+        makeTempFile,
         __impl__:'partic2/nodehelper/tjsadapt'
     } as any;
     tjsImpl=tjsi;

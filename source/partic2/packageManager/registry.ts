@@ -415,7 +415,6 @@ export async function fetchGitPackageFromUrl(url:string,fetchDir?:string){
     let {clone}=await import('isomorphic-git');
     let tempdir=fetchDir??path.join(wwwroot,...__name__.split('/'),'..','__temp',GenerateRandomString());
     try{
-        
         await fs.access(tempdir);
         await fs.rm(tempdir);
     }catch(e){
@@ -693,7 +692,7 @@ export async function installPackage(source:string,opt?:Partial<typeof defaultIn
     }else{
         let existed=false;
         try{
-            await fs.access(path.join(sourceDir,source));
+            await fs.access(path.join(sourceDir,source,'pxseed.config.json'));
             existed=true;
         }catch(e){
             existed=false;

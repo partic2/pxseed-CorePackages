@@ -21,8 +21,6 @@ if(!rpcWorkerInitModule.includes(__name__)){
 
 export interface PxseedServer2023StartupConfig{
     pxseedBase?:string,
-    pxprpcPath?:string,
-    wsPipePath?:string
     listenOn?:{host:string,port:number},
     initModule?:string[],
     pxprpcCheckOrigin?:string[]|false,
@@ -43,8 +41,6 @@ export interface PxseedServer2023StartupConfig{
 
 export let config:PxseedServer2023StartupConfig={
     pxseedBase:'/pxseed',
-    pxprpcPath:'/pxprpc/0',
-    wsPipePath:'/ws/pipe',
     listenOn:{host:'127.0.0.1',port:8088},
     initModule:[],
     pxprpcCheckOrigin:['localhost','127.0.0.1','[::1]'],

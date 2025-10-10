@@ -1,9 +1,7 @@
 
 
-import {setupImpl} from './tjsenv'
+import './tjsenv'
 
-/*This file MUST get from the same origin to access storage api on web ,
-Due to same-origin-policy.  That mean, dataurl is unavailable. */
 
 declare var define:any
 declare var require:any
@@ -11,7 +9,7 @@ declare var require:any
 declare var __pxseedInit:any
 
 (function(){
-    setupImpl();
+    
     const WorkerThreadMessageMark='__messageMark_WorkerThread';
     (self as any).globalThis=self;
     addEventListener('message',function(msg){

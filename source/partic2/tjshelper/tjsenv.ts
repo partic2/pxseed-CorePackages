@@ -145,22 +145,6 @@ class WebWorkerThread implements IWorkerThread{
         });
         await this.waitReady.get();
         await this.runScript(`this.__workerId='${this.workerId}'`);
-        lifecycle.addEventListener('pause',()=>{
-            this.runScript(`require(['${__name__}'],function(webutils){
-                webutils.lifecycle.dispatchEvent(new Event('pause'));
-            })`);
-        });
-        lifecycle.addEventListener('resume',()=>{
-            this.runScript(`require(['${__name__}'],function(webutils){
-                webutils.lifecycle.dispatchEvent(new Event('resume'));
-            })`);
-        });
-        lifecycle.addEventListener('exit',()=>{
-            this.runScript(`require(['${__name__}'],function(webutils){
-                webutils.lifecycle.dispatchEvent(new Event('exit'));
-            })`);
-        });
-        
     }
     onHostRunScript(script:string){
         (new Function('workerThread',script))(this);
