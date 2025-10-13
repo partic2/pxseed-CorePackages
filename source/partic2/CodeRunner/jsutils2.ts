@@ -212,28 +212,28 @@ export function deepEqual(a:any, b:any) {
 
 export function setupAsyncHook(){
 	if(!('__onAwait' in Promise)){
-		let asyncStack:{yielded:boolean}[]=[];
+		let asyncStackYield:boolean[]=[];
 		(Promise as any).__onAsyncEnter=()=>{
-			asyncStack.push({yielded:false});
+			asyncStackYield.push(false);
 		}
-		(Promise as any).__onAsyncExit=async ()=>{
-			let last=asyncStack.pop();
-			if(last?.yielded){Task.currentTask=null;}
+		(Promise as any).__onAsyncExit=()=>{
+			let last=asyncStackYield.pop();
+			if(last){Task.currentTask=null;}
 		}
 		(Promise as any).__onAwait=async (p:PromiseLike<any>)=>{
 			Task.getAbortSignal()?.throwIfAborted();
 			let task=Task.currentTask;
-			let lastAsync=asyncStack.pop();
-			if(lastAsync!=undefined){
-				if(lastAsync.yielded){
+			let lastAsyncYielded=asyncStackYield.pop();
+			if(lastAsyncYielded!=undefined){
+				if(lastAsyncYielded){
 					Task.currentTask=null;
 				}else{
-					lastAsync.yielded=true;
+					lastAsyncYielded=true;
 				}
 			}
 			try{return await p;}finally{
 				Task.currentTask=task;
-				if(lastAsync)asyncStack.push(lastAsync);
+				if(lastAsyncYielded)asyncStackYield.push(lastAsyncYielded);
 			}
 		}
 	}

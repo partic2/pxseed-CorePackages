@@ -68,7 +68,7 @@ defaultFuncMap['JseHelper.JseIo.rmdir']=new RpcExtendServerCallable(async(path:s
 defaultFuncMap['JseHelper.JseIo.mkdir']=new RpcExtendServerCallable(async(path:string)=>fs.mkdir(path,{recursive:true})).typedecl('s->');
 defaultFuncMap['JseHelper.JseIo.copyFile']=new RpcExtendServerCallable(async(path:string,newPath:string)=>fse.copy(path,newPath,{overwrite:true})).typedecl('ss->');
 defaultFuncMap['JseHelper.JseIo.readdir']=new RpcExtendServerCallable(async(path:string)=>{
-    let ser=new TableSerializer().setColumnInfo(null,['name','type','size','mtime']);
+    let ser=new TableSerializer().setColumnsInfo(null,['name','type','size','mtime']);
     for(let f of await fs.readdir(path)){
         try{
             let fileStat=await fs.stat(path+sep+f);
