@@ -100,7 +100,7 @@ export class StdioShell extends React.Component<StdioShellProps,StdioShellStats>
             (form)=><div>command:<input type="text" ref={form.getRefForInput('command')}/><br/></div>
             }</SimpleReactForm1>
                 ,'switch process');
-        if(await p.answer.get()=='ok'){
+        if(await p.response.get()=='ok'){
             let {command}=v;
             this.startProcess(command)
         }else{

@@ -149,7 +149,7 @@ export class FileBrowser extends React.Component<{
             <input type='text' ref={newFileNameInput} style={{width:'100%',minWidth:'200px'}} value={initname}/>
         </div>,'Input file name...')
         let newFileName=null;
-        if((await dlg.answer.get())=='ok'){
+        if((await dlg.response.get())=='ok'){
             newFileName=(await newFileNameInput.waitValid()).value;
         }
         dlg.close();
@@ -271,7 +271,7 @@ export class FileBrowser extends React.Component<{
         let newPathInput=new ReactRefEx<TextEditor>();
         let dlg=await prompt(<TextEditor divClass={[css.simpleCard]} divStyle={{minWidth:300}} ref={newPathInput}/>,'Jump to');
         (await newPathInput.waitValid()).setPlainText(this.state.currPath??'');
-        if(await dlg.answer.get()==='ok'){
+        if(await dlg.response.get()==='ok'){
             this.doFileOpen(await (await newPathInput.waitValid()).getPlainText());
         }
         dlg.close();

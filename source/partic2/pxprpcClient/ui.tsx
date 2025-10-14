@@ -84,7 +84,7 @@ export class RegistryUI extends React.Component<{},{selected:string|null}>{
     async doAdd(){
         let addCard=new ReactRefEx<AddCard>();
         let dlg=await prompt(<AddCard ref={addCard}/>,'New rpc client');
-        if(await dlg.answer.get()==='ok'){
+        if(await dlg.response.get()==='ok'){
             let {url,name}=(await addCard.waitValid()).getAddClientInfo();
             await addClient(url,name);
         }
@@ -100,7 +100,7 @@ export class RegistryUI extends React.Component<{},{selected:string|null}>{
             name:selected,
             url:getRegistered(selected)?.url??''
         });
-        if(await dlg.answer.get()==='ok'){
+        if(await dlg.response.get()==='ok'){
             let {url,name}=(await addCard.waitValid()).getAddClientInfo();
             await removeClient(selected);
             await addClient(url,name);

@@ -60,7 +60,7 @@ export class PxseedServerAdministrateTool extends React.Component<{},{
         await alertIfError(async()=>{
             let resp=await this.rpcFunc!.buildPackages();
             let wnd=await prompt(<pre>{resp}</pre>);
-            await wnd.answer.get();
+            await wnd.response.get();
             wnd.close();
         });
     }
@@ -68,7 +68,7 @@ export class PxseedServerAdministrateTool extends React.Component<{},{
         await alertIfError(async()=>{
             let resp=await this.rpcFunc!.rebuildPackages();
             let wnd=await prompt(<pre>{resp}</pre>);
-            await wnd.answer.get();
+            await wnd.response.get();
             wnd.close();
         });
         

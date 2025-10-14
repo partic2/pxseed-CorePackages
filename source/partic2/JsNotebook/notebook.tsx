@@ -163,7 +163,7 @@ export class RunCodeTab extends TabInfoBase{
             ]}}/></div>);
             let form2=await form.waitValid();
             form2.value={path:this.path};
-            if((await dlg.answer.get())=='ok'){
+            if((await dlg.response.get())=='ok'){
                 this.path=form2.value.path;
             }
             dlg.close();

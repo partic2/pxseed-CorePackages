@@ -154,7 +154,7 @@ class PackagePanel extends React.Component<{},{
                 divStyle={{width:Math.min(window.innerWidth-8,300)}}
             />
         </div>,i18n.install);
-        if((await dlg.answer.get())==='cancel'){
+        if((await dlg.response.get())==='cancel'){
             dlg.close();
             return
         }
@@ -192,7 +192,7 @@ class PackagePanel extends React.Component<{},{
                 divStyle={{width:Math.min(window.innerWidth-8,300)}}/>
         </div>,i18n.list);
         (await this.rref.listFilter.waitValid()).setPlainText(this.filterString);
-        if((await dlg.answer.get())==='cancel'){
+        if((await dlg.response.get())==='cancel'){
             dlg.close();
             return;
         }else{

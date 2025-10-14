@@ -20,8 +20,8 @@ interface WindowComponentProps{
     keepTop?:boolean
     contentDivClassName?:string
     windowDivClassName?:string
-    contentDivInlineStyle?:React.JSX.CSSProperties
-    windowDivInlineStyle?:React.JSX.CSSProperties
+    contentDivInlineStyle?:React.CSSProperties
+    windowDivInlineStyle?:React.CSSProperties
     onComponentDidUpdate?:()=>void
 }
 
@@ -40,7 +40,7 @@ export let css={
     defaultTitleStyle:GenerateRandomString(),
 }
 
-DynamicPageCSSManager.PutCss('.'+css.defaultWindowDiv,['max-height:100vh','max-width:100vw','border:solid black 1px']);
+DynamicPageCSSManager.PutCss('.'+css.defaultWindowDiv,['max-height:100vh','max-width:100vw','border:solid black 1px','box-sizing: border-box']);
 DynamicPageCSSManager.PutCss('.'+css.borderlessWindowDiv,['max-height:100vh','max-width:100vw']);
 DynamicPageCSSManager.PutCss('.'+css.defaultContentDiv ,['flex-grow:1','background-color:white','overflow:auto'])
 DynamicPageCSSManager.PutCss('.'+css.defaultTitleStyle ,['background-color:black','color:white'])
@@ -116,11 +116,11 @@ export class WindowComponent extends React.Component<WindowComponentProps,Window
             this.setState({layout:{...this.state.layout,left:curr.x-start.x,top:curr.y-start.y}});
         }
     });
-    __onTitleMouseDownHandler=(evt:React.JSX.TargetedMouseEvent<HTMLDivElement>)=>{
+    __onTitleMouseDownHandler=(evt:React.TargetedMouseEvent<HTMLDivElement>)=>{
         this.__wndMove.start({x:evt.clientX-this.state.layout.left,y:evt.clientY-this.state.layout.top},true);
         evt.preventDefault();
     }
-    __onTitleTouchDownHandler=(evt:React.JSX.TargetedTouchEvent<HTMLDivElement>)=>{
+    __onTitleTouchDownHandler=(evt:React.TargetedTouchEvent<HTMLDivElement>)=>{
         if(evt.touches.length==1){
             this.__wndMove.start({x:evt.touches.item(0)!.clientX-this.state.layout.left,y:evt.touches.item(0)!.clientY-this.state.layout.top},true);
             evt.preventDefault();
@@ -131,11 +131,11 @@ export class WindowComponent extends React.Component<WindowComponentProps,Window
             this.setState({layout:{...this.state.layout,width:curr.x-start.x,height:curr.y-start.y}});
         }
     });
-    __onResizeIconMouseDownHandler=(evt:React.JSX.TargetedMouseEvent<HTMLDivElement>)=>{
+    __onResizeIconMouseDownHandler=(evt:React.TargetedMouseEvent<HTMLDivElement>)=>{
         this.__wndResize.start({x:this.state.layout.left,y:this.state.layout.top},true);
         evt.preventDefault();
     }
-    __onResizeIconTouchDownHandler=(evt:React.JSX.TargetedTouchEvent<HTMLDivElement>)=>{
+    __onResizeIconTouchDownHandler=(evt:React.TargetedTouchEvent<HTMLDivElement>)=>{
         if(evt.touches.length==1){
             this.__wndResize.start({x:this.state.layout.left,y:this.state.layout.top},true);
             evt.preventDefault();
@@ -188,7 +188,7 @@ export class WindowComponent extends React.Component<WindowComponentProps,Window
         }
     }
     renderWindowMain(){
-        let windowDivStyle:React.JSX.CSSProperties={
+        let windowDivStyle:React.CSSProperties={
             boxSizing:'border-box',
             position:'absolute',
             left:this.state.layout.left+'px',
@@ -208,7 +208,7 @@ export class WindowComponent extends React.Component<WindowComponentProps,Window
         if(this.props.windowDivInlineStyle!=undefined){
             Object.assign(windowDivStyle,this.props.windowDivInlineStyle)
         }
-        let contentDivStyle:React.JSX.CSSProperties={};
+        let contentDivStyle:React.CSSProperties={};
         if(this.props.contentDivInlineStyle!=undefined){
             Object.assign(contentDivStyle,this.props.contentDivInlineStyle)
         }
@@ -385,7 +385,7 @@ export async function prompt(form:React.VNode,title?:string){
     </WindowComponent>;
     appendFloatWindow(floatWindow1);
     return {
-        answer:result,
+        response:result,
         close:()=>removeFloatWindow(floatWindow1)
     }
 }
