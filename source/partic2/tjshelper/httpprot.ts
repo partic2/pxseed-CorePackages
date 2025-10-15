@@ -91,7 +91,12 @@ class ProtocolSwitchResponse extends Response{
 	}
 }
 
-export class WebSocketServerConnection {
+export interface WebSocketServerConnection{
+	send(obj: Uint8Array | string | Array<Uint8Array>):Promise<void>
+	receive():Promise<Uint8Array|string>
+}
+
+export class WebSocketServerStreamHandler implements WebSocketServerConnection {
 	closed = new future<boolean>();
 	opcodes = { TEXT: 1, BINARY: 2, PING: 9, PONG: 10, CLOSE: 8 };
 	queuedRecvData = new ArrayWrap2<Uint8Array|string>();
@@ -301,7 +306,7 @@ export class WebSocketServerConnection {
 						await crypto.subtle.digest(
 							"SHA-1",
 							encode(
-								`${req.headers.get('sec-websocket-key')}${WebSocketServerConnection.KEY_SUFFIX}`,
+								`${req.headers.get('sec-websocket-key')}${WebSocketServerStreamHandler.KEY_SUFFIX}`,
 							),
 						),
 					),
@@ -310,7 +315,7 @@ export class WebSocketServerConnection {
 		} else {
 			//use partic2/txiki.js sha1
 			assert((tjs as any).mbedtls?.sha1!=undefined);
-			let t1=new TextEncoder().encode(`${req.headers.get('sec-websocket-key')}${WebSocketServerConnection.KEY_SUFFIX}`);
+			let t1=new TextEncoder().encode(`${req.headers.get('sec-websocket-key')}${WebSocketServerStreamHandler.KEY_SUFFIX}`);
 			let hash=(tjs as any).mbedtls.sha1(t1) as Uint8Array;
 			key = ArrayBufferToBase64(hash)
 		}
@@ -342,11 +347,11 @@ export class HttpServer{
 				if(req.headers.get('connection')?.toLowerCase()==='upgrade' && req.headers.get('upgrade')?.toLowerCase()==='websocket'){
 					let that=this;
 					let p={
-						_ws:null as null|WebSocketServerConnection,
+						_ws:null as null|WebSocketServerStreamHandler,
 						request:req,
 						accept:async function(){
 							if(this._ws==null){
-								this._ws=new WebSocketServerConnection(stream.r,stream.w);
+								this._ws=new WebSocketServerStreamHandler(stream.r,stream.w);
 								that.pWriteResponse(stream.w,await this._ws.switchToWebsocketResponse(this.request));
 							}
 							return this._ws;
@@ -461,8 +466,9 @@ export class HttpServer{
 			method:header1.method,
 			body:['GET','HEAD'].includes(header1.method.toUpperCase())?undefined
 				:new ReadableStream(bodySource),
-			headers:header1.headers
-		});
+			headers:header1.headers,
+			duplex: 'half' //BUG:TS compain it, but it's required in this case.
+		} as RequestInit);
 		return req;
 	}
 	protected async pWriteResponse(w:WritableStreamDefaultWriter<Uint8Array>,resp:Response){

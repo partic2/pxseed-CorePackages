@@ -16,7 +16,7 @@ export async function getGitClientConfig(){
         url:string,
         method?:string,
         headers?:Record<string,string>,
-        body?:string|Uint8Array|AsyncIterableIterator<Uint8Array>
+        body?:string|Uint8Array|AsyncIterableIterator<Uint8Array<ArrayBuffer>>
         }) {
         c.method=c.method??'GET';
         c.headers=c.headers??{};

@@ -104,7 +104,7 @@ export class TjsSfs implements SimpleFileSystem{
                 if(data.length-offset<sizemax){
                     sizemax=data.length-offset;
                 }
-                let write=await file.write(new Uint8Array(data,offset,sizemax),offset);
+                let write=await file.write(new Uint8Array(data.buffer,offset,sizemax),offset);
                 offset+=write;
             }
         }finally{

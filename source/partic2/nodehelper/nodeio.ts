@@ -211,11 +211,11 @@ export class NodeWsIo implements Io{
     constructor(public ws:WebSocket){
         ws.on('message',(data,isBin)=>{
             if(data instanceof ArrayBuffer){
-                this.priv__cached.queueBlockPush(new Uint8Array(data))
+                this.priv__cached.queueSignalPush(new Uint8Array(data))
             }else if(data instanceof Buffer){
-                this.priv__cached.queueBlockPush(data);
+                this.priv__cached.queueSignalPush(new Uint8Array(data.buffer,data.byteOffset,data.byteLength));
             }else if(data instanceof Array){
-                this.priv__cached.queueBlockPush(new Uint8Array(ArrayBufferConcat(data)));
+                this.priv__cached.queueSignalPush(new Uint8Array(ArrayBufferConcat(data)));
             }else{
                 throw new Error('Unknown data type')
             }
@@ -249,31 +249,47 @@ export class NodeWsIo implements Io{
     }
 }
 
+
+import { WebSocketServerConnection } from 'partic2/tjshelper/httpprot';
+
+export class NodeWsConnectionAdapter2 implements WebSocketServerConnection{
+    protected priv__cached=new ArrayWrap2<Uint8Array|string>();
+    constructor(public ws:WebSocket){
+        this.ws.on('message',(data,isbin)=>{
+            let chunk
+            if(data instanceof ArrayBuffer){
+                chunk=new Uint8Array(data)
+            }else if(data instanceof Buffer){
+                chunk=new Uint8Array(data.buffer,data.byteOffset,data.byteLength);
+            }else if(data instanceof Array){
+                chunk=new Uint8Array(ArrayBufferConcat(data));
+            }else{
+                chunk=data;
+            }
+            this.priv__cached.queueSignalPush(chunk);
+        })
+    }
+    async send(obj: Uint8Array | string | Array<Uint8Array>): Promise<void> {
+        return new Promise((resolve,reject)=>this.ws.send(obj,(err)=>{
+            if(err==null)resolve();
+            reject(err);
+        }));
+    }
+    async receive(): Promise<Uint8Array | string> {
+        return await this.priv__cached.queueBlockShift();
+    }
+    
+}
+
 globalThis.WebSocket=WebSocket as any;
 
 export class NodeReadableDataSource implements UnderlyingDefaultSource<any>{
 	constructor(public nodeReadable:Readable){}
-	async pull(controller: ReadableStreamDefaultController<any>): Promise<void>{
-        let errorHandler:((...args:any[])=>void)|null=null;
-        let resolveHandler:((...args:any[])=>void)|null=null;
-        try{
-            let chunk=await new Promise((resolve,reject)=>{
-                errorHandler=reject;
-                this.nodeReadable.on('error',errorHandler);
-                resolveHandler=resolve;
-                this.nodeReadable.on('data',resolveHandler);
-            });
-            controller.enqueue(chunk);
-        }finally{
-            if(errorHandler!=null){
-                this.nodeReadable.off('error',errorHandler);
-            }
-            if(resolveHandler!=null){
-                this.nodeReadable.off('data',resolveHandler);
-            }
-        }
-		
-	}
+    start(controller: ReadableStreamDefaultController<any>){
+        this.nodeReadable.on('data',(chunk)=>controller.enqueue(chunk))
+        this.nodeReadable.on('error',(err)=>{controller.error();controller.close();});
+        this.nodeReadable.on('end',()=>controller.close());
+    }
 }
 
 export class NodeWritableDataSink implements UnderlyingSink<Uint8Array>{

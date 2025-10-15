@@ -6,7 +6,7 @@ import { config, loadConfig, rootConfig, saveConfig } from './workerInit';
 
 export let __name__='pxseedServer2023/entry';
 
-import { ArrayBufferConcat, future, requirejs, sleep, Task } from 'partic2/jsutils1/base';
+import { ArrayBufferConcat, ArrayWrap2, future, requirejs, sleep, Task } from 'partic2/jsutils1/base';
 import {Client, Io} from 'pxprpc/base'
 import {Duplex, EventEmitter, Readable} from 'stream'
 import { IncomingHttpHeaders, IncomingMessage, Server, ServerResponse } from 'http';
@@ -18,7 +18,7 @@ import koaFiles from 'koa-files'
 import { GetUrlQueryVariable2, getWWWRoot, lifecycle } from 'partic2/jsutils1/webutils';
 import { ChildProcess, spawn } from 'child_process';
 import {WebSocketServer } from 'ws'
-import { NodeWsIo } from 'partic2/nodehelper/nodeio';
+import { NodeReadableDataSource, NodeWsConnectionAdapter2, NodeWsIo } from 'partic2/nodehelper/nodeio';
 import { createIoPipe } from 'partic2/pxprpcClient/registry';
 import { defaultFuncMap, RpcExtendClient1, RpcExtendServer1, RpcExtendServerCallable } from 'pxprpc/extend';
 import { WebSocketIo } from 'pxprpc/backend';
@@ -27,6 +27,9 @@ import { WebSocketIo } from 'pxprpc/backend';
 export {config}
 
 export let ensureInit=new future<number>();
+
+
+
 
 export let WsServer={
     ws:new WebSocketServer({noServer:true}),
@@ -37,7 +40,27 @@ export let WsServer={
                 this.router[url.pathname](new NodeWsIo(client),req.url,req.headers);
             })
         }else{
-            socket.end();
+            let request=new Request(url,{
+                method:req.method,
+                headers:Object.entries(req.headers).map(t1=>{
+                    if(typeof t1[1]!=='string'){
+                        return [t1[0],(t1[1]??'').toString()] as [string,string]
+                    }else{
+                        return t1 as [string,string];
+                    }
+                }),
+                body:new ReadableStream(new NodeReadableDataSource(req))
+            });
+            let accepted=false;
+            tjsHttpHandler.onwebsocket({
+                request,
+                accept:async ()=>{
+                    accepted=true;
+                    return new Promise((resolve)=>this.ws.handleUpgrade(req,socket,head,(client)=>{
+                        resolve(new NodeWsConnectionAdapter2(client))
+                    }));
+                }
+            })
         }
         
     },
@@ -51,6 +74,22 @@ export let httpServ=new Server();
 export let koaServ=new Koa();
 koaServ.proxy=true;
 export let koaRouter=new KoaRouter();
+export let tjsRouter=new SimpleHttpServerRouter();
+
+
+import { SimpleHttpServerRouter, WebSocketServerConnection } from 'partic2/tjshelper/httpprot';
+
+export let tjsHttpHandler:{
+    onfetch:(request:Request)=>Promise<Response>;
+    onwebsocket:(controller:{
+        request:Request
+        accept:()=>Promise<WebSocketServerConnection> //Only accept before 'onwebsocket' resolved.
+    })=>Promise<void>;
+}={
+    onfetch:tjsRouter.onfetch,
+    onwebsocket:tjsRouter.onwebsocket
+}
+
 let pxseedFilesServer=koaFiles(dirname(dirname(__dirname)));
 
 
@@ -254,7 +293,34 @@ export async function startServer(){
     }
     if(!listenSucc)throw new Error('No available listen port.');
     
+    koaServ.use(async (ctx,next)=>{
+        ctx.status=404;
+        await next()
+        if(ctx.status==404){
+            let req=new Request('http://localhost'+ctx.req.url,{
+                method:ctx.request.method,
+                headers:Object.entries(ctx.headers).map(t1=>{
+                    if(typeof t1[1]!=='string'){
+                        return [t1[0],(t1[1]??'').toString()] as [string,string]
+                    }else{
+                        return t1 as [string,string];
+                    }
+                }),
+                body:['GET','HEAD'].includes(ctx.request.method)?undefined:new ReadableStream(new NodeReadableDataSource(ctx.req)),
+                duplex:'half'
+            } as RequestInit);
+            let resp=await tjsHttpHandler.onfetch(req);
+            resp.headers.forEach((v,k)=>{
+                ctx.headers[k]=v;
+            });
+            ctx.status=resp.status;
+            if(resp.body!=null){
+                ctx.body=Readable.fromWeb(resp.body as any);
+            }
+        }
+    })
     koaServ.use(koaRouter.middleware())
+    
     console.log(JSON.stringify(config,undefined,2));
     WsServer.router[config.pxseedBase!+'/pxprpc/0']=pxprpcHandler;
     WsServer.router[config.pxseedBase!+'/ws/pipe']=wsPipeHandler;
