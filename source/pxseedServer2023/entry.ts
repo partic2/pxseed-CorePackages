@@ -294,7 +294,6 @@ export async function startServer(){
     if(!listenSucc)throw new Error('No available listen port.');
     
     koaServ.use(async (ctx,next)=>{
-        ctx.status=404;
         await next()
         if(ctx.status==404){
             let req=new Request('http://localhost'+ctx.req.url,{

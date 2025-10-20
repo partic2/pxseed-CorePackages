@@ -50,7 +50,7 @@ export let config:PxseedServer2023StartupConfig={
         subprocessConfig:[]
     },
     //pxprpcKey should be secret.
-    blockFilesMatch:['^/www/pxseedServer2023/config.json$'],
+    blockFilesMatch:['^/www/pxseedServer2023/config\\.json$'],
     serveDirectory:['www','source']
 };
 
