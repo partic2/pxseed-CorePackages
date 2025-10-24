@@ -78,7 +78,7 @@ export class Task<T> {
         return Task.currentTask?.getAbortSignal();
     }
     static fork<T2>(taskMain: Generator<TaskCallback<any>, T2, any> | (() => Generator<TaskCallback<any>, T2, any>)){
-        if(Task.currentTask!=undefined){
+        if(Task.currentTask!==null){
             return Task.currentTask.fork(taskMain);
         }else{
             return new Task(taskMain);
@@ -628,29 +628,25 @@ export class Ref2<CT>{
     }
 }
 
-export class TaskLocalRef<T> extends Ref2<T>{
+export class TaskLocalRef<T> extends Ref2<T|undefined>{
     taskLocalVarName='TaskLocalRef.var-'+GenerateRandomString();
-    constructor(defaultVal:T){
-        super(defaultVal);
-        let loc=Task.locals();
-        if(loc!=undefined){
-            loc[this.taskLocalVarName]=defaultVal;
-        }
+    constructor(nonTaskValue?:T){
+        super(nonTaskValue);
     }
-    public get(): T {
+    public get(): T|undefined {
         let loc=Task.locals();
         if(loc!=undefined){
-            return loc[this.taskLocalVarName]??this.__val;
+            return loc[this.taskLocalVarName];
         }else{
             return super.get();
         }
     }
-    public set(val: T): void {
+    public set(val: T|undefined): void {
         let loc=Task.locals();
         if(loc!=undefined){
             loc[this.taskLocalVarName]=val;
         }else{
-            this.__val=val;
+            super.set(val);
         }
     }
 }

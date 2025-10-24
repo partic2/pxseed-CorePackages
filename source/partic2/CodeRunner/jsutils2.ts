@@ -212,28 +212,23 @@ export function deepEqual(a:any, b:any) {
 
 export function setupAsyncHook(){
 	if(!('__onAwait' in Promise)){
-		let asyncStackYield:boolean[]=[];
+		let asyncStackDepth=0;
 		(Promise as any).__onAsyncEnter=()=>{
-			asyncStackYield.push(false);
+			asyncStackDepth++;
 		}
 		(Promise as any).__onAsyncExit=()=>{
-			let last=asyncStackYield.pop();
-			if(last){Task.currentTask=null;}
+			asyncStackDepth--;
+			if(asyncStackDepth===0){Task.currentTask=null;}
 		}
+		//Only call ONCE for each 'await'
 		(Promise as any).__onAwait=async (p:PromiseLike<any>)=>{
 			Task.getAbortSignal()?.throwIfAborted();
 			let task=Task.currentTask;
-			let lastAsyncYielded=asyncStackYield.pop();
-			if(lastAsyncYielded!=undefined){
-				if(lastAsyncYielded){
-					Task.currentTask=null;
-				}else{
-					lastAsyncYielded=true;
-				}
-			}
+			asyncStackDepth--;
+			if(asyncStackDepth===0){Task.currentTask=null;}
 			try{return await p;}finally{
+				asyncStackDepth++;
 				Task.currentTask=task;
-				if(lastAsyncYielded)asyncStackYield.push(lastAsyncYielded);
 			}
 		}
 	}
