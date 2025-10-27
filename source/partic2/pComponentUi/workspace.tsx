@@ -1,8 +1,8 @@
 
 import * as React from 'preact'
 import { css, DomComponent, ReactRefEx } from './domui';
-import { css as windowCss } from './window';
-import {Ref2, copy, future} from 'partic2/jsutils1/base'
+import { WindowComponentProps, css as windowCss } from './window';
+import {GenerateRandomString, Ref2, copy, future} from 'partic2/jsutils1/base'
 import { appendFloatWindow, removeFloatWindow, WindowComponent } from './window';
 import { getIconUrl } from 'partic2/pxseedMedia1/index1';
 
@@ -13,7 +13,9 @@ class CNewWindowHandleLists extends EventTarget{
 export let NewWindowHandleLists=new CNewWindowHandleLists();
 
 interface OpenNewWindopwOption{
-    title?:string
+    title?:string,
+    parentWindow?:NewWindowHandle,
+    windowOptions?:WindowComponentProps
 }
 export interface NewWindowHandle extends OpenNewWindopwOption{
     waitClose:()=>Promise<void>,
@@ -22,12 +24,44 @@ export interface NewWindowHandle extends OpenNewWindopwOption{
     windowRef:ReactRefEx<WindowComponent>,
     activate:()=>Promise<void>,
     hide:()=>Promise<void>,
-    isHidden:()=>Promise<boolean>
+    isHidden:()=>Promise<boolean>,
+    children:Set<NewWindowHandle>,
 }
+export let WorkspaceWindowContext=React.createContext<{lastWindow?:NewWindowHandle}>({});
 export let openNewWindow=async function(contentVNode:React.VNode,options?:OpenNewWindopwOption):Promise<NewWindowHandle>{
     options=options??{};
     let closeFuture=new future<boolean>();
     let windowRef=new ReactRefEx<WindowComponent>();
+    let handle={
+        ...options,
+        waitClose:async function(){
+            await closeFuture.get();
+        },
+        close:function(){
+            for(let t1 of this.children){
+                t1.close();
+            }
+            removeFloatWindow(windowVNode);
+        },
+        async activate(){
+            (await this.windowRef.waitValid()).activate();
+            for(let t1 of this.children){
+                await t1.activate();
+            }
+        },
+        async hide(){
+            for(let t1 of this.children){
+                await t1.hide();
+            }
+            (await this.windowRef.waitValid()).hide();
+        },
+        async isHidden(){
+            return (await this.windowRef.waitValid()).isHidden()
+        },
+        windowRef,windowVNode:null as any,
+        children:new Set<NewWindowHandle>()
+    }
+    //TODO: Find a good initial window place.
     let windowVNode=<WindowComponent ref={windowRef} onClose={()=>{
         closeFuture.setResult(true);
         removeFloatWindow(windowVNode);
@@ -39,27 +73,14 @@ export let openNewWindow=async function(contentVNode:React.VNode,options?:OpenNe
     }} titleBarButton={[{
         icon:getIconUrl('minus.svg'),
         onClick:async()=>handle.hide()
-    }]} title={options.title}
-    >{contentVNode}</WindowComponent>;
+    }]} title={options.title} {... (options.windowOptions??{})}
+    ><WorkspaceWindowContext.Provider value={{lastWindow:handle}}>{contentVNode}</WorkspaceWindowContext.Provider></WindowComponent>;
+    handle.windowVNode=windowVNode;
     appendFloatWindow(windowVNode,true);
-    let handle={
-        ...options,
-        waitClose:async function(){
-            await closeFuture.get();
-        },
-        close:function(){removeFloatWindow(windowVNode);},
-        async activate(){
-            (await this.windowRef.waitValid()).activate();
-        },
-        async hide(){
-            (await this.windowRef.waitValid()).hide();
-        },
-        async isHidden(){
-            return (await this.windowRef.waitValid()).isHidden()
-        },
-        windowVNode,windowRef
-    }
     NewWindowHandleLists.value.push(handle);
+    if(options.parentWindow!=undefined){
+        options.parentWindow.children.add(handle);
+    }
     NewWindowHandleLists.dispatchEvent(new Event('change'));
     return handle;
 }
@@ -72,8 +93,8 @@ export function setBaseWindowView(vnode:React.VNode){
         removeFloatWindow(baseWindowComponnet);
     }
     baseWindowComponnet=vnode;
-    appendFloatWindow(<WindowComponent disableUserInputActivate={true} noTitleBar={true} position='fill' 
-        windowDivClassName={windowCss.borderlessWindowDiv} ref={baseWindowRef} >
+    appendFloatWindow(<WindowComponent disableUserInputActivate={true} noTitleBar={true}
+        windowDivClassName={windowCss.borderlessWindowDiv} ref={baseWindowRef} initialLayout={{left:0,top:0,width:'100%',height:'100%'}}>
         {vnode}
     </WindowComponent>);
     baseWindowRef.waitValid().then((wnd)=>wnd.activate(1));

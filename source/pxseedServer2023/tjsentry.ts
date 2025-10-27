@@ -51,12 +51,12 @@ export let inited=(async ()=>{
         }
     });
 
-    let ssoc=await tjs.listen('tcp','127.0.0.1',2080) as tjs.Listener;
+    let ssoc=await tjs.listen('tcp','127.0.0.1',2081) as tjs.Listener;
     Task.fork(http.serveTjs(ssoc)).run();
     
-    console.info('serving on 2080');
+    console.info('serving on 2081');
     let webuientry='partic2/packageManager/webui';
-    console.info('entry url:'+`http://127.0.0.1:2080${pxseedBase}/www/index.html?__jsentry=pxseedServer2023%2fwebentry&__redirectjsentry=${encodeURIComponent(webuientry)}`)
+    console.info('entry url:'+`http://127.0.0.1:2081${pxseedBase}/www/index.html?__jsentry=pxseedServer2023%2fwebentry&__redirectjsentry=${encodeURIComponent(webuientry)}`)
     
 })();
 

@@ -17,7 +17,7 @@ import type * as registryModType from 'partic2/packageManager/registry'
 import type { PxseedConfig } from 'pxseedBuildScript/buildlib'
 import {openWorkspaceWindowFor} from 'partic2/JsNotebook/workspace'
 import { TextEditor } from 'partic2/pComponentUi/texteditor'
-import { NewWindowHandleLists, openNewWindow, setBaseWindowView, setOpenNewWindowImpl } from 'partic2/pComponentUi/workspace'
+import { NewWindowHandle, NewWindowHandleLists, openNewWindow, setBaseWindowView, WorkspaceWindowContext  } from 'partic2/pComponentUi/workspace'
 
 
 let i18n={
@@ -32,6 +32,7 @@ let i18n={
     uninstall:'uninstall',
     error:'error',
     upgradeCorePackages:'upgrade pxseed core',
+    packageManager:"package manager"
 }
 
 if(navigator.language.split('-').includes('zh')){
@@ -45,6 +46,7 @@ if(navigator.language.split('-').includes('zh')){
     i18n.uninstall='卸载'
     i18n.error='错误'
     i18n.upgradeCorePackages='升级PXSEED核心库'
+    i18n.packageManager='包管理'
 }
 
 let remoteModule={
@@ -87,18 +89,26 @@ class WindowListIcon extends React.Component<{},{
     onWindowListChange=async ()=>{
         let windows=new Array<{title:string,visible:boolean}>();
         for(let t1 of NewWindowHandleLists.value){
-            windows.push({title:t1.title??'Untitle',visible:!await t1.isHidden()})
+            if(t1.parentWindow==undefined){
+                windows.push({title:t1.title??'Untitle',visible:!await t1.isHidden()})
+            }
         }
         this.setState({windows})
+    }
+    onWindowResize=async ()=>{
+        //How to find a good place to move to?
+        this.drag.dragged.newPos?.({left:window.innerWidth-this.state.listWidth-10,top:window.innerHeight-this.state.listHeight-40});
     }
     async componentDidMount(): Promise<void> {
         this.setState({listWidth:Math.min(250,window.innerWidth),listHeight:Math.min(320,window.innerHeight-32)});
         this.mounted=true;
         NewWindowHandleLists.addEventListener('change',this.onWindowListChange);
+        window.addEventListener('resize',this.onWindowResize);
     }
     componentWillUnmount(): void {
         this.mounted=false;
         NewWindowHandleLists.removeEventListener('change',this.onWindowListChange);
+        window.removeEventListener('resize',this.onWindowResize);
     }
     render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChildren {
         return <div style={{display:'inline-block',position:'absolute',pointerEvents:'none'}} 
@@ -138,8 +148,7 @@ class PackagePanel extends React.Component<{},{
     errorMessage:string
 }>{
     rref={
-        createPackageGuide:React.createRef<WindowComponent>(),
-        createPackageForm:React.createRef<JsonForm>(),
+        createPackageForm:new ReactRefEx<JsonForm>(),
         installPackageName:new ReactRefEx<TextEditor>(),
         listFilter:new ReactRefEx<TextEditor>()
     }
@@ -248,8 +257,25 @@ class PackagePanel extends React.Component<{},{
         }
     }
     async showCreatePackage(){
-        this.rref.createPackageGuide.current?.activate();
-        this.rref.createPackageForm.current!.value={
+        openNewWindow(<JsonForm ref={this.rref.createPackageForm} divStyle={{minWidth:Math.min(window.innerWidth-8,400)}}
+        type={{
+            type:'object',
+            fields:[
+                ['name',{type:'string'}],
+                ['loaders',{type:'string'}],
+                ['webuiEntry',{type:'string'}],
+                ['dependencies',{type:'string'}],
+                ['repositories',{type:'array',element:{
+                    type:'object',fields:[
+                        ['scope',{type:'string'}],
+                        ['url template',{type:'string'}],
+                    ]
+                }}],
+                ['btn1',{type:'button',subbtn:['create','fill repositories'],
+                    onClick:(parent,subbtn)=>this.createPackageBtn(parent,subbtn)}]
+            ]
+        }}/>,{title:i18n.createPackage,parentWindow:this.lastWindow});        
+        (await this.rref.createPackageForm.waitValid())!.value={
             name:'partic2/createPkgDemo',
             loaders:`[
 {"name": "copyFiles","include": ["assets/**/*"]},
@@ -377,9 +403,16 @@ class PackagePanel extends React.Component<{},{
             this.setState({errorMessage:'Failed:'+err.toString()});
         }
     }
+    lastWindow?:NewWindowHandle
     render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChild {
         return [
-        <div className={css.flexColumn}>
+            <WorkspaceWindowContext.Consumer>
+            {(v)=>{
+                this.lastWindow=v.lastWindow;
+                return null;
+            }}
+            </WorkspaceWindowContext.Consumer>,
+            <div className={css.flexColumn}>
                 <div>
                     <SimpleButton onClick={()=>this.requestListPackage()}>{i18n.list}</SimpleButton>
                     <SimpleButton onClick={()=>this.install()}>{i18n.install}</SimpleButton>
@@ -393,36 +426,15 @@ class PackagePanel extends React.Component<{},{
                 <div style={{flexGrow:1}}>{
                     this.renderPackageList()
                 }</div>
-            </div>,
-            <WindowComponent ref={this.rref.createPackageGuide} title={i18n.createPackage}>
-                <JsonForm ref={this.rref.createPackageForm} divStyle={{minWidth:Math.min(window.innerWidth-8,400)}}
-                type={{
-                    type:'object',
-                    fields:[
-                        ['name',{type:'string'}],
-                        ['loaders',{type:'string'}],
-                        ['webuiEntry',{type:'string'}],
-                        ['dependencies',{type:'string'}],
-                        ['repositories',{type:'array',element:{
-                            type:'object',fields:[
-                                ['scope',{type:'string'}],
-                                ['url template',{type:'string'}],
-                            ]
-                        }}],
-                        ['btn1',{type:'button',subbtn:['create','fill repositories'],
-                            onClick:(parent,subbtn)=>this.createPackageBtn(parent,subbtn)}]
-                    ]
-                }}/>
-            </WindowComponent>]
+            </div>
+        ]
     }
     
-
 }
 
 export let renderPackagePanel=async()=>{
     useDeviceWidth();
-    setBaseWindowView(<PackagePanel/>)
-    
+    openNewWindow(<PackagePanel/>,{title:i18n.packageManager});
     appendFloatWindow(<WindowComponent keepTop={true} noTitleBar={true} noResizeHandle={true} windowDivClassName={windowCss.borderlessWindowDiv}>
         <WindowListIcon/>
     </WindowComponent>)

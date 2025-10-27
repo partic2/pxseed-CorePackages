@@ -7,13 +7,12 @@ import { PointTrace, TransformHelper } from './transform';
 
 
 
-interface WindowComponentProps{
+export interface WindowComponentProps{
     closeIcon?:string|null
     maximize?:string|null
     title?:string
     titleBarButton?:Array<{icon:string,onClick:()=>void}>
     onClose?:()=>void
-    position?:'auto center'|'fill'
     noTitleBar?:boolean
     noResizeHandle?:boolean
     disableUserInputActivate?:boolean
@@ -23,11 +22,12 @@ interface WindowComponentProps{
     contentDivInlineStyle?:React.CSSProperties
     windowDivInlineStyle?:React.CSSProperties
     onComponentDidUpdate?:()=>void
+    initialLayout?:{left:number,top:number,width?:number|string,height?:number|string}
 }
 
 interface WindowComponentStats{
     activateTime:number,
-    layout:{left:number,top:number,width?:number,height?:number},
+    layout:{left:number,top:number,width?:number|string,height?:number|string},
     errorOccured:Error|null,
 }
 
@@ -49,8 +49,7 @@ export class WindowComponent extends React.Component<WindowComponentProps,Window
     static defaultProps:WindowComponentProps={
         closeIcon:getIconUrl('x.svg'),
         maximize:getIconUrl('maximize-2.svg'),
-        title:'untitled',
-        position:'auto center'
+        title:'untitled'
     }
     static getDerivedStateFromError(error: any): object | null {
         return {errorOccured:error};
@@ -61,9 +60,9 @@ export class WindowComponent extends React.Component<WindowComponentProps,Window
     }
     constructor(props:WindowComponentProps,ctx:any){
         super(props,ctx);
-        this.setState({activateTime:-1,layout:{left:0,top:0},errorOccured:null});
+        this.setState({activateTime:-1,layout:this.props.initialLayout??{left:0,top:0},errorOccured:null});
     }
-    async makeCenter(){   
+    async makeCenter(){
         await (async()=>{
             let width=0;
             let height=0;
@@ -82,7 +81,6 @@ export class WindowComponent extends React.Component<WindowComponentProps,Window
                 if(stableCount>=3)break;
             }
         })();
-        
         let width=this.rref.container.current?.scrollWidth??0;
         let height=this.rref.container.current?.scrollHeight??0;
         let wndWidth=(rootWindowContainer?.offsetWidth)??0;
@@ -174,7 +172,7 @@ export class WindowComponent extends React.Component<WindowComponentProps,Window
         this.hide();
         this.props.onClose?.();
     }
-    protected beforeMaximizeSize:{left:number,top:number,width?:number,height?:number}|null=null;
+    protected beforeMaximizeSize:{left:number,top:number,width?:number|string,height?:number|string}|null=null;
     async onMaximizeClick(){
         if(this.beforeMaximizeSize!=null){
             this.setState({layout:{...this.beforeMaximizeSize}});
@@ -195,15 +193,15 @@ export class WindowComponent extends React.Component<WindowComponentProps,Window
             top:this.state.layout.top+'px',
             pointerEvents:'auto'
         };
-        if(this.state.layout.width!=undefined){
+        if(typeof this.state.layout.width==='number'){
             windowDivStyle.width=this.state.layout.width+'px';
+        }else if(typeof this.state.layout.width==='string'){
+            windowDivStyle.width=this.state.layout.width;
         }
-        if(this.state.layout.height!=undefined){
+        if(typeof this.state.layout.height==='number'){
             windowDivStyle.height=this.state.layout.height+'px';
-        }
-        if(this.props.position=='fill'){
-            windowDivStyle.width='100%';
-            windowDivStyle.height='100%';
+        }else if(typeof this.state.layout.height==='string'){
+            windowDivStyle.height=this.state.layout.height;
         }
         if(this.props.windowDivInlineStyle!=undefined){
             Object.assign(windowDivStyle,this.props.windowDivInlineStyle)
@@ -231,7 +229,7 @@ export class WindowComponent extends React.Component<WindowComponentProps,Window
                             {this.state.errorOccured.stack}
                         </pre>}
                     </div>,
-                    (this.props.noResizeHandle||this.props.position=='fill')?null:<img src={getIconUrl('arrow-down-right.svg')} 
+                    (this.props.noResizeHandle)?null:<img src={getIconUrl('arrow-down-right.svg')} 
                     style={{
                         position:'absolute',cursor:'nwse-resize',
                         right:'0px',bottom:'0px',
@@ -246,14 +244,7 @@ export class WindowComponent extends React.Component<WindowComponentProps,Window
     componentDidUpdate(previousProps: Readonly<WindowComponentProps>, previousState: Readonly<WindowComponentStats>, snapshot: any): void {
         this.props.onComponentDidUpdate?.();
     }
-    protected __firstRender=true;
     render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined; }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChild {
-        if(this.__firstRender){
-            this.__firstRender=false;
-            if(this.props.position=='auto center'){
-                this.makeCenter();
-            }
-        }
         return <FloatLayerComponent activateTime={this.state.activateTime}>
             {this.renderWindowMain()}
         </FloatLayerComponent> 
@@ -320,9 +311,8 @@ export async function windowsContainerForceUpdate(){
     return new Promise<void>((resolve)=>globalWindowsList.current?.forceUpdate(resolve));
 }
 
-
-export function getFloatWindowRefList(){
-    return floatWindowVNodes.map(t1=>t1.ref);
+export function getFloatWindowVNodeList(){
+    return floatWindowVNodes;
 }
 
 let i18n={
@@ -339,9 +329,10 @@ if(navigator.language==='zh-CN'){
 
 export async function alert(message:string,title?:string){
     let result=new future<null>();
-    let floatWindow1=<WindowComponent key={GenerateRandomString()}
+    let windowRef=new ReactRefEx<WindowComponent>();
+    let floatWindow1=<WindowComponent key={GenerateRandomString()} ref={windowRef}
     title={title??i18n.caution} onClose={()=>result.setResult(null)}>
-    <div style={{backgroundColor:'#FFF', minWidth:Math.min((rootWindowContainer?.offsetWidth)??0-10,300)}}>
+    <div style={{minWidth:Math.min((rootWindowContainer?.offsetWidth)??0-10,300)}}>
         {message}
         <div className={cssBase.flexRow}>
             <input type='button' style={{flexGrow:'1'}} onClick={()=>result.setResult(null)} value={i18n.ok}/>
@@ -349,6 +340,7 @@ export async function alert(message:string,title?:string){
     </div>
     </WindowComponent>
     appendFloatWindow(floatWindow1);
+    windowRef.waitValid().then((w)=>w.makeCenter());
     await result.get();
     removeFloatWindow(floatWindow1);
 }
@@ -356,9 +348,10 @@ export async function alert(message:string,title?:string){
 
 export async function confirm(message:string,title?:string){
     let result=new future<'ok'|'cancel'>();
-    let floatWindow1=<WindowComponent key={GenerateRandomString()}
+    let windowRef=new ReactRefEx<WindowComponent>();
+    let floatWindow1=<WindowComponent key={GenerateRandomString()} ref={windowRef}
         title={title??i18n.caution} onClose={()=>result.setResult('cancel')}>
-        <div style={{backgroundColor:'#FFF', minWidth:Math.min((rootWindowContainer?.offsetWidth)??0-10,300)}}>
+        <div style={{minWidth:Math.min((rootWindowContainer?.offsetWidth)??0-10,300)}}>
             {message}
             <div className={cssBase.flexRow}>
                 <input type='button' style={{flexGrow:'1'}} onClick={()=>result.setResult('ok')} value={i18n.ok}/>
@@ -367,6 +360,7 @@ export async function confirm(message:string,title?:string){
         </div>
     </WindowComponent>;
     appendFloatWindow(floatWindow1);
+    windowRef.waitValid().then((w)=>{w.makeCenter()});
     let r=await result.get();
     removeFloatWindow(floatWindow1);
     return r;
@@ -374,7 +368,9 @@ export async function confirm(message:string,title?:string){
 
 export async function prompt(form:React.VNode,title?:string){
     let result=new future<'ok'|'cancel'>();
-    let floatWindow1=<WindowComponent title={title??i18n.caution} onClose={()=>result.setResult('cancel')} key={GenerateRandomString()}>
+    let windowRef=new ReactRefEx<WindowComponent>();
+    let floatWindow1=<WindowComponent key={GenerateRandomString()} ref={windowRef}
+    title={title??i18n.caution} onClose={()=>result.setResult('cancel')} >
         <div className={cssBase.flexColumn}>
             {form}
             <div className={cssBase.flexRow}>
@@ -384,6 +380,7 @@ export async function prompt(form:React.VNode,title?:string){
         </div>
     </WindowComponent>;
     appendFloatWindow(floatWindow1);
+    windowRef.waitValid().then((w)=>{debugger;w.makeCenter()});
     return {
         response:result,
         close:()=>removeFloatWindow(floatWindow1)
