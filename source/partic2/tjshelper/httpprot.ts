@@ -344,7 +344,7 @@ export class HttpServer{
 		try{
 			while(true){
 				let req=await this.pParseHttpRequest(stream.r);
-				if(req.headers.get('connection')?.toLowerCase()==='upgrade' && req.headers.get('upgrade')?.toLowerCase()==='websocket'){
+				if(req.headers.get('upgrade')?.toLowerCase()==='websocket'){
 					let that=this;
 					let p={
 						_ws:null as null|WebSocketServerStreamHandler,

@@ -50,13 +50,23 @@ export let inited=(async ()=>{
             serv.serve().catch((err)=>console.error(err));
         }
     });
-
-    let ssoc=await tjs.listen('tcp','127.0.0.1',2081) as tjs.Listener;
+    let ssoc:tjs.Listener|null=null;
+    let port1=2081;
+    for(;port1<50000;port1+=2048){
+        try{
+            ssoc=await tjs.listen('tcp','127.0.0.1',2081) as tjs.Listener;
+            break;
+        }catch(err){}
+    }
+    if(ssoc==null){
+        console.error('No available tcp port to bind');
+        return;
+    }
     Task.fork(http.serveTjs(ssoc)).run();
     
-    console.info('serving on 2081');
+    console.info('serving on :'+port1);
     let webuientry='partic2/packageManager/webui';
-    console.info('entry url:'+`http://127.0.0.1:2081${pxseedBase}/www/index.html?__jsentry=pxseedServer2023%2fwebentry&__redirectjsentry=${encodeURIComponent(webuientry)}`)
+    console.info('entry url:'+`http://127.0.0.1:${port1}${pxseedBase}/www/index.html?__jsentry=pxseedServer2023%2fwebentry&__redirectjsentry=${encodeURIComponent(webuientry)}`)
     
 })();
 

@@ -1,11 +1,9 @@
 
 addEventListener('unhandledrejection',function(ev){
-    //XXX:TJS can't catch reject sometime, so we should maybe mute it all?
-    console.error(ev.reason);
+    //XXX:TJS can't catch reject sometime, so we should mute it all?
     ev.preventDefault();
 });
 addEventListener('error',function(ev){
-    console.info(ev.error)
     if(globalThis.__workerId!=undefined){
         console.error('worker '+globalThis.__workerId+'\n'+ev.error);
     }else{
@@ -70,11 +68,7 @@ export const main=async (entry)=>{
     globalThis.require([entry],(ent)=>{});
 };
 
-if(globalThis.postMessage==undefined){
-    if(tjs.args.length>=3 && tjs.args[2].endsWith('txikirun.js')){
-        main(tjs.args[3]);
-    }
-}else{
+if(globalThis.postMessage!==undefined){
     //worker
     main('partic2/tjshelper/workerentry');
 }

@@ -93,7 +93,7 @@ export function setBaseWindowView(vnode:React.VNode){
         removeFloatWindow(baseWindowComponnet);
     }
     baseWindowComponnet=vnode;
-    appendFloatWindow(<WindowComponent disableUserInputActivate={true} noTitleBar={true}
+    appendFloatWindow(<WindowComponent disableUserInputActivate={true} noTitleBar={true} noResizeHandle={true}
         windowDivClassName={windowCss.borderlessWindowDiv} ref={baseWindowRef} initialLayout={{left:0,top:0,width:'100%',height:'100%'}}>
         {vnode}
     </WindowComponent>);
