@@ -3,7 +3,9 @@ import { RemoteRunCodeContext } from 'partic2/CodeRunner/RemoteCodeContext';
 
 import { getPersistentRegistered, importRemoteModule, ServerHostRpcName, ServerHostWorker1RpcName } from 'partic2/pxprpcClient/registry'
 import { GetPersistentConfig, getWWWRoot, SavePersistentConfig } from 'partic2/jsutils1/webutils';
-import { Singleton } from '../CodeRunner/jsutils2';
+import { Singleton } from 'partic2/CodeRunner/jsutils2';
+import { buildTjs } from 'partic2/tjshelper/tjsbuilder';
+import { getNodeCompatApi } from 'pxseedBuildScript/util';
 
 
 let servShell:any=null;
@@ -135,4 +137,85 @@ export async function processDirectoryContainFile(file:string):Promise<{sourceRo
         let misc=await remoteModule.misc.get();
         return await misc.processDirectoryContainFile(file);
     }
+}
+
+
+async function findBrowserExecutableWin32():Promise<{type:'gecko'|'chromium',exePath:string}|null>{
+    let tjs=await buildTjs();
+    let {fs,path}=await getNodeCompatApi()
+    let chromiumPath=[['Google', 'Chrome', 'Application', 'chrome.exe'],['Chromium', 'Application', 'chrome.exe'],['Microsoft', 'Edge', 'Application', 'msedge.exe']];
+    let geckoPath=[['Mozilla Firefox', 'firefox.exe']]
+    let ProgramFilePrefix=[tjs.env['LOCALAPPDATA'],tjs.env['ProgramFiles'],tjs.env['ProgramFiles(x86)']].filter(t1=>t1!=undefined);
+    for(let t1 of ProgramFilePrefix){
+        let existed=false;
+        for(let tpath of chromiumPath){
+            let exePath=path.join(t1,...tpath);
+            await tjs.stat(exePath).then(()=>existed=true,()=>existed=false);
+            if(existed){
+                return {type:'chromium',exePath};
+            }
+        }
+        for(let tpath of geckoPath){
+            let exePath=path.join(t1,...tpath);
+            await tjs.stat(exePath).then(()=>existed=true,()=>existed=false);
+            if(existed){
+                return {type:'gecko',exePath};
+            }
+        }
+    }
+    return null;
+}
+async function findBrowserExecutabeLinux():Promise<{type:'gecko'|'chromium',exePath:string}|null>{
+    //Check PATH environment variable
+    let tjs=await buildTjs();
+    let {fs,path}=await getNodeCompatApi();
+    let paths=(tjs.env['PATH']??'').split(':');
+    let chromiumName=['chrome','chromium','microsoft-edge'];
+    let geckoName=['firefox'];
+    for(let tpath of paths){
+        let existed=false;
+        for(let tname of chromiumName){
+            let exePath=path.join(tpath,tname);
+            await tjs.stat(exePath).then(()=>existed=true,()=>existed=false);
+            if(existed){
+                return {type:'chromium',exePath};
+            }
+        }
+        for(let tname of geckoName){
+            let exePath=path.join(tpath,tname);
+            await tjs.stat(exePath).then(()=>existed=true,()=>existed=false);
+            if(existed){
+                return {type:'chromium',exePath};
+            }
+        }
+    }
+    return null;
+}
+
+
+export async function findBrowserExecutable():Promise<{type:'gecko'|'chromium',exePath:string}|null>{
+    let tjs=await buildTjs();
+    let platform=tjs.system.platform;
+    if(platform==='windows'){
+        return await findBrowserExecutableWin32();
+    }else if(platform==='linux'){
+        return await findBrowserExecutabeLinux();
+    }else{
+        //Unsupport yet;
+        return null;
+    }
+}
+
+export async function openUrlInBrowser(url:string,opts?:{appMode?:boolean}){
+    let browser=await findBrowserExecutable();
+    assert(browser!==null,"Can't found an available browser.");
+    let tjs=await buildTjs();
+    let args=[browser.exePath]
+    if(opts?.appMode===true && browser.type=='chromium'){
+        args.push('--app='+url);
+    }else{
+        //TODO: Firefox appMode support.
+        args.push(url);
+    }
+    tjs.spawn(args);
 }

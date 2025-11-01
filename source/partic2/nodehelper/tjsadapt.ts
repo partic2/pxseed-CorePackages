@@ -41,7 +41,10 @@ export async function tjsFrom():Promise<typeof tjs>{
         return tjsImpl
     }
     
-let platform=os.platform();
+let platform=os.platform() as string;
+if(platform=='win32'){
+    platform='windows';
+}
 
 async function realpath(path: string): Promise<string>{
     return await fs.realpath(path);
@@ -620,6 +623,7 @@ async function listen(transport: Transport, host: string, port?: string | number
         system:{platform:platform},
         listen,connect,
         makeTempFile,
+        env:process.env,
         __impl__:'partic2/nodehelper/tjsadapt'
     } as any;
     tjsImpl=tjsi;
