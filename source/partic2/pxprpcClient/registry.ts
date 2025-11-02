@@ -94,9 +94,9 @@ export class RpcWorker{
                 await this.wt!.start();
                 WebMessage.bind(this.wt!.port!)
                 await this.wt!.runScript(`require(['partic2/pxprpcClient/rpcworker'],function(workerInit){
-                    workerInit.loadRpcWorkerInitModule(${JSON.stringify(rpcWorkerInitModule)}).then(resolve,reject);
+                    workerInit.__internal__.loadRpcWorkerInitModule(${JSON.stringify(rpcWorkerInitModule)}).then(resolve,reject);
                 },reject)`,true);
-                this.conn= await new WebMessage.Connection().connect(this.wt!.workerId,300);
+                this.conn= await new WebMessage.Connection().connect(this.wt!.workerId,500);
             }
         }
         return this.conn!;

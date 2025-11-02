@@ -4,8 +4,7 @@ import { parentPort } from "worker_threads";
 import {MessagePortForNodeWorker,setupImpl} from './worker'
 
 
-
-
+declare var require:any
 
 (function(){
     setupImpl();
@@ -34,6 +33,15 @@ import {MessagePortForNodeWorker,setupImpl} from './worker'
             }
         }
     });
+    if('close' in globalThis){
+        let workerClose=globalThis.close.bind(globalThis);
+        globalThis.close=function(){
+            require(['partic2/jsutils1/webutils'],function(webutils:typeof import('partic2/jsutils1/webutils')){
+                webutils.lifecycle.dispatchEvent(new Event('exit'));
+                workerClose();
+            },function(){workerClose()})
+        }
+    }
     globalThis.postMessage({[WorkerThreadMessageMark]:true,type:'ready'});
 })()
 

@@ -1,10 +1,11 @@
 
 import { WebMessage } from "pxprpc/backend";
-import { Server } from "pxprpc/base";
+import { Io, Server } from "pxprpc/base";
 import { RpcExtendServer1, RpcExtendServerCallable, defaultFuncMap } from "pxprpc/extend";
 
 //Avoid to static import any module other than '"pxprpc" and "partic2/jsutils1/base"', To avoid incorrect call before workerInitModule imported.
 import { requirejs } from "partic2/jsutils1/base";
+import { lifecycle } from "../jsutils1/webutils";
 
 const __name__=requirejs.getLocalRequireModule(require);
 
@@ -12,19 +13,28 @@ declare var __workerId:string;
 
 WebMessage.bind(globalThis)
 
+let acceptedRpcConnection=new Set<Io>();
+
 new WebMessage.Server((conn)=>{
+    acceptedRpcConnection.add(conn);
     //mute error
-    new RpcExtendServer1(new Server(conn)).serve().catch(()=>{});
+    new RpcExtendServer1(new Server(conn)).serve().catch(()=>{}).finally(()=>acceptedRpcConnection.delete(conn));
 }).listen(__workerId);
 
+lifecycle.addEventListener('exit',()=>{
+    for(let t1 of acceptedRpcConnection){
+        t1.close();
+    }
+})
 
 
 let bootModules=new Set();
 
+
 //Save current loaded module as boot modules, which will not be 'undef' by reloadRpcWorker.
 //This function will be called automatically in loadRpcWorkerInitModule.
 //Only the last savedAsBootModules valid.
-export async function savedAsBootModules(){
+async function savedAsBootModules(){
     Object.keys(await requirejs.getDefined()).forEach(modName=>{
         bootModules.add(modName);
     });
@@ -32,7 +42,7 @@ export async function savedAsBootModules(){
 
 //Almost only used by './registry'
 let rpcWorkerInited=false;
-export async function loadRpcWorkerInitModule(workerInitModule:string[]){
+async function loadRpcWorkerInitModule(workerInitModule:string[]){
     if(!rpcWorkerInited){
         rpcWorkerInited=true;
         await Promise.allSettled(workerInitModule.map(v=>import(v)));
@@ -40,6 +50,10 @@ export async function loadRpcWorkerInitModule(workerInitModule:string[]){
         rpcWorkerInitModule.push(...workerInitModule);
         await savedAsBootModules();
     }
+}
+
+export let __internal__={
+    savedAsBootModules,loadRpcWorkerInitModule
 }
 
 export async function reloadRpcWorker(){

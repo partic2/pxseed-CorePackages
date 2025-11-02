@@ -1,4 +1,4 @@
-import { ArrayBufferToBase64, GenerateRandomString, ToDataUrl, amdContext, future, mutex, requirejs, sleep } from "./base";
+import { GenerateRandomString, assert, future, mutex, requirejs, sleep } from "./base";
 
 
 export var __name__='partic2/jsutils1/webutils'
@@ -246,19 +246,20 @@ export function AddUrlQueryVariable(url:string,vars:{[key:string]:string}):strin
     
 }
 
-var priv__CachedDownloadLink:HTMLAnchorElement|null=null;
+
 export function RequestDownload(buff:ArrayBuffer|string|Uint8Array<ArrayBuffer>,fileName:string){
-    if(priv__CachedDownloadLink==null){
-        priv__CachedDownloadLink = document.createElement('a');
-        priv__CachedDownloadLink.style.display = 'none';
-        document.body.appendChild(priv__CachedDownloadLink);
-    }
-    priv__CachedDownloadLink.setAttribute('download', fileName);
+    let downloadAnchor = document.createElement('a');
+    downloadAnchor.style.display = 'none';
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.setAttribute('download', fileName);
     let url = URL.createObjectURL(new Blob( [buff] ))
-    
-    priv__CachedDownloadLink.href = url;
-    priv__CachedDownloadLink.click();
-    (async ()=>{await sleep(5000,null);URL.revokeObjectURL(url);});
+    downloadAnchor.href = url;
+    downloadAnchor.click();
+    (async ()=>{
+        await sleep(5000,null);
+        URL.revokeObjectURL(url);
+        document.body.removeChild(downloadAnchor);
+    })();
 }
 export async function selectFile():Promise<FileList|null>{
     let fileInput=document.createElement('input');
@@ -562,7 +563,7 @@ declare let __pxseedInit:any
 export function GetJsEntry(){
     return __pxseedInit._entry
 }
-//Mainly for http url, So don't modify 'sep' on windows.
+//Mainly for http url process, So don't modify 'sep' on windows.
 export let path={
     sep:'/',
     join(...args:string[]){
@@ -581,8 +582,7 @@ export let path={
         return parts.join(this.sep);
     },
     dirname(PathLike:string){
-        let delim=PathLike.lastIndexOf(this.sep)
-        return PathLike.substring(0,delim);
+        return this.join(PathLike,'..');
     }
 }
 
@@ -594,15 +594,33 @@ export function getWWWRoot():string{
     return requirejs.getConfig().baseUrl
 }
 
-export function getResourceManager(modNameOrLocalRequire:string|typeof require){
+let getResourceManagerImpl=(modNameOrLocalRequire:string|typeof require)=>{
     if(typeof modNameOrLocalRequire==='function'){
         modNameOrLocalRequire=requirejs.getLocalRequireModule(modNameOrLocalRequire)
     }
     return {
         getUrl(path2:string){
-            return path.join(getWWWRoot(),(modNameOrLocalRequire as string)+'/..',path2);
+            if(path2.substring(0,1)==='/'){
+                return path.join(getWWWRoot(),path2.substring(1));
+            }else{
+                return path.join(getWWWRoot(),(modNameOrLocalRequire as string),'..',path2);
+            }
+        },
+        async read(path2:string):Promise<ReadableStream>{
+            let resp=await defaultHttpClient.fetch(this.getUrl(path2));
+            assert(resp.ok,'fetch failed with error HTTP error:'+resp.status+' '+resp.statusText)
+            assert(resp.body!=null);
+            return resp.body;
         }
     }
+}
+
+export function setGetResourceManagerImpl(impl:typeof getResourceManagerImpl){
+    getResourceManagerImpl=impl;
+}
+
+export function getResourceManager(modNameOrLocalRequire:string|typeof require){
+    return getResourceManagerImpl(modNameOrLocalRequire)
 }
 
 export function useDeviceWidth(){
@@ -620,13 +638,17 @@ export function useCssFile(cssUrl:string){
     document.head.appendChild(linkTag);
 }
 
+let iconLinkTag:HTMLLinkElement|null=null;
 export function usePageIcon(iconUrl:string,iconType?:'image/x-icon'|'image/png'|'image/svg+xml'){
+    if(iconLinkTag!=null){
+        document.head.removeChild(iconLinkTag);
+    }
     iconType=iconType??'image/x-icon';
-    let linkTag=document.createElement('link')
-    linkTag.rel='icon';
-    linkTag.type=iconType;
-    linkTag.href=iconUrl;
-    document.head.appendChild(linkTag);
+    iconLinkTag=document.createElement('link')
+    iconLinkTag.rel='icon';
+    iconLinkTag.type=iconType;
+    iconLinkTag.href=iconUrl;
+    document.head.appendChild(iconLinkTag);
 }
 
 class _LifecycleEventHandler extends EventTarget{
@@ -652,7 +674,6 @@ if('document' in globalThis){
         lifecycle.dispatchEvent(new Event('exit'));
     });
 }
-
 
 export class GlobalInputStateTracer{
     pressingKey=new Set<string>();

@@ -26,7 +26,15 @@ declare var __pxseedInit:any
     });
 
     if('postMessage' in globalThis){
+        if('close' in globalThis){
+            let workerClose=globalThis.close.bind(globalThis);
+            globalThis.close=function(){
+                require(['partic2/jsutils1/webutils'],function(webutils:typeof import('partic2/jsutils1/webutils')){
+                    webutils.lifecycle.dispatchEvent(new Event('exit'));
+                    workerClose();
+                },function(){workerClose()})
+            }
+        }
         globalThis.postMessage({[WorkerThreadMessageMark]:true,type:'ready'});
-    }
-    
+    }    
 })()
