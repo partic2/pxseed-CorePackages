@@ -145,7 +145,7 @@ async function findBrowserExecutableWin32():Promise<{type:'gecko'|'chromium',exe
     let {fs,path}=await getNodeCompatApi()
     let chromiumPath=[['Google', 'Chrome', 'Application', 'chrome.exe'],['Chromium', 'Application', 'chrome.exe'],['Microsoft', 'Edge', 'Application', 'msedge.exe']];
     let geckoPath=[['Mozilla Firefox', 'firefox.exe']]
-    let ProgramFilePrefix=[tjs.env['LOCALAPPDATA'],tjs.env['ProgramFiles'],tjs.env['ProgramFiles(x86)']].filter(t1=>t1!=undefined);
+    let ProgramFilePrefix=Array.from(new Set([tjs.env['LOCALAPPDATA'],tjs.env['PROGRAMFILES'],tjs.env['PROGRAMFILES(X86)']].filter(t1=>t1!=undefined)));
     for(let t1 of ProgramFilePrefix){
         let existed=false;
         for(let tpath of chromiumPath){

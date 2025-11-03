@@ -1,13 +1,15 @@
 
 addEventListener('unhandledrejection',function(ev){
-    //XXX:TJS can't catch reject sometime, so we should mute it all?
+    //txikijs BUG https://github.com/quickjs-ng/quickjs/issues/39
+    //So we have to mute error before it is fixed.
+    //console.error(ev.reason);
     ev.preventDefault();
 });
 addEventListener('error',function(ev){
     if(globalThis.__workerId!=undefined){
-        console.error('worker '+globalThis.__workerId+'\n'+ev.error);
+        console.error('worker '+globalThis.__workerId+'\n'+ev.reason);
     }else{
-        console.error(ev.error);
+        console.error(ev.reason);
     }
     ev.preventDefault();
 });
@@ -42,7 +44,19 @@ class TxikiScriptLoader{
                 throw e;
             }
         }
-        //We don't fallback now.
+        try{
+            let nodeImportName=moduleId;
+            let mod;
+            mod=await import(nodeImportName);
+            define(moduleId,[],mod)
+            return null;
+        }catch(e){
+            if(e.message.indexOf('Cannot find module')>=0){
+                //mute
+            }else{
+                console.warn(e);
+            }
+        }
         return new Error('TxikiScriptLoader:Cannot find module '+moduleId);
     }
     loadModule(moduleId,url,done){
@@ -69,6 +83,5 @@ export const main=async (entry)=>{
 };
 
 if(globalThis.postMessage!==undefined){
-    //worker
     main('partic2/tjshelper/workerentry');
 }
