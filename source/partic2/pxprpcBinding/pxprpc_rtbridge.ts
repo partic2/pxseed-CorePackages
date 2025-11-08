@@ -84,6 +84,31 @@ export class Invoker {
         let __v2 = await __v1!.call(path,mode,size);
         return __v2;
     }
+    async simpleffi_call(fn:bigint,argvMemChunk:RpcExtendClientObject):Promise<bigint>{
+        let __v1 = await getRpcFunctionOn(this.rpc__client!,'pxprpc_rtbridge.simpleffi_call', 'lo->l');
+        let __v2 = await __v1!.call(fn,argvMemChunk);
+        return __v2;
+    }
+    async sizeof_pointer():Promise<number>{
+        let __v1 = await getRpcFunctionOn(this.rpc__client!,'pxprpc_rtbridge.sizeof_pointer', '->i');
+        let __v2 = await __v1!.call();
+        return __v2;
+    }
+    async variable_get(name:string):Promise<string>{
+        let __v1 = await getRpcFunctionOn(this.rpc__client!,'pxprpc_rtbridge.variable_get', 's->s');
+        let __v2 = await __v1!.call(name);
+        return __v2;
+    }
+    async variable_set(name:string,value:string):Promise<void>{
+        let __v1 = await getRpcFunctionOn(this.rpc__client!,'pxprpc_rtbridge.variable_set', 'ss->');
+        let __v2 = await __v1!.call(name,value);
+        return __v2;
+    }
+    async variable_on_change():Promise<RpcExtendClientCallable>{
+        let __v1 = await getRpcFunctionOn(this.rpc__client!,'pxprpc_rtbridge.variable_on_change', '->o');
+        let __v2 = await __v1!.call() as RpcExtendClientObject;
+        return (await __v2.asCallable()).typedecl('->s');
+    }
 }
 
 
