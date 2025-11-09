@@ -8,7 +8,9 @@
   "options":{
     "partic2/packageManager/registry":{
       "webui":{
-        "entry":"partic2/JsNotebook/index"
+        "entry":"./index",
+        "label":"Js Notebook",
+        "icon":"/partic2/pxseedMedia1/icons/sidebar.svg"
       }
     }
   }

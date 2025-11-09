@@ -13,7 +13,9 @@
   "options":{
     "partic2/packageManager/registry":{
       "webui":{
-        "entry":"pxseedServer2023/webui"
+        "entry":"./webui",
+        "label":"pxseedServer2023",
+        "icon":"/partic2/pxseedMedia1/icons/server.svg"
       }
     }
   }

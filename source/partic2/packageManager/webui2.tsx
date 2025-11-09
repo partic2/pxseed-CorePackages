@@ -4,7 +4,7 @@ import {DomComponentGroup, DomRootComponent, ReactRefEx, ReactRender, css} from 
 import { RemoteRunCodeContext } from 'partic2/CodeRunner/RemoteCodeContext'
 import {getPersistentRegistered, getRegistered,importRemoteModule,persistent,ServerHostRpcName,ServerHostWorker1RpcName, WebWorker1RpcName} from 'partic2/pxprpcClient/registry'
 import { GenerateRandomString, GetBlobArrayBufferContent, Task, assert, future, requirejs } from 'partic2/jsutils1/base'
-import { BuildUrlFromJsEntryModule, GetJsEntry, GetPersistentConfig, RequestDownload, selectFile, useDeviceWidth } from 'partic2/jsutils1/webutils'
+import { BuildUrlFromJsEntryModule, GetJsEntry, GetPersistentConfig, getResourceManager, path, RequestDownload, selectFile, useDeviceWidth } from 'partic2/jsutils1/webutils'
 import {JsonForm} from 'partic2/pComponentUi/input'
 import {alert, appendFloatWindow, confirm, prompt, css as windowCss, WindowComponent} from 'partic2/pComponentUi/window'
 var registryModuleName='partic2/packageManager/registry';
@@ -25,6 +25,7 @@ let i18n={
     list:'list',
     filter:'filter',
     urlOrPackageName:'url/package name',
+    packageName:'package name',
     exportInstallation:'export installation',
     importInstallation:'import installation',
     createPackage:'create package',
@@ -40,6 +41,7 @@ if(navigator.language.split('-').includes('zh')){
     i18n.list='列出'
     i18n.filter='过滤'
     i18n.urlOrPackageName='url或包名'
+    i18n.packageName='包名'
     i18n.exportInstallation='导出安装配置'
     i18n.importInstallation='导入安装配置'
     i18n.createPackage='创建包'
@@ -65,6 +67,8 @@ let remoteModule={
 
 import {getIconUrl} from 'partic2/pxseedMedia1/index1'
 import { ReactDragController } from 'partic2/pComponentUi/transform'
+
+let resourceManager=getResourceManager(__name__);
 
 class WindowListIcon extends React.Component<{},{
     hideList:boolean,
@@ -115,7 +119,7 @@ class WindowListIcon extends React.Component<{},{
         ref={this.drag.draggedRef({left:window.innerWidth-this.state.listWidth-10,top:window.innerHeight-this.state.listHeight-40})}>
         <div style={{width:this.state.listWidth+'px',height:this.state.listHeight+'px',display:'flex',flexDirection:'column-reverse'}}>{
             this.state.hideList?null:<div>{
-                this.state.windows.map((t1,t2)=><div className={[css.flexRow,css.simpleCard].join(' ')} style={{backgroundColor:'white',pointerEvents:'auto'}}>
+                this.state.windows.map((t1,t2)=><div className={[css.flexRow,css.simpleCard].join(' ')} style={{pointerEvents:'auto'}}>
                     <div style={{display:'flex',flexGrow:'1',wordBreak:'break-all'}} onClick={()=>NewWindowHandleLists.value[t2].activate()}>{t1.title}</div>
                     <img draggable={false} src={t1.visible?getIconUrl('eye.svg'):getIconUrl('eye-off.svg')} onClick={()=>{
                         if(t1.visible){
@@ -143,6 +147,42 @@ const SimpleButton=(props:React.RenderableProps<{
     onClick: () => void;
 }>)=><a href="javascript:;" onClick={()=>props.onClick()} className={css.simpleCard}>{props.children}</a>;
 
+class PackageWebUiEntry extends React.Component<{pmopt:registryModType.PackageManagerOption,packageName:string}>{
+    async launchWebui(){
+        let entry=this.props.pmopt.webui!.entry
+        if(entry.startsWith('.')){
+            entry=path.join(this.props.packageName,entry)
+        }
+        let entryModule=await import(entry);
+        if(entryModule.main!=undefined){
+            Task.fork(function*():Generator<any,any>{
+                let r:any=null;
+                if(entryModule.main.constructor.name=='GeneratorFunction'){
+                    r=yield* entryModule.main('webui')
+                }else{
+                    r=entryModule.main('webui');
+                    if(r instanceof Promise){
+                        r=yield r;
+                    }
+                }
+            }).run();
+        }
+    }
+    render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChildren {
+        let iconUrl=this.props.pmopt.webui?.icon;
+        if(iconUrl==undefined){
+            iconUrl=getIconUrl('package.svg')
+        }else{
+            iconUrl=resourceManager.getUrl(iconUrl);
+        }
+        return <div style={{display:'inline-flex',flexDirection:'column',alignItems:'center',
+            width:'100px',height:'120px',padding:'4px'}} onClick={()=>this.launchWebui()}>
+            <div><img src={iconUrl} style={{width:'80px',height:'80px'}}></img></div>
+            <div style={{textAlign:'center',wordBreak:'break-all'}}>{this.props.pmopt.webui?.label??this.props.packageName}</div>
+        </div>
+    }
+}
+
 class PackagePanel extends React.Component<{},{
     packageList:PxseedConfig[],
     errorMessage:string
@@ -157,7 +197,7 @@ class PackagePanel extends React.Component<{},{
         this.setState({packageList:[],errorMessage:''});
     }
     async install(){
-        let dlg=await prompt(<div className={css.flexRow} style={{backgroundColor:'white',alignItems:'center'}}>
+        let dlg=await prompt(<div className={css.flexRow} style={{alignItems:'center'}}>
             {i18n.urlOrPackageName}:<TextEditor ref={this.rref.installPackageName} 
                 divClass={[css.simpleCard]}
                 divStyle={{width:Math.min(window.innerWidth-8,300)}}
@@ -195,7 +235,7 @@ class PackagePanel extends React.Component<{},{
     }
     filterString:string='webui'
     async requestListPackage(){
-        let dlg=await prompt(<div className={css.flexRow} style={{backgroundColor:'white',alignItems:'center'}}>
+        let dlg=await prompt(<div className={css.flexRow} style={{alignItems:'center'}}>
             {i18n.filter}:<TextEditor ref={this.rref.listFilter}
                 divClass={[css.simpleCard]}
                 divStyle={{width:Math.min(window.innerWidth-8,300)}}/>
@@ -228,7 +268,9 @@ class PackagePanel extends React.Component<{},{
                     "options":{
                       "partic2/packageManager/registry":{
                         "webui":{
-                          "entry":"partic2/JsNotebook/index"
+                            "entry":"./index",
+                            "label":"Js Notebook",
+                            "icon":"/partic2/pxseedMedia1/icons/sidebar.svg"
                         }
                       }
                     }
@@ -247,7 +289,9 @@ class PackagePanel extends React.Component<{},{
                     "options":{
                       "partic2/packageManager/registry":{
                         "webui":{
-                          "entry":"pxseedServer2023/webui"
+                            "entry":"./webui",
+                            "label":"pxseedServer2023",
+                            "icon":"/partic2/pxseedMedia1/icons/server.svg"
                         }
                       }
                     }
@@ -336,7 +380,18 @@ class PackagePanel extends React.Component<{},{
             }
         }
     }
-    async uninstallPackage(pkgName:string){
+    async uninstall(){
+        let dlg=await prompt(<div className={css.flexRow} style={{alignItems:'center'}}>
+            {i18n.packageName}:<TextEditor ref={this.rref.installPackageName} 
+                divClass={[css.simpleCard]}
+                divStyle={{width:Math.min(window.innerWidth-8,300)}}
+            />
+        </div>,i18n.uninstall);
+        if((await dlg.response.get())==='cancel'){
+            dlg.close();
+            return
+        }
+        let pkgName=(await this.rref.installPackageName.waitValid()).getPlainText();
         if(await confirm(`Uninstall package ${pkgName}?`)=='ok'){
             let registry=await remoteModule.registry.get();
             this.setState({errorMessage:'uninstalling...'})
@@ -360,38 +415,9 @@ class PackagePanel extends React.Component<{},{
         this.refreshList();
     }
     renderPackageList(){
-        return this.state.packageList.map(pkg=>{
-            let cmd=[] as {label:string,click:()=>void}[];
-            cmd.push({label:i18n.uninstall,click:()=>{
-                this.uninstallPackage(pkg.name)
-            }})
-            if(pkg.options!=undefined && registryModuleName in pkg.options){
-                let opt=pkg.options[registryModuleName] as registryModType.PackageManagerOption;
-                if(opt.webui!=undefined){
-                    cmd.push({label:i18n.webui,click:async ()=>{
-                        let entryModule=await import(opt.webui!.entry);
-                        if(entryModule.main!=undefined){
-                            Task.fork(function*(){
-                                let r:any=null;
-                                if(entryModule.main.constructor.name=='GeneratorFunction'){
-                                    r=yield* entryModule.main('webui')
-                                }else{
-                                    r=entryModule.main('webui');
-                                    if(r instanceof Promise){
-                                        r=yield r;
-                                    }
-                                }
-                            }).run();
-                        }
-                    }});
-                }
-            }
-            return <div className={css.flexRow} style={{alignItems:'center',borderBottom:'solid black 1px'}}>
-                <span style={{flexGrow:1}}>{pkg.name}</span>
-                <div style={{display:'inline-block',flexShrink:1}}>
-                    {cmd.map(v=><SimpleButton onClick={v.click}>{v.label}</SimpleButton>)}
-                </div>
-            </div>})
+        return this.state.packageList.filter(pkg=>pkg.options?.[registryModuleName]!=undefined).map(pkg=>{
+            return <PackageWebUiEntry pmopt={pkg.options![registryModuleName]} packageName={pkg.name}/>
+        })
     }
     async upgradeCorePackages(){
         try{
@@ -416,6 +442,7 @@ class PackagePanel extends React.Component<{},{
                 <div>
                     <SimpleButton onClick={()=>this.requestListPackage()}>{i18n.list}</SimpleButton>
                     <SimpleButton onClick={()=>this.install()}>{i18n.install}</SimpleButton>
+                    <SimpleButton onClick={()=>this.uninstall()}>{i18n.uninstall}</SimpleButton>
                     <SimpleButton onClick={()=>this.showCreatePackage()}>{i18n.createPackage}</SimpleButton>
                     <SimpleButton onClick={()=>this.exportPackagesInstallation()} >{i18n.exportInstallation}</SimpleButton>
                     <SimpleButton onClick={()=>this.importPackagesInstallation()} >{i18n.importInstallation}</SimpleButton>

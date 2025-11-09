@@ -380,7 +380,7 @@ export async function prompt(form:React.VNode,title?:string){
         </div>
     </WindowComponent>;
     appendFloatWindow(floatWindow1);
-    windowRef.waitValid().then((w)=>{debugger;w.makeCenter()});
+    windowRef.waitValid().then((w)=>{w.makeCenter()});
     return {
         response:result,
         close:()=>removeFloatWindow(floatWindow1)
