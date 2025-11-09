@@ -31,8 +31,12 @@ declare var __pxseedInit:any
             globalThis.close=function(){
                 require(['partic2/jsutils1/webutils'],function(webutils:typeof import('partic2/jsutils1/webutils')){
                     webutils.lifecycle.dispatchEvent(new Event('exit'));
+                    globalThis.postMessage({[WorkerThreadMessageMark]:true,type:'closing'});
                     workerClose();
-                },function(){workerClose()})
+                },function(){
+                    globalThis.postMessage({[WorkerThreadMessageMark]:true,type:'closing'});
+                    workerClose();
+                })
             }
         }
         globalThis.postMessage({[WorkerThreadMessageMark]:true,type:'ready'});

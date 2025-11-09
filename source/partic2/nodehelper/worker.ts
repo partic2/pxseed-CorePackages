@@ -87,6 +87,12 @@ class NodeWorkerThread implements IWorkerThread{
     constructor(workerId?:string){
         this.workerId=workerId??GenerateRandomString();
     }
+    onExit?:()=>void;
+    exitListener=()=>{
+        this.runScript(`require(['${webutilsName}'],function(webutils){
+            webutils.lifecycle.dispatchEvent(new Event('exit'));
+        })`);
+    };
     async start(){
         //Program started with noderun.js
         this.nodeWorker=new Worker(path.join(getWWWRoot(),'noderun.js'),{workerData:{entryModule:'partic2/nodehelper/workerentry'}});
@@ -107,26 +113,16 @@ class NodeWorkerThread implements IWorkerThread{
                     case 'ready':
                         this.waitReady.setResult(0);
                         break;
+                    case 'closing':
+                        lifecycle.removeEventListener('exit',this.exitListener);
+                        this.onExit?.();
+                        break;
                 }
             }
         });
         await this.waitReady.get();
         await this.runScript(`global.__workerId='${this.workerId}'`)
-        lifecycle.addEventListener('pause',()=>{
-            this.runScript(`require(['${webutilsName}'],function(webutils){
-                webutils.lifecycle.dispatchEvent(new Event('pause'));
-            })`);
-        });
-        lifecycle.addEventListener('resume',()=>{
-            this.runScript(`require(['${webutilsName}'],function(webutils){
-                webutils.lifecycle.dispatchEvent(new Event('resume'));
-            })`);
-        });
-        lifecycle.addEventListener('exit',()=>{
-            this.runScript(`require(['${webutilsName}'],function(webutils){
-                webutils.lifecycle.dispatchEvent(new Event('exit'));
-            })`);
-        });
+        lifecycle.addEventListener('exit',this.exitListener);
         this.port=new MessagePortForNodeWorker(this.nodeWorker!)
     }
     onHostRunScript(script:string){

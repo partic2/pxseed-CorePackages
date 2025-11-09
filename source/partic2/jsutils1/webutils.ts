@@ -11,7 +11,7 @@ export var config={
 }
 
 
-export function DomStringListToArray(strLs: DOMStringList) {
+function DomStringListToArray(strLs: DOMStringList) {
     var arr = new Array<string>();
     for (var i = 0; i < strLs.length; i++) {
         arr.push(strLs[i]);
@@ -435,6 +435,7 @@ export interface IWorkerThread{
     start():Promise<void>
     runScript(script:string,getResult?:boolean):Promise<any>
     requestExit():void
+    onExit?:()=>void
 }
 
 class WebWorkerThread implements IWorkerThread{
@@ -442,8 +443,14 @@ class WebWorkerThread implements IWorkerThread{
     port?:Worker;
     workerId='';
     waitReady=new future<number>();
+    onExit?:()=>void;
     constructor(workerId?:string){
         this.workerId=workerId??GenerateRandomString();
+    };
+    exitListener=()=>{
+        this.runScript(`require(['${__name__}'],function(webutils){
+            webutils.lifecycle.dispatchEvent(new Event('exit'));
+        })`);
     };
     async start(){
         this.port=new Worker(workerEntryUrl);
@@ -464,27 +471,16 @@ class WebWorkerThread implements IWorkerThread{
                     case 'ready':
                         this.waitReady.setResult(0);
                         break;
+                    case 'closing':
+                        lifecycle.removeEventListener('exit',this.exitListener);
+                        this.onExit?.();
+                        break;
                 }
             }
         });
         await this.waitReady.get();
         await this.runScript(`this.__workerId='${this.workerId}'`);
-        lifecycle.addEventListener('pause',()=>{
-            this.runScript(`require(['${__name__}'],function(webutils){
-                webutils.lifecycle.dispatchEvent(new Event('pause'));
-            })`);
-        });
-        lifecycle.addEventListener('resume',()=>{
-            this.runScript(`require(['${__name__}'],function(webutils){
-                webutils.lifecycle.dispatchEvent(new Event('resume'));
-            })`);
-        });
-        lifecycle.addEventListener('exit',()=>{
-            this.runScript(`require(['${__name__}'],function(webutils){
-                webutils.lifecycle.dispatchEvent(new Event('exit'));
-            })`);
-        });
-        
+        lifecycle.addEventListener('exit',this.exitListener);
     }
     onHostRunScript(script:string){
         (new Function('workerThread',script))(this);
@@ -553,9 +549,8 @@ export class HttpClient{
 }
 
 export var defaultHttpClient=new HttpClient();
-
-export async function webFetch(url:string,init?:RequestInit){
-    return await defaultHttpClient.fetch(url,init);
+export function setDefaultHttpClient(client:HttpClient){
+    defaultHttpClient=client;
 }
 
 declare let __pxseedInit:any

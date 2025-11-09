@@ -9,7 +9,7 @@ var __name__=requirejs.getLocalRequireModule(require);
 import { GenerateRandomString } from 'partic2/jsutils1/base';
 
 import {BasicMessagePort, getWWWRoot, IKeyValueDb, IWorkerThread, lifecycle, path, setKvStoreBackend, setWorkerThreadImplementation} from 'partic2/jsutils1/webutils'
-
+import {__name__ as webutilsName} from 'partic2/jsutils1/webutils'
 
 import {toSerializableObject,fromSerializableObject} from 'partic2/CodeRunner/Inspector'
 
@@ -118,8 +118,14 @@ class WebWorkerThread implements IWorkerThread{
     workerId='';
     waitReady=new future<number>();
     tjsWorker?:Worker
+    onExit?:()=>void;
     constructor(workerId?:string){
         this.workerId=workerId??GenerateRandomString();
+    };
+    exitListener=()=>{
+        this.runScript(`require(['${webutilsName}'],function(webutils){
+            webutils.lifecycle.dispatchEvent(new Event('exit'));
+        })`);
     };
     async start(){
         this.tjsWorker=new Worker(workerEntryUrl);
@@ -140,11 +146,19 @@ class WebWorkerThread implements IWorkerThread{
                     case 'ready':
                         this.waitReady.setResult(0);
                         break;
+                    case 'closing':
+                        lifecycle.removeEventListener('exit',this.exitListener);
+                        this.onExit?.();
+                        break;
+                    case 'tjs-close':
+                        this.tjsWorker?.terminate();
+                        break;
                 }
             }
         });
         await this.waitReady.get();
         await this.runScript(`this.__workerId='${this.workerId}'`);
+        lifecycle.addEventListener('exit',this.exitListener);
     }
     onHostRunScript(script:string){
         (new Function('workerThread',script))(this);
@@ -180,8 +194,6 @@ class WebWorkerThread implements IWorkerThread{
         this.runScript('globalThis.close()');
     }
 }
-
-
 
 let cachePath=path.join(getWWWRoot(),__name__,'..');
 
