@@ -1,7 +1,7 @@
 
 import * as React from 'preact'
 import { css as cssBase, DomDivComponent, DomRootComponent, FloatLayerComponent, ReactRefEx, ReactRender, RefChangeEvent } from './domui';
-import { ArrayWrap2, future, GenerateRandomString, GetCurrentTime } from 'partic2/jsutils1/base';
+import { ArrayWrap2, assert, future, GenerateRandomString, GetCurrentTime } from 'partic2/jsutils1/base';
 import { DynamicPageCSSManager } from 'partic2/jsutils1/webutils';
 import { PointTrace, TransformHelper } from './transform';
 
@@ -83,8 +83,8 @@ export class WindowComponent extends React.Component<WindowComponentProps,Window
         })();
         let width=this.rref.container.current?.scrollWidth??0;
         let height=this.rref.container.current?.scrollHeight??0;
-        let wndWidth=(rootWindowContainer?.offsetWidth)??0;
-        let wndHeight=(rootWindowContainer?.offsetHeight)??0;
+        let wndWidth=(rootWindowsList.current?.container.current?.offsetWidth)??0;
+        let wndHeight=(rootWindowsList.current?.container.current?.offsetHeight)??0;
         if(width>wndWidth-5)width=wndWidth-5;
         if(height>wndHeight-5)height=wndHeight-5;
         let left=(wndWidth-width)>>1;
@@ -244,75 +244,93 @@ export class WindowComponent extends React.Component<WindowComponentProps,Window
     componentDidUpdate(previousProps: Readonly<WindowComponentProps>, previousState: Readonly<WindowComponentStats>, snapshot: any): void {
         this.props.onComponentDidUpdate?.();
     }
+    windowsList:WindowsList|null=null;
+    parentWindow:WindowComponent|null=null;
     render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined; }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChild {
         return <FloatLayerComponent activateTime={this.state.activateTime}>
+            <WindowsListContext.Consumer>{(value)=>{this.windowsList=value;return null}}</WindowsListContext.Consumer>
             {this.renderWindowMain()}
         </FloatLayerComponent> 
     }
 }
 
+export let WindowsListContext=React.createContext<WindowsList|null>(null);
 
-
-export let rootWindowContainer:HTMLDivElement|null=null;
-export function ensureRootWindowContainer(){
-    if(rootWindowContainer==null){
-        let div=new DomDivComponent();
-        rootWindowContainer=div.getDomElement()! as HTMLDivElement;
-        rootWindowContainer.style.position='absolute';
-        rootWindowContainer.style.left='0px';
-        rootWindowContainer.style.top='0px';
-        rootWindowContainer.style.width='100vw';
-        rootWindowContainer.style.height='100vh';
-        DomRootComponent.addChild(div);
-        ReactRender(<WindowsList ref={globalWindowsList}/>,rootWindowContainer);
-    }
-    return rootWindowContainer;
-}
-let floatWindowVNodes:React.VNode[]=[];
-class WindowsList extends React.Component{
-    windowActiveTimeCompare=(t1:ReactRefEx<React.VNode>,t2:ReactRefEx<React.VNode>)=>{
-        let t3=(t1.current as any)?.state?.activateTime??0;
-        let t4=(t2.current as any)?.state?.activateTime??0;
-        return t3-t4;
+export class WindowsList extends React.Component<{divStyle?:React.CSSProperties},{floatWindowVNodes:React.VNode[]}>{
+    container=new ReactRefEx<HTMLDivElement>();
+    constructor(prop:any,ctx:any){
+        super(prop,ctx);
+        this.setState({floatWindowVNodes:[]});
     }
     render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined; }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChild {
-        return floatWindowVNodes
+        return <WindowsListContext.Provider value={this}>
+            <div style={{width:'100%',height:'100%',...this.props.divStyle}} ref={this.container}>{this.state.floatWindowVNodes}</div>
+        </WindowsListContext.Provider>
+    }
+    appendFloatWindow(window:React.VNode,active?:boolean){
+        active=active??true;
+        let ref2=new ReactRefEx<React.VNode>().forward([window.ref].filter(v=>v!=undefined) as React.Ref<any>[]);
+        window.ref=ref2;
+        if(window.key==undefined){
+            window.key=GenerateRandomString();
+        }
+        this.state.floatWindowVNodes.push(window);
+        if(active){
+            ref2.waitValid().then((v)=>{
+                if(v instanceof WindowComponent){
+                    v.activate();
+                }
+            });
+        };
+        this.forceUpdate();
+    }
+    removeFloatWindow(window:React.VNode){
+        let index=this.state.floatWindowVNodes.findIndex(v=>v===window);
+        if(index>=0){
+            this.state.floatWindowVNodes.splice(index,1);
+            this.forceUpdate();
+        }
     }
 }
-let globalWindowsList=new ReactRefEx<WindowsList>();
+
+
+let rootWindowsList=new ReactRefEx<WindowsList>();
+let windowDomRootComponent:DomDivComponent|null=null;
+export function ensureRootWindowContainer(){
+    if(windowDomRootComponent==null){
+        windowDomRootComponent=new DomDivComponent();
+        DomRootComponent.addChild(windowDomRootComponent);
+        let div=windowDomRootComponent.getDomElement()!;
+        div.style.width='100vw';
+        div.style.height='100vh';
+        div.style.position='absolute';
+        div.style.left='0px';
+        div.style.top='0px';
+        DomRootComponent.addChild(windowDomRootComponent).then(()=>DomRootComponent.update());
+        ReactRender(<WindowsList ref={rootWindowsList}/>,windowDomRootComponent);
+    }
+}
+
+
 
 export function appendFloatWindow(window:React.VNode,active?:boolean){
-    active=active??true;
-    let ref2=new ReactRefEx<React.VNode>().forward([window.ref].filter(v=>v!=undefined) as React.Ref<any>[]);
-    window.ref=ref2;
-    if(window.key==undefined){
-        window.key=GenerateRandomString();
-    }
     ensureRootWindowContainer();
-    windowsContainerForceUpdate();
-    floatWindowVNodes.push(window);
-    if(active){
-        ref2.waitValid().then((v)=>{
-            if(v instanceof WindowComponent){
-                v.activate();
-            }
-        });
-    }
+    rootWindowsList.current?.appendFloatWindow(window,active);
 }
 
 export function removeFloatWindow(window:React.VNode){
-    let index=floatWindowVNodes.findIndex(v=>v===window);
-    floatWindowVNodes.splice(index,1);
     ensureRootWindowContainer();
-    globalWindowsList.current?.forceUpdate();
+    rootWindowsList.current?.removeFloatWindow(window);
 }
 
 export async function windowsContainerForceUpdate(){
-    return new Promise<void>((resolve)=>globalWindowsList.current?.forceUpdate(resolve));
+    ensureRootWindowContainer();
+    return new Promise<void>((resolve)=>rootWindowsList.current?.forceUpdate(resolve));
 }
 
 export function getFloatWindowVNodeList(){
-    return floatWindowVNodes;
+    ensureRootWindowContainer();
+    return rootWindowsList.current?.state.floatWindowVNodes??[];
 }
 
 let i18n={
@@ -332,7 +350,7 @@ export async function alert(message:string,title?:string){
     let windowRef=new ReactRefEx<WindowComponent>();
     let floatWindow1=<WindowComponent key={GenerateRandomString()} ref={windowRef}
     title={title??i18n.caution} onClose={()=>result.setResult(null)}>
-    <div style={{minWidth:Math.min((rootWindowContainer?.offsetWidth)??0-10,300)}}>
+    <div style={{minWidth:Math.min((rootWindowsList.current?.container.current?.offsetWidth)??0-10,300)}}>
         {message}
         <div className={cssBase.flexRow}>
             <input type='button' style={{flexGrow:'1'}} onClick={()=>result.setResult(null)} value={i18n.ok}/>
@@ -351,7 +369,7 @@ export async function confirm(message:string,title?:string){
     let windowRef=new ReactRefEx<WindowComponent>();
     let floatWindow1=<WindowComponent key={GenerateRandomString()} ref={windowRef}
         title={title??i18n.caution} onClose={()=>result.setResult('cancel')}>
-        <div style={{minWidth:Math.min((rootWindowContainer?.offsetWidth)??0-10,300)}}>
+        <div style={{minWidth:Math.min((rootWindowsList.current?.container.current?.offsetWidth)??0-10,300)}}>
             {message}
             <div className={cssBase.flexRow}>
                 <input type='button' style={{flexGrow:'1'}} onClick={()=>result.setResult('ok')} value={i18n.ok}/>

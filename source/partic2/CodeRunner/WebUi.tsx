@@ -1,15 +1,15 @@
 
-import { GenerateRandomString, assert, sleep } from 'partic2/jsutils1/base';
-import { ReactRefEx, css as css1 } from 'partic2/pComponentUi/domui';
+import { GenerateRandomString, GetCurrentTime, assert, sleep } from 'partic2/jsutils1/base';
+import { FloatLayerComponent, ReactRefEx, css as css1 } from 'partic2/pComponentUi/domui';
 import { CodeContextEvent, ConsoleDataEventData, RunCodeContext } from './CodeContext';
 import * as React from 'preact'
-import { DynamicPageCSSManager } from 'partic2/jsutils1/webutils';
+import { DynamicPageCSSManager, globalInputState, GlobalInputStateTracer } from 'partic2/jsutils1/webutils';
 import { TextEditor } from 'partic2/pComponentUi/texteditor';
 import { DelayOnceCall,CodeContextRemoteObjectFetcher, fromSerializableObject, inspectCodeContextVariable, CodeCompletionItem, toSerializableObject } from './Inspector';
 import { ObjectViewer } from './Component1';
 import { text2html } from 'partic2/pComponentUi/utils';
 import { FlattenArraySync } from './jsutils2';
-
+import {appendFloatWindow,removeFloatWindow, WindowComponent, WindowsList, WindowsListContext} from 'partic2/pComponentUi/window'
 
 
 export var css={
@@ -27,14 +27,15 @@ export interface CodeCellProps{
     runCodeKey?:'Ctl+Ent'|'Enter'
     //To be used in code cell list.
     onFocusChange?:(focusin:boolean)=>void,
-    focusin:boolean|'auto'
+    onTooltips?:(vnode:React.VNode|null)=>void
 }
 interface CodeCellStats{
     //Serializable object
     cellOutput:any,
     resultVariable:string|null,
     codeCompleteCandidate:(CodeCompletionItem[])|null,
-    tooltip:string
+    tooltip:React.VNode,
+    extraTooltips:string|null,
     focusin:boolean
 }
 
@@ -60,9 +61,10 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
     }
     constructor(props:any,ctx:any){
         super(props,ctx);
-        this.setState({codeCompleteCandidate:null,focusin:false})
+        this.setState({codeCompleteCandidate:null,focusin:false,extraTooltips:null});
     }
     async runCode(){
+        this.props.onTooltips?.(null);
         this.props.onRun?.();
         try{
             this.setState({cellOutput:'Running...'});
@@ -86,8 +88,19 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
             codeCompleteCandidate:await this.props.codeContext.codeComplete(
                 this.getCellInput(),
                 this.rref.codeInput.current!.getTextCaretOffset())
+        },()=>{
+            this.props.onTooltips?.(<div>
+                {this.state.extraTooltips?<div dangerouslySetInnerHTML={{__html:this.state.extraTooltips}}></div>:null}
+                {this.renderCodeComplete()}
+            </div>)
         });
-    },300);
+    },200);
+    protected requestUpdateTooltips=new DelayOnceCall(async ()=>{
+        this.props.onTooltips?.(<div>
+            {this.state.extraTooltips?<div dangerouslySetInnerHTML={{__html:this.state.extraTooltips}}></div>:null}
+            {this.renderCodeComplete()}
+        </div>)
+    },100)
     protected getRunCodeKey(){
         return this.props.runCodeKey??'Ctl+Ent';
     }
@@ -114,15 +127,14 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
             if(this.state.codeCompleteCandidate!=null){
                 if(this.state.codeCompleteCandidate.length>0){
                     this.insertCodeComplete(this.state.codeCompleteCandidate[0]);
+                    this.setState({codeCompleteCandidate:[]});
+                    this.requestUpdateTooltips.call();
                 }
             }
             ev.preventDefault();
         }
     }
     protected onCellInput(editor:TextEditor,inputData: { char: string | null; text: string | null; type:string}){
-        if(inputData.char!=null&&inputData.char.search(/[a-zA-Z_\.\/]/)>=0){
-            this.requestCodeComplete.call();
-        }
         if(inputData.char=='\n'){
             let fullText=editor.getPlainText();
             let backwardText=fullText.substring(0,editor.getTextCaretOffset()).split('\n');
@@ -136,6 +148,10 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
                 editor.insertText(leadingSpace)
             }
         }
+        if((inputData.char!=null&&inputData.char.search(/[a-zA-Z_\.\/]/)>=0)||inputData.type==='deleteContentBackward'){
+            this.requestCodeComplete.call();
+        }
+        this.requestUpdateTooltips.call()
     }
     getCellInput(){
         let t1=this.rref.codeInput.current!.getPlainText()
@@ -157,12 +173,12 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
         this.rref.codeInput.current!.insertText(cc.candidate);
     }
     protected renderCodeComplete(){
-        if(this.state.codeCompleteCandidate!=null && this.state.focusin){
-            return <div style={{display:'flex',flexDirection:'row',flexWrap:'wrap'}}>
+        if(this.state.codeCompleteCandidate!=null){
+            return <div style={{display:'flex',flexDirection:'column',maxHeight:'300px'}}>
                 {this.state.codeCompleteCandidate.map(v=>{
-                    return [<span>&nbsp;&nbsp;</span>,
-                    <a href="javascript:;" onClick={()=>this.insertCodeComplete(v)}>{v.candidate}({v.type})</a>,
-                    <span>&nbsp;&nbsp;</span>]
+                    return <div>
+                    <a href="javascript:;" onClick={()=>this.insertCodeComplete(v)}>{v.candidate}</a>
+                    </div>
                 })}
             </div>
         }
@@ -171,21 +187,21 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
         if(this.props.onFocusChange!=undefined){
             this.props.onFocusChange(focusin);
         }
-        if(this.props.focusin==='auto'){
-            if(focusin){
-                //avoid click event failed.
-                await sleep(200);
-                this.setState({focusin:true})
-            }else{
-                //wait to check focus realy move out
-                await sleep(500);
-                if(document.activeElement==null || 
-                    (this.rref.container.current!=null &&
-                    (document.activeElement.compareDocumentPosition(
-                        this.rref.container.current!)&Node.DOCUMENT_POSITION_CONTAINS)===0)){
-                    this.setState({focusin:false})
-                }
+        if(focusin){
+            //avoid click event failed.
+            await sleep(100);
+            this.setState({focusin:true});
+        }else{
+            //wait to check focus really move out
+            await sleep(500);
+            if(document.activeElement==null || 
+                (this.rref.container.current!=null &&
+                (document.activeElement.compareDocumentPosition(
+                    this.rref.container.current!)&Node.DOCUMENT_POSITION_CONTAINS)===0)){
+                this.setState({focusin:false})
             }
+            this.setState({codeCompleteCandidate:[]})
+            this.props.onTooltips?.(null);
         }
     }
     protected async onBtnRun(){
@@ -203,46 +219,46 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
     }
     protected renderActionButton(){
         let result=[]
-        if(this.state.focusin){
-            if(this.props.customBtns!=undefined){
-                for(let t1 of this.props.customBtns){
-                    result.push(<a href="javascript:;" onClick={()=>t1.cb()}>{t1.label}</a>)
-                }
+        if(this.props.customBtns!=undefined){
+            for(let t1 of this.props.customBtns){
+                result.push(<a href="javascript:;" onClick={()=>t1.cb()}>{t1.label}</a>)
             }
-            result.push(<a href="javascript:;" onClick={()=>this.onBtnRun()}>Run({this.getRunCodeKey()})</a>)
-            result.push(<a href="javascript:;" onClick={()=>this.onBtnClearOutputs()}>ClearOutputs</a>)
         }
+        result.push(<a href="javascript:;" onClick={()=>this.onBtnRun()}>Run({this.getRunCodeKey()})</a>)
+        result.push(<a href="javascript:;" onClick={()=>this.onBtnClearOutputs()}>ClearOutputs</a>)
         result=result.map(v=>[<span>&nbsp;&nbsp;</span>,v,<span>&nbsp;&nbsp;</span>])
         return result
     }
-    protected renderTooltip(){
-        if(this.state.tooltip!=undefined){
-            return <div dangerouslySetInnerHTML={{__html:this.state.tooltip}}>
-            </div>
-        }else{
-            return null;
-        }
-    }
     protected prepareRender(){
-        if(this.props.focusin!=='auto'){
-            if(this.state.focusin!==this.props.focusin){
-                this.setState({focusin:this.props.focusin})
-            }
-        }
     }
     render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined; }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChild {
         this.prepareRender();
-        return <div style={{display:'flex',flexDirection:'column'}} ref={this.rref.container} onFocusOut={()=>this.doOnFocusChange(false)}
+        return <div style={{display:'flex',flexDirection:'column',position:'relative'}} ref={this.rref.container} onFocusOut={()=>this.doOnFocusChange(false)}
             onFocusIn={()=>{this.doOnFocusChange(true)}}>
             <TextEditor ref={this.rref.codeInput} divAttr={{onKeyDown:(ev)=>this.onCellKeyDown(ev)}}
             onInput={(target,inputData)=>this.onCellInput(target,inputData)} divClass={[css.inputCell]} />
-            <div>{this.renderActionButton()}</div>
-            <div>{this.renderCodeComplete()}</div>
-            <div>{this.renderTooltip()}</div>
+            {this.state.focusin?<div style={{position:'relative',display:'flex',justifyContent:'end'}}><div style={{position:'absolute',backgroundColor:'white'}}>
+                <div>{this.renderActionButton()}</div>
+            </div></div>:null}
+            {this.props.onTooltips?null:<div>
+                {this.state.extraTooltips?<div dangerouslySetInnerHTML={{__html:this.state.extraTooltips}}></div>:null}
+                {this.renderCodeComplete()}
+            </div>}
             <div style={{overflow:'auto'}}>
                 <ObjectViewer object={this.state.cellOutput} name={''} />
             </div>
         </div>
+    }
+    getInputCaretCoordinate(){
+        let codeInput=this.rref.codeInput.current;
+        if(codeInput==null || codeInput.rref.div1.current==null)return null;
+        let coor=codeInput.getCoordinateByTextOffset(codeInput.getTextCaretOffset());
+        if(coor==null)return null;
+        let {offsetLeft,offsetTop}=codeInput.rref.div1.current;
+        coor.left+=offsetLeft;
+        coor.top+=offsetTop;
+        coor.bottom+=offsetTop
+        return coor;
     }
     async setAsEditTarget(){
         (await this.rref.codeInput.waitValid()).setTextCaretOffset('end');
@@ -268,15 +284,21 @@ export class DefaultCodeCellList extends React.Component<
             consoleOutput:{[cellKey:string]:{content:string}},
             error:string|null,
             codeContext:RunCodeContext|null,
-            lastFocusCellKey:string
+            lastFocusCellKey:string,
+            cellTooltips:null|{content:React.VNode,left:number,top:number,maxWidth:number,maxHeight:number},
+            padBottomCell:number
         }>{
     priv__initCellValue:{input:string,output:[any,string|undefined]}[]|null=null;
     protected lastRunCellKey:string='';
     constructor(prop:any,ctx:any){
         super(prop,ctx);
         this.resetState();
+        this.setState({cellTooltips:null,padBottomCell:0});
     }
     __currentCodeContext:RunCodeContext|null=null;
+    rref={
+        container:new ReactRefEx<HTMLDivElement>()
+    }
     beforeRender(){
         if(this.props.codeContext!==this.state.codeContext){
             if(this.state.codeContext!=null){
@@ -288,7 +310,9 @@ export class DefaultCodeCellList extends React.Component<
     }
     async newCell(afterCellKey:string){
         let pos=this.state.list.findIndex(v=>v.key==afterCellKey);
-        if(pos<0)pos=this.state.list.length-1;
+        if(pos<0){
+            pos=this.state.list.length-1;
+        }
         let newKey=GenerateRandomString();
         this.state.list.splice(pos+1,0,{ref:new ReactRefEx<CodeCell>(),key:newKey});
         await new Promise<void>(resolve=>this.forceUpdate(resolve));
@@ -341,18 +365,62 @@ export class DefaultCodeCellList extends React.Component<
     getCellList(){
         return this.state.list;
     }
+    onCellTooltips(node:React.VNode|null,cell: { ref: ReactRefEx<CodeCell>; key: string; }){
+        if(cell.ref.current!=null){
+            if(node==null){
+                this.setState({cellTooltips:null});
+                return
+            }
+            let inputCoor=cell.ref.current.getInputCaretCoordinate();
+            if(inputCoor!=null && cell.ref.current.rref.container.current!=null){
+                let {offsetTop,offsetLeft}=cell.ref.current.rref.container.current;
+                let left=inputCoor.left+offsetLeft
+                let top=inputCoor.bottom+offsetTop+2;
+                let maxWidth=this.rref.container.current!.clientWidth-left-20;
+                let maxHeight=this.rref.container.current!.clientHeight-top;
+                if(maxHeight<200){
+                    maxHeight=maxHeight+200-this.state.padBottomCell;
+                    this.setState({padBottomCell:200});
+                }
+                if(maxWidth<150){
+                    left=left+maxWidth-150;
+                    maxWidth=150;
+                }
+                this.setState({cellTooltips:{left,top,maxWidth,maxHeight,content:node}});
+            }
+        }
+    }
+    renderCellTooltips(){
+        if(this.state.cellTooltips==null)return null;
+        let css2:React.CSSProperties={
+            position:'absolute',zIndex:600,
+            left:this.state.cellTooltips.left+'px',maxWidth:this.state.cellTooltips.maxWidth+'px',
+            top:this.state.cellTooltips.top+'px',maxHeight:this.state.cellTooltips.maxHeight+'px',
+            overflow:'auto',
+            backgroundColor:'white'}
+        return <div style={css2}>
+            {this.state.cellTooltips.content}
+        </div>
+    }
     render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined; }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChild {
         this.beforeRender();
-        return (this.state.codeContext!=null && this.state.error==null)?<div style={{width:'100%',overflowX:'auto'}}>
+        return (this.state.codeContext!=null && this.state.error==null)?<div style={{width:'100%',overflowX:'auto',position:'relative'}} ref={this.rref.container}>
             {FlattenArraySync(this.state.list.map((v,index1)=>{
                 let r=[<CodeCell ref={v.ref} key={v.key} 
                 codeContext={this.state.codeContext!} customBtns={[
                     {label:'New',cb:()=>this.newCell(v.key)},
                     {label:'Del',cb:()=>this.deleteCell(v.key)}
                 ]} onClearOutputs={()=>this.clearConsoleOutput(v.key)}
-                    onRun={async ()=>{this.lastRunCellKey=v.key;this.props.onRun?.(v.key)}}
-                    onFocusChange={(focusin)=>{if(focusin)this.setState({lastFocusCellKey:v.key})}}
-                    focusin={this.state.lastFocusCellKey==v.key}
+                    onRun={async ()=>{
+                        this.lastRunCellKey=v.key;this.props.onRun?.(v.key);
+                        this.setState({padBottomCell:0})
+                    }}
+                    onFocusChange={(focusin)=>{
+                        if(focusin){
+                            this.setState({lastFocusCellKey:v.key});
+                        }
+                    }}
+                    onTooltips={(node)=>this.onCellTooltips(node,v)}
                     {...this.props.cellProps}
                 />];
                 if(v.key in this.state.consoleOutput){
@@ -360,8 +428,10 @@ export class DefaultCodeCellList extends React.Component<
                 }
                 return r;
             }))}
+            {<div style={{height:this.state.padBottomCell+'px'}}></div>}
+            {this.renderCellTooltips()}
             </div>:
-            <div style={{width:'100%',overflow:'auto'}}><pre>{this.state.error}</pre>
+            <div style={{width:'100%',overflow:'auto',position:'relative'}} ref={this.rref.container}><pre>{this.state.error}</pre>
             <a href="javascript:;" onClick={()=>this.resetState()}>Reset</a>
             </div>
     }
