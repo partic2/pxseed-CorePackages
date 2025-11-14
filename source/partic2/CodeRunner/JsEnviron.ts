@@ -1,5 +1,5 @@
 
-import { ArrayBufferConcat, ArrayWrap2, GenerateRandomString, GetCurrentTime, assert, future, mutex, requirejs, throwIfAbortError } from "partic2/jsutils1/base";
+import { ArrayBufferConcat, ArrayWrap2, GenerateRandomString, GetCurrentTime, IamdeeScriptLoader, assert, future, mutex, requirejs, throwIfAbortError } from "partic2/jsutils1/base";
 import { CKeyValueDb, getWWWRoot, kvStore, path } from "partic2/jsutils1/webutils";
 import type {} from '@txikijs/types/src/index'
 import { ClientInfo } from "partic2/pxprpcClient/registry";
@@ -645,6 +645,7 @@ import type * as nodefsmodule from 'fs/promises'
 import type * as nodepathmodule from 'path'
 import { type CodeCompletionContext } from "./Inspector";
 import { RpcExtendClient1 } from "pxprpc/extend";
+import { utf8conv } from "./jsutils2";
 
 export class NodeSimpleFileSystem implements SimpleFileSystem{
     
@@ -863,31 +864,41 @@ export function getFileSysteWritableStream(fs:SimpleFileSystem,path:string,initi
     return new WritableStream(dataSink)
 }
 
-class RequirejsResourceProvider{
-    rootPath:string='www';
-    constructor(public fs:SimpleFileSystem){};
-    handler=async (modName: string, url: string)=>{
-        await this.fs.ensureInited();
-        let {baseUrl}=requirejs.getConfig();
-        let fileName=url.substring(baseUrl.length)
-        let data=await this.fs.readAll(this.rootPath+'/'+fileName)
-        if(data!=null){
-            return new TextDecoder().decode(data);
+class CSimpleFileSystemScriptLoader implements IamdeeScriptLoader{
+    constructor(public providers:Array<{fs:SimpleFileSystem,rootPath:string}>){}
+    loadModule(moduleId: string, url: string, done: (err: Error | null) => void): void {
+        this.loadModuleAsync(moduleId,url).then(()=>done(null),(err)=>done(err));
+    }
+    currentDefining:string|null=null;
+    getDefiningModule(): string | null {
+        return this.currentDefining;
+    }
+    async loadModuleAsync(moduleId: string, url: string){
+        url=moduleId;
+        if(!url.endsWith('.js'))url=url+'.js'
+        for(let t1 of this.providers){
+            let data=await t1.fs.readAll(t1.rootPath+'/'+url);
+            if(data!=null){
+                this.currentDefining=moduleId;
+                try{new Function(utf8conv(data))();}finally{
+                    this.currentDefining=null;
+                    return;
+                }
+            }
         }
-        return null;
+        throw new Error(`module ${moduleId} not found by CSimpleFileSystemScriptLoader`)
     }
 }
 
-export let installedRequirejsResourceProvider=[] as {rootPath:string,fs:SimpleFileSystem,handler:any}[];
-
+let simpleFileSystemScriptLoader:CSimpleFileSystemScriptLoader|null=null;
+export let installedRequirejsResourceProvider:Array<{fs:SimpleFileSystem,rootPath:string}>=[];
 export async function installRequireProvider(fs:SimpleFileSystem,rootPath?:string){
-    let provider=new RequirejsResourceProvider(fs);
-    if(rootPath!=undefined){
-        provider.rootPath=rootPath;
+    if(simpleFileSystemScriptLoader==null){
+        simpleFileSystemScriptLoader=new CSimpleFileSystemScriptLoader(installedRequirejsResourceProvider);
+        requirejs.addScriptLoader(simpleFileSystemScriptLoader,true);
     }
-    requirejs.addResourceProvider(provider.handler);
-    installedRequirejsResourceProvider.push(provider);
-    return provider.handler;
+    installedRequirejsResourceProvider.push({fs,rootPath:rootPath??'www'});
+    return {fs,rootPath:rootPath??'www'}
 }
 
 interface CodeContextEnvInitVar{
@@ -972,7 +983,3 @@ export async function initCodeEnv(_ENV:any,opt?:{codePath?:string}){
     }
     _ENV.globalThis=globalThis;
 }
-
-
-
-

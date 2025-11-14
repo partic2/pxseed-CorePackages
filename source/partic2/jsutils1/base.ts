@@ -426,41 +426,9 @@ try{
 
 
 //Iamdee spec
-interface ScriptLoader {
+export interface IamdeeScriptLoader {
     loadModule(moduleId: string, url: string, done: (err: Error | null) => void): void;
     getDefiningModule(): string | null;
-}
-class ResourceProviderLoader implements ScriptLoader{
-    currentDefining=null as string|null;
-    async loadModuleAsync(moduleId:string,url:string){
-        url=(url.match(/[^\?]*/)??[''])[0]
-        if(requirejs.resourceProvider==null){
-            return new Error('ResourceProviderLoader:Module not found');
-        }
-        for(let t1 of requirejs.resourceProvider){
-            let res=await t1(moduleId,url);
-            if(res==null){
-                continue;
-            }
-            if(typeof res==='string'){
-                res=new Function(res);
-            }
-            try{
-                this.currentDefining=moduleId;
-                res();
-            }finally{
-                this.currentDefining=null;
-            }
-            return null;
-        }
-        return new Error('ResourceProviderLoader:Module not found');
-    }
-    loadModule(moduleId: string, url: string, done: (err: Error | null) => void): void {
-        this.loadModuleAsync(moduleId,url).then((e)=>done(e)).catch(err=>done(err));
-    }
-    getDefiningModule(): string | null {
-        return this.currentDefining;
-    }
 }
 
 export let requirejs = {
@@ -493,14 +461,13 @@ export let requirejs = {
     undef:async function (mod:string){
         amdContext.requirejs.undef(mod)
     },
-    resourceProvider:null as ((modName:string,url:string)=>Promise<string|Function|null>)[]|null,
-    addResourceProvider(provider:(modName:string,url:string)=>Promise<string|Function|null>){
+    addScriptLoader(loader:IamdeeScriptLoader,beforeOthers?:boolean){
         //partic2-iamdee feature
-        if(this.resourceProvider===null){
-            this.resourceProvider=[];
-            amdContext.define.amd.scriptLoaders.unshift(new ResourceProviderLoader());
+        if(beforeOthers){
+            amdContext.define.amd.scriptLoaders.unshift(loader);
+        }else{
+            amdContext.define.amd.scriptLoaders.push(loader);
         }
-        this.resourceProvider.unshift(provider)
     },
     getLocalRequireModule(localRequire:typeof require):string{
         //partic2-iamdee feature

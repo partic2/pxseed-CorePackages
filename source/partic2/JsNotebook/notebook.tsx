@@ -1,7 +1,7 @@
 
 import { LocalRunCodeContext, registry, RunCodeContext } from 'partic2/CodeRunner/CodeContext';
 import { CodeCellList } from 'partic2/CodeRunner/WebUi';
-import { GenerateRandomString, GetCurrentTime, WaitUntil, assert, future, logger, requirejs, sleep } from 'partic2/jsutils1/base';
+import { GenerateRandomString, GetCurrentTime, IamdeeScriptLoader, WaitUntil, assert, future, logger, requirejs, sleep } from 'partic2/jsutils1/base';
 import * as React from 'preact'
 
 import {ClientInfo, getAttachedRemoteRigstryFunction, getRegistered, listRegistered, persistent, ServerHostWorker1RpcName} from 'partic2/pxprpcClient/registry'
@@ -21,17 +21,16 @@ export let __name__='partic2/JsNotebook/notebook'
 
 
 //LWRP = LocalWindowRequireProvider, setup to requirejs
-let LWRPSetuped=[false,new future()] as [boolean,future<(modName: string, url: string) => Promise<string | null>>];
+let LWRPSetuped=new future<{fs:SimpleFileSystem,rootPath:string}>();
 
 
 async function ensureLWRPInstalled(){
-    if(!LWRPSetuped[0]){
+    if(!LWRPSetuped.done){
         await ensureDefaultFileSystem();
         await defaultFileSystem!.ensureInited();
-        LWRPSetuped[0]=true;
-        LWRPSetuped[1].setResult(await installRequireProvider(defaultFileSystem!));
+        LWRPSetuped.setResult(await installRequireProvider(defaultFileSystem!));
     }
-    await LWRPSetuped[1].get();
+    await LWRPSetuped.get();
 }
 
 export class IJSNBFileHandler extends FileTypeHandlerBase{
