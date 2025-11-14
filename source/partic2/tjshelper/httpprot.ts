@@ -94,6 +94,7 @@ class ProtocolSwitchResponse extends Response{
 export interface WebSocketServerConnection{
 	send(obj: Uint8Array | string | Array<Uint8Array>):Promise<void>
 	receive():Promise<Uint8Array|string>
+	close():void
 }
 
 export class WebSocketServerStreamHandler implements WebSocketServerConnection {

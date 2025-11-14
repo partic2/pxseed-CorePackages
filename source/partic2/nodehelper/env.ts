@@ -4,7 +4,7 @@ import {setup as jseioInit} from './jseio'
 import { GenerateRandomString } from "partic2/jsutils1/base";
 import { getAttachedRemoteRigstryFunction, RpcWorker } from "partic2/pxprpcClient/registry";
 
-export function setupEnv(){
+export function setupImpl(){
     kvdbInit()
     workerInit()
     jseioInit()
@@ -40,4 +40,12 @@ export function setupEnv(){
             }
         }) as any
     }
+}
+
+if(globalThis.process?.versions?.node==undefined){
+    console.warn('This module is only used to initialize pxseed environment on Node.js,'+
+        ' and has no effect on other platform.'+
+        'Also avoid to import this module on other platform.')
+}else{
+    setupImpl();
 }

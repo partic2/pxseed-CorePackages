@@ -1,8 +1,8 @@
 
 
 import { parentPort } from "worker_threads";
-import {MessagePortForNodeWorker,setupImpl} from './worker'
-
+import './env';
+import {MessagePortForNodeWorker,setupImpl} from './worker';
 
 declare var require:any
 

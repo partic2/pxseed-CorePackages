@@ -1,5 +1,5 @@
 
-import './workerInit'
+import './pxseedhttpserver'
 
 import type {} from '@txikijs/types/src/index'
 

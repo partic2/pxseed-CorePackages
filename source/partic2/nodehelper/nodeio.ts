@@ -270,6 +270,9 @@ export class NodeWsConnectionAdapter2 implements WebSocketServerConnection{
         })
     }
     async send(obj: Uint8Array | string | Array<Uint8Array>): Promise<void> {
+        if(obj instanceof Array){
+            obj=new Uint8Array(ArrayBufferConcat(obj));
+        }
         return new Promise((resolve,reject)=>this.ws.send(obj,(err)=>{
             if(err==null)resolve();
             reject(err);
@@ -277,6 +280,9 @@ export class NodeWsConnectionAdapter2 implements WebSocketServerConnection{
     }
     async receive(): Promise<Uint8Array | string> {
         return await this.priv__cached.queueBlockShift();
+    }
+    close(): void {
+        this.ws.close();
     }
     
 }

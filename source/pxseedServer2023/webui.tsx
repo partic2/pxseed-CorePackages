@@ -3,7 +3,7 @@ import * as React from 'preact'
 
 import {RegistryUI} from 'partic2/pxprpcClient/ui'
 
-import type {PxseedServer2023StartupConfig} from './workerInit'
+import type {PxseedServer2023StartupConfig} from './pxseedhttpserver'
 import {TextEditor} from 'partic2/pComponentUi/texteditor'
 import { DomRootComponent, ReactRefEx,ReactRender,css } from 'partic2/pComponentUi/domui'
 import { alert,prompt } from 'partic2/pComponentUi/window'

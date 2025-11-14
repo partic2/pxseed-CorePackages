@@ -1,6 +1,6 @@
 import { GenerateRandomString, GetCurrentTime, Task, assert, requirejs } from "partic2/jsutils1/base";
 import { RpcExtendClient1, RpcExtendClientCallable, RpcExtendClientObject } from "pxprpc/extend";
-import type { PxseedServer2023StartupConfig } from "./workerInit";
+import type { PxseedServer2023StartupConfig } from "./pxseedhttpserver";
 import { Client, Io, Serializer } from "pxprpc/base";
 import { WebSocketIo } from "pxprpc/backend";
 import { IoOverPxprpc, ServerHostRpcName, getPersistentRegistered, getRegistered, getRpcFunctionOn } from 'partic2/pxprpcClient/registry'
@@ -48,8 +48,8 @@ export class PxseedServer2023Function{
 //To be standardized BEGIN
 export async function wsPipeConnectDirectly(id:string):Promise<Io>{
     if(wsPipeApi.wsUrl==undefined){
-        if('pxseedServer2023/workerInit' in (await requirejs.getDefined())){
-            let {rootConfig}=await import('pxseedServer2023/workerInit');
+        if('pxseedServer2023/pxseedhttpserver' in (await requirejs.getDefined())){
+            let {rootConfig}=await import('pxseedServer2023/pxseedhttpserver');
             wsPipeApi.wsUrl=`ws://${rootConfig.listenOn!.host}:${rootConfig.listenOn!.port}${rootConfig.pxseedBase}/pxprpc/0`
         }else{
             wsPipeApi.wsUrl=(await (await import('./webentry')).getPxseedUrl()).wsPipeUrl;
@@ -139,7 +139,7 @@ export async function wsPipeConnectPxseedJsUrl(url:string){
 
 export async function getServerConfig():Promise<null|{root:PxseedServer2023StartupConfig,current:PxseedServer2023StartupConfig}>{
     if('pxseedServer2023/workerInit' in await requirejs.getDefined()){
-        let serv=await import('pxseedServer2023/workerInit');
+        let serv=await import('pxseedServer2023/pxseedhttpserver');
         return {root:serv.rootConfig,current:serv.config}
     }else{
         return null;
