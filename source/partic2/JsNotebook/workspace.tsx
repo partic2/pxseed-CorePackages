@@ -96,7 +96,11 @@ export class Workspace extends React.Component<{rpc?:ClientInfo,fs?:SimpleFileSy
                             {'cellInput': '//Also globalThis are available \nglobalThis',
                             'cellOutput': ['', null],
                             'key': 'rnd1inpn4a83tgvabops'},
-                            {'cellInput': '//"import" is also available as expected\nimport {BytesToHex} from \'partic2/jsutils1/base\'\nlet hex=BytesToHex(new Uint8Array([0x22,0x33,0x44]));\nconsole.info(hex)\nlet BytesFromHex=(await import(\'partic2/jsutils1/base\')).BytesFromHex\nconsole.info(BytesFromHex(hex))\n',
+                            {'cellInput': `//"import" is also available as expected
+import * as jsutils2  from 'partic2/CodeRunner/jsutils2'
+u8=jsutils2.u8hexconv(new Uint8Array([11,22,33]))
+console.info(u8)
+console.info(Array.from(jsutils2.u8hexconv(u8)))`,
                             'cellOutput': ['', null],
                             'key': 'rnd1gn3dzsjben57zmdc'}],
                       'consoleOutput': {}})
