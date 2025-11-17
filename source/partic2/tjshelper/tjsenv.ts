@@ -265,7 +265,7 @@ declare global {
 export class PxprpcRtbIo implements Io{
     static async connect(pipeServer:string):Promise<PxprpcRtbIo|null>{
         let conn=__pxprpc4tjs__.pipeConnect(pipeServer);
-        if(conn==BigInt(0)){
+        if(conn===0n){
             return null;
         }else{
             return new PxprpcRtbIo(conn);
@@ -273,6 +273,7 @@ export class PxprpcRtbIo implements Io{
     }
     constructor(public pipeAddr:BigInt){};
     receive(): Promise<Uint8Array> {
+        if(this.pipeAddr===0n)throw new Error('Not connected');
         return new Promise((resolve,reject)=>{
             __pxprpc4tjs__.ioReceive(this.pipeAddr,(buf)=>{
                 if(typeof buf==='string'){
@@ -285,6 +286,7 @@ export class PxprpcRtbIo implements Io{
     }
     async send(data: Uint8Array[]): Promise<void> {
         let res
+        if(this.pipeAddr===0n)throw new Error('Not connected');
         if(data.length==1 && data[0].byteOffset==0 && data[0].length==data[0].buffer.byteLength){
             res=__pxprpc4tjs__.ioSend(this.pipeAddr,data[0].buffer);
         }else{
@@ -295,7 +297,10 @@ export class PxprpcRtbIo implements Io{
         }
     }
     close(): void {
-        __pxprpc4tjs__.ioClose(this.pipeAddr);
+        if(this.pipeAddr!==0n){
+            __pxprpc4tjs__.ioClose(this.pipeAddr);
+            this.pipeAddr=0n;
+        }
     }
 }
 

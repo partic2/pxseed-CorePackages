@@ -4,13 +4,14 @@ import { RpcExtendServer1, RpcExtendServerCallable, defaultFuncMap } from 'pxprp
 import {Server as PxprpcBaseServer} from 'pxprpc/base'
 
 
-export var __name__='pxseedServer2023/workerInit'
+export var __name__=requirejs.getLocalRequireModule(require);
 
 import { rpcWorkerInitModule } from 'partic2/pxprpcClient/registry';
 if(!rpcWorkerInitModule.includes(__name__)){
     rpcWorkerInitModule.push(__name__);
 }
 
+export let subprocessMagic='--subprocessrnd197izpzgbvbhglw0w';
 
 
 export interface PxseedServer2023StartupConfig{
@@ -35,7 +36,7 @@ export interface PxseedServer2023StartupConfig{
 
 export let config:PxseedServer2023StartupConfig={
     pxseedBase:'/pxseed',
-    listenOn:{host:'127.0.0.1',port:8088},
+    listenOn:{host:'127.0.0.1',port:2081},
     initModule:[],
     pxprpcCheckOrigin:['localhost','127.0.0.1','[::1]'],
     pxprpcKey:null,
@@ -54,6 +55,7 @@ import { GetUrlQueryVariable2, getWWWRoot } from 'partic2/jsutils1/webutils';
 import { SimpleHttpServerRouter, WebSocketServerConnection } from 'partic2/tjshelper/httpprot';
 import { Io } from 'pxprpc/base';
 import { buildTjs } from 'partic2/tjshelper/tjsbuilder';
+import { GenerateRandomString, requirejs } from 'partic2/jsutils1/base';
 export async function loadConfig(){
     let tjs=await buildTjs();
     try{
@@ -62,8 +64,8 @@ export async function loadConfig(){
         let readinConfig=JSON.parse(new TextDecoder().decode(configData));
         rootConfig=Object.assign(readinConfig);
         if(globalThis.process==undefined)return null;
-        let subprocessAt=process.argv.indexOf('--subprocess');
-        if(process.argv[2]=='pxseedServer2023/entry' && subprocessAt>=0 ){
+        let subprocessAt=process.argv.indexOf(subprocessMagic);
+        if(subprocessAt>=0 ){
             //This is subprocee spawn by deamon.
             let subprocessIndex=Number(process.argv[subprocessAt+1]);
             Object.assign(config,rootConfig,rootConfig.deamonMode!.subprocessConfig[subprocessIndex]);
@@ -77,6 +79,8 @@ export async function loadConfig(){
         console.log(`config file not found, write to ${getWWWRoot()+'/pxseedServer2023/config.json'}`)
         await saveConfig(config)
     }
+    defaultRouter.setHandler(config.pxseedBase!+'/pxprpc/0',{websocket:pxprpcHandler});
+    defaultRouter.setHandler(config.pxseedBase!+'/ws/pipe',{websocket:wsPipeHandler});
 }
 export async function saveConfig(newConfig:PxseedServer2023StartupConfig){
     let tjs=await buildTjs();
@@ -172,8 +176,3 @@ async function serveWsPipe(io:Io,id:string){
         }
     }
 }
-
-export let __inited__=(async ()=>{
-    defaultRouter.setHandler(config.pxseedBase!+'/pxprpc/0',{websocket:pxprpcHandler});
-    defaultRouter.setHandler(config.pxseedBase!+'/ws/pipe',{websocket:wsPipeHandler});
-})()

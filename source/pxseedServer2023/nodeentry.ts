@@ -2,9 +2,9 @@
 //To initialize node environment. For these don't want to start http server, just import this module.
 import 'partic2/nodehelper/env'
 
-import { config, loadConfig, rootConfig, saveConfig } from './pxseedhttpserver';
+import { config, loadConfig, rootConfig, saveConfig, subprocessMagic } from './pxseedhttpserver';
 
-export let __name__='pxseedServer2023/entry';
+export let __name__='pxseedServer2023/nodeentry';
 
 import { ArrayBufferConcat, ArrayWrap2, future, requirejs, sleep, Task } from 'partic2/jsutils1/base';
 import {Client, Io} from 'pxprpc/base'
@@ -57,7 +57,10 @@ export let WsServer={
                         resolve(new NodeWsConnectionAdapter2(client))
                     }));
                 }
-            })
+            });
+            if(!accepted){
+                socket.end();
+            }
         }
         
     },
@@ -274,7 +277,7 @@ export async function startServer(){
     if(config.deamonMode!.enabled){
         let subprocs:ChildProcess[]=[]
         for(let t1=0;t1<config.deamonMode!.subprocessConfig.length;t1++){
-            let subprocess=nodeRun(__name__,['--subprocess',String(t1)]);
+            let subprocess=nodeRun(__name__,[subprocessMagic,String(t1)]);
             subprocs.push(subprocess);
         }
         defaultFuncMap['pxseedServer2023.subprocess.waitExitCode']=new RpcExtendServerCallable(async (index:number)=>{
@@ -302,7 +305,7 @@ export async function startServer(){
                 subprocs[index].kill();
                 await sleep(500);
             }
-            let subprocess=nodeRun(__name__,['--subprocess',String(index)]);
+            let subprocess=nodeRun(__name__,[subprocessMagic,String(index)]);
             subprocs[index]=subprocess;
         };
         defaultFuncMap['pxseedServer2023.subprocess.restart']=new RpcExtendServerCallable(command.subprocessRestart).typedecl('i->');

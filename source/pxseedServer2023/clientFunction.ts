@@ -138,7 +138,7 @@ export async function wsPipeConnectPxseedJsUrl(url:string){
 //To be standardized END
 
 export async function getServerConfig():Promise<null|{root:PxseedServer2023StartupConfig,current:PxseedServer2023StartupConfig}>{
-    if('pxseedServer2023/workerInit' in await requirejs.getDefined()){
+    if('pxseedServer2023/pxseedhttpserver' in await requirejs.getDefined()){
         let serv=await import('pxseedServer2023/pxseedhttpserver');
         return {root:serv.rootConfig,current:serv.config}
     }else{

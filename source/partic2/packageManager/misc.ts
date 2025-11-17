@@ -74,7 +74,7 @@ export async function ensureCodeUpdated(opt:{reload?:boolean}){
             await SavePersistentConfig(__name__);
         }
         if(opt.reload==true){
-            let serverConfig=await import('pxseedServer2023/entry');
+            let serverConfig=await import('pxseedServer2023/pxseedhttpserver');
             if(serverConfig.config.subprocessIndex!=undefined){
                 (async ()=>{
                     await sleep(100);
