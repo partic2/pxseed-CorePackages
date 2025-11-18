@@ -12,15 +12,42 @@ import { getWWWRoot, path } from 'partic2/jsutils1/webutils';
 import {Invoker as rtbridgeInvoker} from 'partic2/pxprpcBinding/pxprpc_rtbridge'
 import * as pxseedhttpserver from './pxseedhttpserver';
 import { WebSocketIo } from 'pxprpc/backend';
+import {openUrlInBrowser} from 'partic2/packageManager/misc'
 
 let __name__=requirejs.getLocalRequireModule(require);
 
 export let pxprpcRuntimeBridgeClient:RpcExtendClient1|null=null;
+export let pxprpcJavaRtbClient:RpcExtendClient1|null=null
 
-export async function getLoaderInfo(): Promise<{pxseedLoaderDataDir:string,processTag:string,hostFlags:string}> {
+let cachedLoaderInfo:{pxseedLoaderDataDir:string,processTag:string,hostFlags:string}|null=null;
+
+export async function ensurePxprpcJavaRtbClient(){
+    if(pxprpcJavaRtbClient!==null)return pxprpcJavaRtbClient;
+    let io1=await PxprpcRtbIo.connect('/pxprpc/runtime_bridge/java/0')
+    assert(io1!=null,'/pxprpc/runtime_bridge/java/0 connect failed.');
+    pxprpcJavaRtbClient=await new RpcExtendClient1(new Client(io1)).init();
+    return pxprpcJavaRtbClient
+}
+export async function getLoaderInfo() {
     let __v1 = await getRpcFunctionOn(pxprpcRuntimeBridgeClient!,'pxprpc_PxseedLoader.getLoaderInfo', '->b');
     let __v2 = await __v1!.call();
-    return new TableSerializer().load(__v2).toMapArray()[0]
+    cachedLoaderInfo=new TableSerializer().load(__v2).toMapArray()[0]
+    return cachedLoaderInfo;
+}
+
+export async function openWebviewForEntry(entryUrl:string){
+    try{
+        let loaderInfo=await getLoaderInfo()!;
+        if(loaderInfo!.hostFlags.includes(' __ANDROID__ ')){
+            let openHttpUrl=await getRpcFunctionOn(await ensurePxprpcJavaRtbClient(),'AndroidHelper.Intent.openHttpUrl','ss->')
+            openHttpUrl!.call(entryUrl,'');
+        }else{
+            await openUrlInBrowser(entryUrl,{appMode:true});
+        }
+    }catch(err){
+        console.error(err);
+    }
+    
 }
 
 
@@ -46,6 +73,30 @@ export let __inited__=(async ()=>{
     await pxseedhttpserver.loadConfig();
     if(pxseedhttpserver.config.pxseedBase!=undefined){
         pxseedBase=pxseedhttpserver.config.pxseedBase
+    }
+    try{
+        let tjsState=JSON.parse(new TextDecoder().decode(await tjs.readFile(path.join(wwwroot,__name__,'..','state','pxseedloader.json')))) as pxseedhttpserver.PxseedServer2023StartupConfig;
+        console.warn('pxseedloader state detecting...');
+        if(tjsState.listenOn!=undefined){
+            console.warn('try to connect pxseedloader instance '+`ws://${tjsState.listenOn.host}:${tjsState.listenOn.port}${tjsState.pxseedBase}/pxprpc/runtime_bridge`);
+            let wsio1=await new WebSocketIo().connect(`ws://${tjsState.listenOn.host}:${tjsState.listenOn.port}${tjsState.pxseedBase}/pxprpc/runtime_bridge`)
+            console.warn(`connected...`);
+            await wsio1.send([new TextEncoder().encode('/pxprpc/runtime_bridge/0')]);
+            try{
+                let client1=await new RpcExtendClient1(new Client(wsio1)).init();
+                let invoker1=new rtbridgeInvoker();
+                await invoker1.useClient(client1);
+                console.warn('pxseedloader instance detected, send request_ui event.')
+                await invoker1.variable_set('pxseedloader.event.request_ui',String(GetCurrentTime().getTime()));
+                tjs.exit(0);
+            }finally{
+                wsio1.close();
+            }
+            
+        }
+    }catch(err){
+        console.warn(err)
+        console.warn('No pxseedloader instance detected, create a new one.')
     }
 
     let tjsfs=new TjsSfs();
@@ -116,9 +167,24 @@ export let __inited__=(async ()=>{
         await pxseedloaderStateFile.write(new TextEncoder().encode(JSON.stringify(pxseedhttpserver.config)))
     }catch(err:any){console.error(err.toString())}
     
-    console.info('serving on :'+port1);
+    console.warn('serving on :'+port1);
     let webuientry='partic2/packageManager/webui';
     let entryUrl=`http://127.0.0.1:${port1}${pxseedBase}/www/index.html?__jsentry=pxseedServer2023%2fwebentry&__redirectjsentry=${encodeURIComponent(webuientry)}&__pxprpcKey=${pxseedhttpserver.config.pxprpcKey}`;
-    console.info('entry url:'+entryUrl)
+    console.warn('entry url:'+entryUrl)
+    
+    try{
+        let invoker1=new rtbridgeInvoker();
+        await invoker1.useClient(pxprpcRuntimeBridgeClient);
+
+        let onChange=await invoker1.variable_on_change();
+        onChange.poll((err,result)=>{
+            if(err!==null)return;
+            if(result==='pxseedloader.event.request_ui'){
+                openWebviewForEntry(entryUrl);
+            }
+        });
+        await invoker1.variable_set('pxseedloader.event.request_ui',String(GetCurrentTime().getTime()))
+    }finally{
+    }
     
 })();

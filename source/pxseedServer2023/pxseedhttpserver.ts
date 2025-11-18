@@ -60,23 +60,26 @@ export async function loadConfig(){
     let tjs=await buildTjs();
     try{
         let configData=await tjs.readFile(getWWWRoot()+'/pxseedServer2023/config.json')
-        console.log(`config file ${getWWWRoot()+'/pxseedServer2023/config.json'} found. `);
+        console.warn(`config file ${getWWWRoot()+'/pxseedServer2023/config.json'} found. `);
         let readinConfig=JSON.parse(new TextDecoder().decode(configData));
         rootConfig=Object.assign(readinConfig);
-        if(globalThis.process==undefined)return null;
-        let subprocessAt=process.argv.indexOf(subprocessMagic);
-        if(subprocessAt>=0 ){
-            //This is subprocee spawn by deamon.
-            let subprocessIndex=Number(process.argv[subprocessAt+1]);
-            Object.assign(config,rootConfig,rootConfig.deamonMode!.subprocessConfig[subprocessIndex]);
-            config.deamonMode!.enabled=false;
-            config.deamonMode!.subprocessConfig=[]
-            config.subprocessIndex=subprocessIndex;
+        if(globalThis.process!=undefined){
+            let subprocessAt=process.argv.indexOf(subprocessMagic);
+            if(subprocessAt>=0 ){
+                //This is subprocee spawn by deamon.
+                let subprocessIndex=Number(process.argv[subprocessAt+1]);
+                Object.assign(config,rootConfig,rootConfig.deamonMode!.subprocessConfig[subprocessIndex]);
+                config.deamonMode!.enabled=false;
+                config.deamonMode!.subprocessConfig=[]
+                config.subprocessIndex=subprocessIndex;
+            }else{
+                Object.assign(config,rootConfig);
+            }
         }else{
             Object.assign(config,rootConfig);
         }
     }catch(e){
-        console.log(`config file not found, write to ${getWWWRoot()+'/pxseedServer2023/config.json'}`)
+        console.warn(`config file not found, write to ${getWWWRoot()+'/pxseedServer2023/config.json'}`)
         await saveConfig(config)
     }
     defaultRouter.setHandler(config.pxseedBase!+'/pxprpc/0',{websocket:pxprpcHandler});
