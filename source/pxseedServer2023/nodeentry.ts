@@ -1,8 +1,7 @@
-
 //To initialize node environment. For these don't want to start http server, just import this module.
 import 'partic2/nodehelper/env'
 
-import { config, loadConfig, rootConfig, saveConfig, subprocessMagic } from './pxseedhttpserver';
+import { config, defaultRouter, loadConfig, rootConfig, saveConfig, serverCommand, serverCommandRegistry, setupHttpServerHandler, subprocessMagic } from './pxseedhttpserver';
 
 export let __name__='pxseedServer2023/nodeentry';
 
@@ -20,7 +19,7 @@ import { ChildProcess, spawn } from 'child_process';
 import {WebSocketServer } from 'ws'
 import { NodeReadableDataSource, NodeWsConnectionAdapter2, NodeWsIo } from 'partic2/nodehelper/nodeio';
 import { createIoPipe } from 'partic2/pxprpcClient/registry';
-import { defaultFuncMap, RpcExtendClient1, RpcExtendServer1, RpcExtendServerCallable } from 'pxprpc/extend';
+import { RpcExtendClient1 } from 'pxprpc/extend';
 import { WebSocketIo } from 'pxprpc/backend';
 
 
@@ -135,42 +134,6 @@ async function runCommand(cmd:string,cwd?:string){
     return stdoutbuffer.join('');
 }
 
-export let command={
-    buildEnviron:async ()=>runCommand(`${process.execPath} ${pathJoin(getWWWRoot(),'..','script','buildEnviron.js')}`),
-    buildPackages:async ()=>runCommand(`${process.execPath} ${pathJoin(getWWWRoot(),'..','script','buildPackages.js')}`),
-    rebuildPackages:async ()=>{
-        let t1=await runCommand(`${process.execPath} ${pathJoin(getWWWRoot(),'..','script','cleanPackages.js')}`)
-        t1+=await runCommand(`${process.execPath} ${pathJoin(getWWWRoot(),'..','script','buildPackages.js')}`)
-        return t1;
-    },
-    subprocessRestart:null as any as (index:number)=>Promise<void>,
-    exit:async ()=>{
-        doExit();
-    }
-}
-
-defaultFuncMap['pxseedServer2023.serverCommand']=new RpcExtendServerCallable(async (cmd:string)=>{
-    if(cmd=='buildEnviron'){
-        return runCommand(`${process.execPath} ${pathJoin(getWWWRoot(),'..','script','buildEnviron.js')}`)
-    }else if(cmd=='buildPackages'){
-        return await runCommand(`${process.execPath} ${pathJoin(getWWWRoot(),'..','script','buildPackages.js')}`)
-    }else if(cmd=='rebuildPackages'){
-        let t1=await runCommand(`${process.execPath} ${pathJoin(getWWWRoot(),'..','script','cleanPackages.js')}`)
-        t1+=await runCommand(`${process.execPath} ${pathJoin(getWWWRoot(),'..','script','buildPackages.js')}`)
-        return t1;
-    }else if(cmd=='getConfig'){
-        await loadConfig();
-        return JSON.stringify(config);
-    }else if(cmd=='exit'){
-        command.exit();
-    }else if(cmd.startsWith('saveConfig ')){
-        let startAt=cmd.indexOf(' ')+1;
-        await saveConfig(JSON.parse(cmd.substring(startAt)));
-        await loadConfig();
-        return 'done'
-    }
-    return '';
-}).typedecl('s->s')
 
 //Should move to another file?
 export async function startServer(){
@@ -280,7 +243,7 @@ export async function startServer(){
             let subprocess=nodeRun(__name__,[subprocessMagic,String(t1)]);
             subprocs.push(subprocess);
         }
-        defaultFuncMap['pxseedServer2023.subprocess.waitExitCode']=new RpcExtendServerCallable(async (index:number)=>{
+        serverCommandRegistry.subprocessWaitExitCode=async (index:number)=>{
             let subp=subprocs[index];
             if(subp.exitCode!=null){
                 return subp.exitCode;
@@ -288,8 +251,8 @@ export async function startServer(){
                 return new Promise<number>(
                     (resolve)=>subp.once('exit',(exitCode)=>{resolve(exitCode??-1)}))
             }
-        }).typedecl('i->i');
-        command.subprocessRestart=async (index:number)=>{
+        };
+        serverCommandRegistry.subprocessRestart=async (index:number)=>{
             if(subprocs[index].exitCode==null){
                 let subCfg=rootConfig.deamonMode!.subprocessConfig[index];
                 let client1=new RpcExtendClient1(new Client(await new WebSocketIo().connect(
@@ -308,7 +271,6 @@ export async function startServer(){
             let subprocess=nodeRun(__name__,[subprocessMagic,String(index)]);
             subprocs[index]=subprocess;
         };
-        defaultFuncMap['pxseedServer2023.subprocess.restart']=new RpcExtendServerCallable(command.subprocessRestart).typedecl('i->');
     }
 }
 
@@ -317,6 +279,15 @@ export let __inited__=(async ()=>{
         await startServer();
         ensureInit.setResult(0);
     }
+    serverCommandRegistry.buildEnviron=async ()=>{
+        return runCommand(`${process.execPath} ${pathJoin(getWWWRoot(),'..','script','buildEnviron.js')}`)
+    }
+    serverCommandRegistry.exit=async ()=>{
+        return doExit();
+    }
+    await setupHttpServerHandler()
+    defaultRouter.setHandler(config.pxseedBase+'/www',null);
+    defaultRouter.setHandler(config.pxseedBase+'/source',null);
 })();
 
 

@@ -3,25 +3,28 @@ import { RpcExtendClient1, RpcExtendClientCallable, RpcExtendClientObject } from
 import type { PxseedServer2023StartupConfig } from "./pxseedhttpserver";
 import { Client, Io, Serializer } from "pxprpc/base";
 import { WebSocketIo } from "pxprpc/backend";
-import { IoOverPxprpc, ServerHostRpcName, getPersistentRegistered, getRegistered, getRpcFunctionOn } from 'partic2/pxprpcClient/registry'
+import { IoOverPxprpc, ServerHostRpcName, getPersistentRegistered, getRegistered, getRpcFunctionOn, importRemoteModule } from 'partic2/pxprpcClient/registry'
 import { GetUrlQueryVariable2 } from "partic2/jsutils1/webutils";
 
 
 export class PxseedServer2023Function{
+    client1?: RpcExtendClient1;
+    remoteModule?:typeof import('./pxseedhttpserver')
+    async init(client1:RpcExtendClient1){
+        this.client1=client1;
+        this.remoteModule=await importRemoteModule(this.client1,'pxseedServer2023/pxseedhttpserver');
+    }
     async exit(){
         await this.serverCommand('exit');
     }
     async subprocessWaitExitCode(index:number){
-        return (await getRpcFunctionOn(this.client1!,'pxseedServer2023.subprocess.waitExitCode','i->i'))!.call(index);
+        return this.serverCommand('subprocessWaitExitCode',index)
     }
     async subprocessRestart(index:number){
-        return (await getRpcFunctionOn(this.client1!,'pxseedServer2023.subprocess.restart','i->'))!.call(index);
+        return this.serverCommand('subprocessRestart',index)
     }
-    async connectWsPipe(id:string){
-        return (await getRpcFunctionOn(this.client1!,'pxseedServer2023.connectWsPipe','s->o'))!.call(id);
-    }
-    async serverCommand(cmd:string){
-        return (await getRpcFunctionOn(this.client1!,'pxseedServer2023.serverCommand','s->s'))!.call(cmd);
+    async serverCommand(cmd:string,param?:any){
+        return this.remoteModule!.serverCommand(cmd,param);
     }
     async buildEnviron(){
         return this.serverCommand('buildEnviron');
@@ -33,14 +36,10 @@ export class PxseedServer2023Function{
         return this.serverCommand('rebuildPackages');
     }
     async getConfig(){
-        return JSON.parse(await this.serverCommand('getConfig')) as PxseedServer2023StartupConfig
+        return await this.serverCommand('getConfig') as PxseedServer2023StartupConfig
     }
     async saveConfig(cfg:PxseedServer2023StartupConfig){
-        return await this.serverCommand(`saveConfig ${JSON.stringify(cfg)}`);
-    }
-    public client1?:RpcExtendClient1;
-    async init(client1:RpcExtendClient1){
-        this.client1=client1;
+        return await this.serverCommand('saveConfig',cfg);
     }
 }
 
@@ -56,13 +55,6 @@ export async function wsPipeConnectDirectly(id:string):Promise<Io>{
         }
     }
     return new WebSocketIo().connect(wsPipeApi.wsUrl+`?id=${id}`);
-}
-export async function wsPipeConnectPxprpc(id:string):Promise<Io>{
-    let { PxseedServer2023Function } =await import("./clientFunction")
-    let fn=new PxseedServer2023Function();
-    await fn.init(await getRegistered(ServerHostRpcName)!.ensureConnected())
-    let pipe2=await fn.connectWsPipe(id);
-    return pipe2;
 }
 
 export let wsPipeApi={
@@ -156,9 +148,3 @@ export async function restartSubprocessSelf(){
     await func.subprocessRestart(current.subprocessIndex);
     process.exit(0);
 }
-
-;(async ()=>{
-    if(await getPersistentRegistered(ServerHostRpcName)!=null){
-        wsPipeApi.connect=wsPipeConnectPxprpc
-    }
-})()

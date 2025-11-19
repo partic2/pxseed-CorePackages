@@ -6,7 +6,7 @@ import {Server as PxprpcBaseServer} from 'pxprpc/base'
 
 export var __name__=requirejs.getLocalRequireModule(require);
 
-import { rpcWorkerInitModule } from 'partic2/pxprpcClient/registry';
+import { addClient, getPersistentRegistered, rpcWorkerInitModule, ServerHostWorker1RpcName } from 'partic2/pxprpcClient/registry';
 if(!rpcWorkerInitModule.includes(__name__)){
     rpcWorkerInitModule.push(__name__);
 }
@@ -52,10 +52,12 @@ export let config:PxseedServer2023StartupConfig={
 export let rootConfig={...config};
 
 import { GetUrlQueryVariable2, getWWWRoot } from 'partic2/jsutils1/webutils';
-import { SimpleHttpServerRouter, WebSocketServerConnection } from 'partic2/tjshelper/httpprot';
+import { SimpleFileServer, SimpleHttpServerRouter, WebSocketServerConnection } from 'partic2/tjshelper/httpprot';
 import { Io } from 'pxprpc/base';
 import { buildTjs } from 'partic2/tjshelper/tjsbuilder';
 import { GenerateRandomString, requirejs } from 'partic2/jsutils1/base';
+import { DirAsRootFS, TjsSfs } from 'partic2/CodeRunner/JsEnviron';
+
 export async function loadConfig(){
     let tjs=await buildTjs();
     try{
@@ -82,14 +84,12 @@ export async function loadConfig(){
         console.warn(`config file not found, write to ${getWWWRoot()+'/pxseedServer2023/config.json'}`)
         await saveConfig(config)
     }
-    defaultRouter.setHandler(config.pxseedBase!+'/pxprpc/0',{websocket:pxprpcHandler});
-    defaultRouter.setHandler(config.pxseedBase!+'/ws/pipe',{websocket:wsPipeHandler});
 }
 export async function saveConfig(newConfig:PxseedServer2023StartupConfig){
     let tjs=await buildTjs();
     let configFd=await tjs.open(getWWWRoot()+'/pxseedServer2023/config.json','w');
     try{
-        await configFd.write(new TextEncoder().encode(JSON.stringify(config)));
+        await configFd.write(new TextEncoder().encode(JSON.stringify(newConfig)));
     }finally{
         configFd.close();
     }
@@ -178,4 +178,60 @@ async function serveWsPipe(io:Io,id:string){
             wsPipe.delete(id);
         }
     }
+}
+
+export async function setupHttpServerHandler(){
+    let serverworker1=await getPersistentRegistered(ServerHostWorker1RpcName);
+    if(serverworker1==null){
+        await addClient('webworker:'+ServerHostWorker1RpcName);
+    }
+    defaultRouter.setHandler(config.pxseedBase!+'/pxprpc/0',{websocket:pxprpcHandler});
+    defaultRouter.setHandler(config.pxseedBase!+'/ws/pipe',{websocket:wsPipeHandler});
+    let tjs=await buildTjs();
+    let tjsfs=new TjsSfs();
+    tjsfs.from(tjs);
+    await tjsfs.ensureInited();
+    let {path} =await import('partic2/jsutils1/webutils');
+    let wwwroot=getWWWRoot().replace(/\\/g,'/');
+    let fileServer=new SimpleFileServer(new DirAsRootFS(tjsfs,wwwroot));
+    fileServer.pathStartAt=(config.pxseedBase+'/www').length;
+    defaultRouter.setHandler(config.pxseedBase+'/www',{fetch:fileServer.onfetch});
+    {
+        //For sourcemap
+        fileServer=new SimpleFileServer(new DirAsRootFS(tjsfs,path.join(wwwroot,'..','source')));
+        fileServer.pathStartAt=(config.pxseedBase+'/source').length;
+        defaultRouter.setHandler(config.pxseedBase+'/source',{fetch:fileServer.onfetch});
+    }
+}
+
+export let serverCommandRegistry:Record<string,(param:any)=>any>={
+    buildPackages:async ()=>{
+        let {processDirectory}=await import('pxseedBuildScript/buildlib');
+        let {getNodeCompatApi}=await import('pxseedBuildScript/util');
+        let {path,wwwroot}=await getNodeCompatApi();
+        await processDirectory(path.join(wwwroot,'..','source'));
+    },
+    rebuildPackages:async ()=>{
+        let {processDirectory,cleanBuildStatus}=await import('pxseedBuildScript/buildlib');
+        let {getNodeCompatApi}=await import('pxseedBuildScript/util');
+        let {path,wwwroot}=await getNodeCompatApi();
+        await cleanBuildStatus(path.join(wwwroot,'..','source'))
+        await processDirectory(path.join(wwwroot,'..','source'));
+    },
+    getConfig:async ()=>{
+        await loadConfig();
+        return config;
+    },
+    saveConfig:async (param:any)=>{
+        await saveConfig(param);
+        await loadConfig();
+        return 'done'
+    }
+}
+
+export async function serverCommand(cmd:string,param:any){
+    if(serverCommandRegistry[cmd]!=undefined){
+        return serverCommandRegistry[cmd](param);
+    }
+    throw new Error(`No handler for command ${cmd}`)
 }

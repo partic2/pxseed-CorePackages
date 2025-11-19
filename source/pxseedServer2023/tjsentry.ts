@@ -5,7 +5,7 @@ import {PxprpcRtbIo} from 'partic2/tjshelper/tjsenv'
 import { Client,Server as PxprpcBaseServer } from 'pxprpc/base';
 import { getRpcFunctionOn, rpcWorkerInitModule } from 'partic2/pxprpcClient/registry';
 import {inited as jseiorpcserverinited} from 'partic2/tjshelper/jseiorpcserver'
-import { HttpServer, SimpleFileServer, SimpleHttpServerRouter, WebSocketServerConnection } from 'partic2/tjshelper/httpprot'
+import { HttpServer, WebSocketServerConnection } from 'partic2/tjshelper/httpprot'
 import { buildTjs } from 'partic2/tjshelper/tjsbuilder';
 import { DirAsRootFS, TjsSfs } from 'partic2/CodeRunner/JsEnviron';
 import { getWWWRoot, path } from 'partic2/jsutils1/webutils';
@@ -48,20 +48,7 @@ export let __inited__=(async ()=>{
         pxseedBase=pxseedhttpserver.config.pxseedBase
     }
 
-    let tjsfs=new TjsSfs();
-    tjsfs.from(tjs);
-    await tjsfs.ensureInited();
-
-    let fileServer=new SimpleFileServer(new DirAsRootFS(tjsfs,path.join(wwwroot)));
-    fileServer.pathStartAt=(pxseedBase+'/www').length;
-    pxseedhttpserver.defaultRouter.setHandler(pxseedBase+'/www',{fetch:fileServer.onfetch});
     
-    {
-        //For sourcemap
-        fileServer=new SimpleFileServer(new DirAsRootFS(tjsfs,path.join(wwwroot,'..','source')));
-        fileServer.pathStartAt=(pxseedBase+'/source').length;
-        pxseedhttpserver.defaultRouter.setHandler(pxseedBase+'/source',{fetch:fileServer.onfetch});
-    }
 
     let rtbtunnel=async function(ws: WebSocketServerConnection){
         let rtbc:PxprpcRtbIo|null=null;
@@ -116,6 +103,8 @@ export let __inited__=(async ()=>{
         await pxseedloaderStateFile.write(new TextEncoder().encode(JSON.stringify(pxseedhttpserver.config)))
     }catch(err:any){console.error(err.toString())}
     
+    await pxseedhttpserver.setupHttpServerHandler()
+
     console.info('serving on :'+port1);
     let webuientry='partic2/packageManager/webui';
     let entryUrl=`http://127.0.0.1:${port1}${pxseedBase}/www/index.html?__jsentry=pxseedServer2023%2fwebentry&__redirectjsentry=${encodeURIComponent(webuientry)}&__pxprpcKey=${pxseedhttpserver.config.pxprpcKey}`;

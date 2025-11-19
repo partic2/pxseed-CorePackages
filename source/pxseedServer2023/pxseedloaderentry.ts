@@ -99,20 +99,6 @@ export let __inited__=(async ()=>{
         console.warn('No pxseedloader instance detected, create a new one.')
     }
 
-    let tjsfs=new TjsSfs();
-    tjsfs.from(tjs);
-    await tjsfs.ensureInited();
-
-    let fileServer=new SimpleFileServer(new DirAsRootFS(tjsfs,path.join(wwwroot)));
-    fileServer.pathStartAt=(pxseedBase+'/www').length;
-    pxseedhttpserver.defaultRouter.setHandler(pxseedBase+'/www',{fetch:fileServer.onfetch});
-    
-    {
-        //For sourcemap
-        fileServer=new SimpleFileServer(new DirAsRootFS(tjsfs,path.join(wwwroot,'..','source')));
-        fileServer.pathStartAt=(pxseedBase+'/source').length;
-        pxseedhttpserver.defaultRouter.setHandler(pxseedBase+'/source',{fetch:fileServer.onfetch});
-    }
 
     let rtbtunnel=async function(ws: WebSocketServerConnection){
         let rtbc:PxprpcRtbIo|null=null;
@@ -171,6 +157,8 @@ export let __inited__=(async ()=>{
     let webuientry='partic2/packageManager/webui';
     let entryUrl=`http://127.0.0.1:${port1}${pxseedBase}/www/index.html?__jsentry=pxseedServer2023%2fwebentry&__redirectjsentry=${encodeURIComponent(webuientry)}&__pxprpcKey=${pxseedhttpserver.config.pxprpcKey}`;
     console.warn('entry url:'+entryUrl)
+    
+    await pxseedhttpserver.setupHttpServerHandler()
     
     try{
         let invoker1=new rtbridgeInvoker();
