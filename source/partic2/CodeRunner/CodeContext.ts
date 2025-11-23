@@ -26,9 +26,11 @@ setupAsyncHook();
 
 export class CodeContextEventTarget extends EventTarget{
     //Used by RemoteCodeContext, to delegate event. 
-    onAnyEvent?:(event:Event)=>void;
+    onAnyEvent=new Set<(event:Event,target:CodeContextEventTarget)=>void>();
     dispatchEvent(event: Event): boolean {
-        this.onAnyEvent?.(event);
+        for(let l of this.onAnyEvent){
+            l(event,this);
+        }
         return super.dispatchEvent(event);
     }
 }
@@ -159,7 +161,10 @@ export class LocalRunCodeContext implements RunCodeContext{
         event:this.event,
         //Will be close when LocalRunCodeContext is closing.
         autoClosable:{} as Record<string,{close?:()=>void}>,
-        enableDebugger
+        enableDebugger,
+        close:function(){
+            this.__priv_codeContext.close();
+        }
     };
     localScopeProxy;
     protected onConsoleLogListener=(e:Event)=>{
@@ -219,9 +224,6 @@ export class LocalRunCodeContext implements RunCodeContext{
         let pipe1=createIoPipe();
         this.servingPipe.set(name,pipe1);
         return pipe1[1];
-    }
-    async queryTooltip(code: string, caret: number): Promise<string> {
-        return '';
     }
     close(): void {
         ensureFunctionProbe(console,'log').removeEventListener(FuncCallEventType,this.onConsoleLogListener);
@@ -416,35 +418,5 @@ export var jsExecLib={
             arr.push(itr.value);
         }
         return arr;
-    }
-}
-
-export let registry={
-    contexts:{} as Record<string,RunCodeContext|null>,
-    set(name:string,context:RunCodeContext|null){
-        if(context==null){
-            delete this.contexts[name];
-        }else{
-            this.contexts[name]=context;
-        }
-        this.__change.setResult(null);
-    },
-    get(name:string){
-        return this.contexts[name]??null;
-    },
-    list():string[]{
-        let t1=[];
-        for(let t2 in this.contexts){
-            t1.push(t2);
-        }
-        return t1;
-    },
-    __change:new jsutils1.future<null>(),
-    async waitChange(){
-        let fut=this.__change;
-        await fut.get();
-        if(fut==this.__change){
-            this.__change=new jsutils1.future<null>();
-        }
     }
 }

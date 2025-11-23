@@ -5,9 +5,11 @@ import { CodeContextEvent, CodeContextEventTarget,  LocalRunCodeContext,  RunCod
 
 import { assert, future, GenerateRandomString, mutex, throwIfAbortError } from 'partic2/jsutils1/base';
 import { fromSerializableObject, RemoteReference, toSerializableObject } from './Inspector';
-import {getAttachedRemoteRigstryFunction, getPersistentRegistered, IoOverPxprpc} from 'partic2/pxprpcClient/registry'
+import {getAttachedRemoteRigstryFunction, getPersistentRegistered, getRpcFunctionOn, IoOverPxprpc} from 'partic2/pxprpcClient/registry'
 import { Io } from 'pxprpc/base';
+import { setupAsyncHook } from './jsutils2';
 
+setupAsyncHook()
 
 export let __name__='partic2/CodeRunner/RemoteCodeContext';
 
@@ -20,6 +22,7 @@ async function jsExecFn(source:string,arg:any){
         if(r instanceof Promise){
             r=await r;
         }
+        if(r===undefined)r=null;
         return r;
     }catch(e){
         throw(e)
@@ -28,8 +31,8 @@ async function jsExecFn(source:string,arg:any){
 
 defaultFuncMap[pxprpcNamespace+'.jsExecObj']=new RpcExtendServerCallable(jsExecFn).typedecl('so->o');
 defaultFuncMap[pxprpcNamespace+'.jsExecStr']=new RpcExtendServerCallable(jsExecFn).typedecl('so->s');
-defaultFuncMap[pxprpcNamespace+'.codeContextJsExec']=new RpcExtendServerCallable(async (context:RunCodeContext,code:string)=>{
-    return context.jsExec(code);
+defaultFuncMap[pxprpcNamespace+'.codeContextJsExec']=new RpcExtendServerCallable(async (contextWrap:{value:RunCodeContext},code:string)=>{
+    return contextWrap.value.jsExec(code);
 }).typedecl('os->s');
 
 /* 
@@ -38,20 +41,8 @@ remote code call like this
 async function __temp1(arg:any,lib:typeof jsExecLib){
 }
 
-let attachedFunc=Symbol('attachedFunc');
-
-export function getRemoteContext(client1:RpcExtendClient1){
-    if(!(attachedFunc in client1)){
-        (client1 as any)[attachedFunc]=new RemoteRunCodeContext(client1);
-    }
-    return (client1 as any)[attachedFunc] as RemoteRunCodeContext
-}
-
-let rpcfunctionsProps=Symbol(__name__+'/'+'/rpcfunctions')
-
-
 class RemoteCodeContextFunctionImpl{
-    funcs:(RpcExtendClientCallable|undefined)[]=[]
+    funcs:(RpcExtendClientCallable|undefined|null)[]=[]
     client1?:RpcExtendClient1;
     async jsExecObj(code: string,arg:RpcExtendClientObject|null): Promise<RpcExtendClientObject|null> {
         return this.funcs[0]!.call(code,arg);
@@ -59,43 +50,55 @@ class RemoteCodeContextFunctionImpl{
     async jsExecStr(code: string,arg:RpcExtendClientObject|null): Promise<string> {
         return this.funcs[1]!.call(code,arg);
     }
-    async codeContextJsExec(codeContext:RpcExtendClientObject,code:string){
-        return this.funcs[2]!.call(codeContext,code);
+    async codeContextJsExec(codeContextWrap:RpcExtendClientObject,code:string){
+        return this.funcs[2]!.call(codeContextWrap,code);
     }
     async ensureInit(){
+        let remoteFunc1=await getAttachedRemoteRigstryFunction(this.client1!);
+        await (await remoteFunc1.loadModule(__name__)).free();
         if(this.funcs.length==0){
             this.funcs=[
-                (await this.client1!.getFunc(__name__+'.jsExecObj'))?.typedecl('so->o'),
-                (await this.client1!.getFunc(__name__+'.jsExecStr'))?.typedecl('so->s'),
-                (await this.client1!.getFunc(__name__+'.codeContextJsExec'))?.typedecl('os->s')
+                await getRpcFunctionOn(this.client1!,__name__+'.jsExecObj','so->o'),
+                await getRpcFunctionOn(this.client1!,__name__+'.jsExecStr','so->s'),
+                await getRpcFunctionOn(this.client1!,__name__+'.codeContextJsExec','os->s')
             ]
         }
     }    
 }
 
-//Only used by remote code context to initialize environment.
-export async function __priv_setupRemoteCodeContextEnv(codeContext:LocalRunCodeContext,id:string){
-    let eventPipeName='__event_'+id;
+let remoteEventPipeMagic='__priv_RemoteCodeContextEventPipe'
+
+interface RunCodeContextConnector{
+    value:RunCodeContext,
+    close?:()=>void
+}
+
+export async function createConnectorWithNewRunCodeContext():Promise<RunCodeContextConnector>{
+    let codeContext=new jsExecLib.LocalRunCodeContext();
+    let eventPipeName=remoteEventPipeMagic;
     let serverSide=await codeContext.servePipe(eventPipeName);
-    if(codeContext.event.onAnyEvent==undefined){
-        codeContext.event.onAnyEvent=(event)=>{
-            let cce=event as CodeContextEvent<any>;
-            serverSide.send([new TextEncoder().encode(JSON.stringify([cce.type,cce.data]))]);
-        }
-    }
+    codeContext.event.onAnyEvent.add((event,target)=>{
+        let cce=event as CodeContextEvent<any>;
+        serverSide.send([new TextEncoder().encode(JSON.stringify([cce.type,cce.data]))]);
+    });
+    return {value:codeContext,close:()=>codeContext.close()};
 }
 
 export class RemoteRunCodeContext implements RunCodeContext{
-    public constructor(public client1:RpcExtendClient1){this.doInit();}
+    protected _remoteContext:RpcExtendClientObject|null=null;
+    public constructor(public client1:RpcExtendClient1,remoteCodeContext?:RpcExtendClientObject){
+        if(remoteCodeContext!=undefined){
+            this._remoteContext=remoteCodeContext;
+        }
+        this.doInit();
+    }
     event=new CodeContextEventTarget();
-    closed=false;
+    protected _newCodeContext=false;
     protected rpcFunctions?:RemoteCodeContextFunctionImpl;
-    protected initMutex=new mutex();
-    protected __contextId=GenerateRandomString();
-    protected epipe?:Io
+    protected epipe:Io|null=null;
     protected async pollEpipe(){
         try{
-            while(!this.closed){
+            while(this._remoteContext!==null && this.epipe!=null){
                 let [type,data]=JSON.parse(new TextDecoder().decode(await this.epipe!.receive()));
                 this.event.dispatchEvent(new CodeContextEvent(type,{data}));
             }
@@ -103,33 +106,30 @@ export class RemoteRunCodeContext implements RunCodeContext{
             throwIfAbortError(err)
         }
     }
+    inited=new future<boolean>();
+    protected initMutex=new mutex();
     protected async doInit(){
         await this.initMutex.lock();
         try{
-            let remoteFunc1=await getAttachedRemoteRigstryFunction(this.client1);
-            await remoteFunc1.loadModule(__name__)
-            if(rpcfunctionsProps in this.client1){
-                this.rpcFunctions=(this.client1 as any)[rpcfunctionsProps];
-            }else{
-                this.rpcFunctions=new RemoteCodeContextFunctionImpl();
-                this.rpcFunctions.client1=this.client1;
-                await this.rpcFunctions.ensureInit();
-                (this.client1 as any)[rpcfunctionsProps]=this.rpcFunctions;
+            this.rpcFunctions=new RemoteCodeContextFunctionImpl();
+            this.rpcFunctions.client1=this.client1;
+            await this.rpcFunctions.ensureInit();
+            if(this._remoteContext==undefined){
+                this._remoteContext=await this.rpcFunctions!.jsExecObj(`return (await lib.importModule('partic2/CodeRunner/RemoteCodeContext')).createConnectorWithNewRunCodeContext()`,null)
+                this._newCodeContext=true;
             }
-            this._remoteContext=await this.rpcFunctions!.jsExecObj(`return new lib.LocalRunCodeContext();`,null)
-            await this.rpcFunctions!.jsExecStr(`await (await lib.importModule('${__name__}')).__priv_setupRemoteCodeContextEnv(arg,'${this.__contextId}');return '';`,this._remoteContext)
-            this.epipe=(await this.connectPipe('__event_'+this.__contextId))!;
+            this.epipe=(await this.connectPipe(remoteEventPipeMagic));
             this.pollEpipe();
-            this.initDone.setResult(true)
+            this.inited.setResult(true)
             new FinalizationRegistry(()=>this.close()).register(this,undefined);
+        }catch(err){
+            this.inited.setException(err);
         }finally{
             await this.initMutex.unlock()
         }
     }
-    protected _remoteContext:RpcExtendClientObject|null=null;
-    protected initDone=new future<boolean>();
     async runCode(source: string,resultVariable?:string): Promise<{stringResult:string|null,err:{message:string,stack?:string}|null,resultVariable?:'_'}> {
-        await this.initDone.get();
+        await this.inited.get();
         resultVariable=resultVariable??'_';
         source=JSON.stringify(source);
         let r=await this.rpcFunctions!.codeContextJsExec(this._remoteContext!,`
@@ -138,7 +138,7 @@ export class RemoteRunCodeContext implements RunCodeContext{
         return JSON.parse(r);
     }
     async codeComplete(code: string, caret: number) {
-        await this.initDone.get();
+        await this.inited.get();
         let source=JSON.stringify(code);
         let ret=await this.rpcFunctions!.codeContextJsExec(this._remoteContext!,
             `let r=await codeContext.codeComplete(${source},${caret});
@@ -146,25 +146,36 @@ export class RemoteRunCodeContext implements RunCodeContext{
         return JSON.parse(ret);
     }
     async jsExec(source: string): Promise<string> {
-        await this.initDone.get();
+        await this.inited.get();
         return await this.rpcFunctions!.codeContextJsExec(this._remoteContext!,source)
     }
     async connectPipe(name:string):Promise<Io|null>{
-        let remoteIo=await this.rpcFunctions!.jsExecObj(`return arg.connectPipe('${name}')`,this._remoteContext);
+        let remoteIo=await this.rpcFunctions!.jsExecObj(`return arg.value.connectPipe('${name}')`,this._remoteContext);
         if(remoteIo==null){
             return null;
         }else{
             return new IoOverPxprpc(remoteIo);
         }
     }
-    removePipe(name: string): void {
-        throw new Error('Method not implemented.');
-    }
     close(): void {
-        this._remoteContext?.free();
-        this.closed=true;
         this.epipe?.close();
+        if(this._newCodeContext){
+            this._remoteContext?.free();
+        }
+        this._remoteContext=null;
     };
 }
 
 
+/*
+    client1:The pxprpc client.
+    connectCode: The remote code to get the RunCodeContexConnector. eg: `return (await lib.importModule('partic2/CodeRunner/RemoteCodeContext')).createConnectorWithNewRunCodeContext()`
+*/
+export async function connectToRemoteCodeContext(client1:RpcExtendClient1,connectCode:string):Promise<RemoteRunCodeContext>{
+    let func1=new RemoteCodeContextFunctionImpl();
+    func1.client1=client1;
+    await func1.ensureInit();
+    let remote1=await func1.jsExecObj(connectCode,null);
+    assert(remote1!=null,'remote object is null');
+    return new RemoteRunCodeContext(client1,remote1);
+}

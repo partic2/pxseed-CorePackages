@@ -912,13 +912,9 @@ interface CodeContextEnvInitVar{
     import2env:(moduleName:string)=>Promise<void>,
     globalThis:typeof globalThis
 }
-/* Usage: Run below code in CodeContext to init CodeContext _ENV
-    ```javascript
-    await (await import('partic2/CodeRunner/JsEnviron')).initCodeEnv(_ENV,{currentDirectory:'xxx'});
-    ```
-    Then these variable list in CodeContextEnvInitVar will be set to _ENV
-*/
-export async function initCodeEnv(_ENV:any,opt?:{codePath?:string}){
+
+//Used in workerinit.createRunCodeContextConnectorForNotebookFile
+export async function initNotebookCodeEnv(_ENV:any,opt?:{codePath?:string}){
     let env:'unknown'|'node'|'browser'='unknown'
     if(globalThis.process?.versions?.node!=undefined){
         env='node'
@@ -973,7 +969,7 @@ export async function initCodeEnv(_ENV:any,opt?:{codePath?:string}){
             context.completionItems.push(...t1.map(v=>({type:'literal',candidate:v,replaceRange})))
         }
     }
-    _ENV.fs.loadScript[CustomFunctionParameterCompletionSymbol]=makeFunctionCompletionWithFilePathArg0(path.dirname(_ENV.fs.codePath));
+    _ENV.fs.loadScript[CustomFunctionParameterCompletionSymbol]=makeFunctionCompletionWithFilePathArg0(path.dirname(_ENV.fs.codePath??''));
     if(_ENV.fs.simple!=undefined){
         _ENV.fs.simple.readAll[CustomFunctionParameterCompletionSymbol]=makeFunctionCompletionWithFilePathArg0(undefined);
         _ENV.fs.simple.writeAll[CustomFunctionParameterCompletionSymbol]=makeFunctionCompletionWithFilePathArg0(undefined);

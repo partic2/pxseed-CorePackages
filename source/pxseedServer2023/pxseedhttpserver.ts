@@ -143,7 +143,7 @@ async function pxprpcHandler(ctl:{
     }
 }
 
-let wsPipe=new Map<string,Set<Io>>();
+export let wsPipe=new Map<string,Set<Io>>();
 async function wsPipeHandler(ctl:{
         request:Request
         accept:()=>Promise<WebSocketServerConnection> 

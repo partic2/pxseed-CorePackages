@@ -4,7 +4,7 @@ import type {readFile,writeFile,unlink,readdir,mkdir,rmdir,stat,lstat,readlink,s
 import { SimpleFileSystem } from 'partic2/CodeRunner/JsEnviron';
 import { assert, requirejs } from 'partic2/jsutils1/base';
 import {getWWWRoot, path} from 'partic2/jsutils1/webutils'
-import { getPersistentRegistered } from 'partic2/pxprpcClient/registry';
+import { easyCallRemoteJsonFunction, getPersistentRegistered } from 'partic2/pxprpcClient/registry';
 
 
 //node compatible fs, To used in isomorphic-git
@@ -165,14 +165,11 @@ export async function buildNodeCompatApiTjs(){
     //get the server wwwroot
     const serverWorker1=await getPersistentRegistered(ServerHostWorker1RpcName);
     if(serverWorker1!=undefined){
-        const remoteJsRpc=await getAttachedRemoteRigstryFunction(await serverWorker1.ensureConnected());
-        const webutilsMod=await remoteJsRpc.loadModule('partic2/jsutils1/webutils');
-        wwwroot=await remoteJsRpc.callJsonFunction(webutilsMod,'getWWWRoot',[]);
+        wwwroot=await easyCallRemoteJsonFunction(await serverWorker1.ensureConnected(),'partic2/jsutils1/webutils','getWWWRoot',[]);;
         wwwroot=wwwroot.replace(/\\/g,'/');
         if(wwwroot.startsWith('/')){
             wwwroot='/'+wwwroot;
         }
-        webutilsMod.free();
     }else{
         if(await getPersistentRegistered(XplatjDefaultRpcName)!=undefined){
           let {pathname}=new URL(getWWWRoot());
