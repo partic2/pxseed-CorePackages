@@ -22,12 +22,13 @@ export interface CodeCellProps{
     customBtns?:{label:string,cb:()=>Promise<any>}[],
     onRun?:()=>void,
     onClearOutputs?:()=>void,
-
     //How to run code with key shortcut, default value:'Ctl+Ent'. use Ctrl+Enter for new line in 'Enter' mode.
     runCodeKey?:'Ctl+Ent'|'Enter'
     //To be used in code cell list.
     onFocusChange?:(focusin:boolean)=>void,
-    onTooltips?:(vnode:React.VNode|null)=>void
+    onTooltips?:(vnode:React.VNode|null)=>void,
+    divStyle?:React.CSSProperties,
+    divProps?:React.AllCSSProperties
 }
 interface CodeCellStats{
     //Serializable object
@@ -233,11 +234,13 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
     }
     render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined; }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChild {
         this.prepareRender();
-        return <div style={{display:'flex',flexDirection:'column',position:'relative'}} ref={this.rref.container} onFocusOut={()=>this.doOnFocusChange(false)}
-            onFocusIn={()=>{this.doOnFocusChange(true)}}>
+        return <div style={{display:'flex',flexDirection:'column',position:'relative',...this.props.divStyle}} ref={this.rref.container} 
+            onFocusOut={()=>this.doOnFocusChange(false)} onFocusIn={()=>{this.doOnFocusChange(true)}} 
+            {...this.props.divProps} >
             <TextEditor ref={this.rref.codeInput} divAttr={{onKeyDown:(ev)=>this.onCellKeyDown(ev)}}
             onInput={(target,inputData)=>this.onCellInput(target,inputData)} divClass={[css.inputCell]} />
-            {this.state.focusin?<div style={{position:'relative',display:'flex',justifyContent:'end'}}><div style={{position:'absolute',backgroundColor:'white'}}>
+            {this.state.focusin?<div style={{position:'relative',display:'flex',justifyContent:'end'}}>
+                <div style={{position:'absolute',backgroundColor:'white',maxWidth:'50%',wordBreak:'break-all'}}>
                 <div>{this.renderActionButton()}</div>
             </div></div>:null}
             {this.props.onTooltips?null:<div>
@@ -403,9 +406,13 @@ export class DefaultCodeCellList extends React.Component<
         </div>
     }
     render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined; }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChild {
-        this.beforeRender();
+        this.beforeRender();        
         return (this.state.codeContext!=null && this.state.error==null)?<div style={{width:'100%',overflowX:'auto',position:'relative'}} ref={this.rref.container}>
             {FlattenArraySync(this.state.list.map((v,index1)=>{
+                let cellCssStyle:React.AllCSSProperties={};
+                if(this.state.lastFocusCellKey===v.key){
+                    cellCssStyle.zIndex=100;
+                }
                 let r=[<CodeCell ref={v.ref} key={v.key} 
                 codeContext={this.state.codeContext!} customBtns={[
                     {label:'New',cb:()=>this.newCell(v.key)},
@@ -421,6 +428,7 @@ export class DefaultCodeCellList extends React.Component<
                         }
                     }}
                     onTooltips={(node)=>this.onCellTooltips(node,v)}
+                    divStyle={cellCssStyle}
                     {...this.props.cellProps}
                 />];
                 if(v.key in this.state.consoleOutput){

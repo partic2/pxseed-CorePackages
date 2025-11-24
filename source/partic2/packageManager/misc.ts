@@ -14,8 +14,8 @@ type ThisModuleType=typeof import('partic2/packageManager/misc');
 
 let remoteModule={
     misc:new Singleton(async ()=>{
-        return await importRemoteModule<typeof import('partic2/packageManager/misc')>(
-            await (await getPersistentRegistered(ServerHostWorker1RpcName))!.ensureConnected(),'partic2/packageManager/misc');
+        return await importRemoteModule(
+            await (await getPersistentRegistered(ServerHostWorker1RpcName))!.ensureConnected(),'partic2/packageManager/misc') as typeof import('partic2/packageManager/misc');
     })
 }
 

@@ -1,6 +1,6 @@
 
 import * as React from 'preact'
-import { css as cssBase, DomDivComponent, DomRootComponent, FloatLayerComponent, ReactRefEx, ReactRender, RefChangeEvent } from './domui';
+import { css as cssBase, DomDivComponent, DomRootComponent, FloatLayerComponent, ReactEventTarget, ReactRefEx, ReactRender, RefChangeEvent } from './domui';
 import { ArrayWrap2, assert, future, GenerateRandomString, GetCurrentTime } from 'partic2/jsutils1/base';
 import { DynamicPageCSSManager } from 'partic2/jsutils1/webutils';
 import { PointTrace, TransformHelper } from './transform';
@@ -40,12 +40,12 @@ export let css={
     defaultTitleStyle:GenerateRandomString(),
 }
 
-DynamicPageCSSManager.PutCss('.'+css.defaultWindowDiv,['max-height:100vh','max-width:100vw','border:solid black 1px','box-sizing: border-box']);
-DynamicPageCSSManager.PutCss('.'+css.borderlessWindowDiv,['max-height:100vh','max-width:100vw']);
+DynamicPageCSSManager.PutCss('.'+css.defaultWindowDiv,['border:solid black 1px','box-sizing: border-box']);
+DynamicPageCSSManager.PutCss('.'+css.borderlessWindowDiv,[]);
 DynamicPageCSSManager.PutCss('.'+css.defaultContentDiv ,['flex-grow:1','background-color:white','overflow:auto'])
 DynamicPageCSSManager.PutCss('.'+css.defaultTitleStyle ,['background-color:black','color:white'])
 
-export class WindowComponent extends React.Component<WindowComponentProps,WindowComponentStats>{
+export class WindowComponent extends ReactEventTarget<WindowComponentProps,WindowComponentStats>{
     static defaultProps:WindowComponentProps={
         closeIcon:getIconUrl('x.svg'),
         maximize:getIconUrl('maximize-2.svg'),
@@ -111,7 +111,7 @@ export class WindowComponent extends React.Component<WindowComponentProps,Window
     }
     __wndMove=new PointTrace({
         onMove:(curr,start)=>{
-            this.setState({layout:{...this.state.layout,left:curr.x-start.x,top:curr.y-start.y}});
+            this.setState({layout:{...this.state.layout,left:curr.x-start.x,top:curr.y-start.y}},()=>this.dispatchEvent(new Event('move')));
         }
     });
     __onTitleMouseDownHandler=(evt:React.TargetedMouseEvent<HTMLDivElement>)=>{
@@ -126,7 +126,7 @@ export class WindowComponent extends React.Component<WindowComponentProps,Window
     }
     __wndResize=new PointTrace({
         onMove:(curr,start)=>{
-            this.setState({layout:{...this.state.layout,width:curr.x-start.x,height:curr.y-start.y}});
+            this.setState({layout:{...this.state.layout,width:curr.x-start.x,height:curr.y-start.y}},()=>this.dispatchEvent(new Event('resize')));
         }
     });
     __onResizeIconMouseDownHandler=(evt:React.TargetedMouseEvent<HTMLDivElement>)=>{
@@ -170,6 +170,7 @@ export class WindowComponent extends React.Component<WindowComponentProps,Window
     }
     async onCloseClick(){
         this.hide();
+        this.dispatchEvent(new Event('close'));
         this.props.onClose?.();
     }
     protected beforeMaximizeSize:{left:number,top:number,width?:number|string,height?:number|string}|null=null;
@@ -191,7 +192,9 @@ export class WindowComponent extends React.Component<WindowComponentProps,Window
             position:'absolute',
             left:this.state.layout.left+'px',
             top:this.state.layout.top+'px',
-            pointerEvents:'auto'
+            pointerEvents:'auto',
+            maxWidth:(window.innerWidth-this.state.layout.left)+'px',
+            maxHeight:(window.innerHeight-this.state.layout.top)+'px',
         };
         if(typeof this.state.layout.width==='number'){
             windowDivStyle.width=this.state.layout.width+'px';

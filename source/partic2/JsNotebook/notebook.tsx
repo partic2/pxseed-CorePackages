@@ -1,224 +1,179 @@
 
-import { LocalRunCodeContext, registry, RunCodeContext } from 'partic2/CodeRunner/CodeContext';
+import { LocalRunCodeContext, RunCodeContext } from 'partic2/CodeRunner/CodeContext';
 import { CodeCellList } from 'partic2/CodeRunner/WebUi';
 import { GenerateRandomString, GetCurrentTime, IamdeeScriptLoader, WaitUntil, assert, future, logger, requirejs, sleep } from 'partic2/jsutils1/base';
 import * as React from 'preact'
 
-import {ClientInfo, getAttachedRemoteRigstryFunction, getRegistered, listRegistered, persistent, ServerHostWorker1RpcName} from 'partic2/pxprpcClient/registry'
+import {ClientInfo, createIoPipe, getAttachedRemoteRigstryFunction, getPersistentRegistered, getRegistered, listRegistered, persistent, ServerHostWorker1RpcName} from 'partic2/pxprpcClient/registry'
 import { installRequireProvider,SimpleFileSystem,defaultFileSystem,ensureDefaultFileSystem } from 'partic2/CodeRunner/JsEnviron';
-import { TabInfo, TabInfoBase } from 'partic2/pComponentUi/workspace';
-import { FileTypeHandler, FileTypeHandlerBase } from './fileviewer';
+import { FileTypeHandlerBase } from './fileviewer';
 
-import { __name__ as RemoteCodeContextName } from 'partic2/CodeRunner/RemoteCodeContext';
+import { connectToRemoteCodeContext, __name__ as RemoteCodeContextName } from 'partic2/CodeRunner/RemoteCodeContext';
 import { ReactRefEx, RefChangeEvent } from 'partic2/pComponentUi/domui';
 import {JsonForm, ReactInputValueCollection} from 'partic2/pComponentUi/input'
 import { RegistryUI } from 'partic2/pxprpcClient/ui';
 import { RemoteRunCodeContext } from 'partic2/CodeRunner/RemoteCodeContext';
-import { CodeContextChooser, DefaultActionBar, findRpcClientInfoFromClient, openCodeContextChooser } from './misclib';
-import { WindowComponent,alert, appendFloatWindow, prompt, removeFloatWindow } from 'partic2/pComponentUi/window';;
+import { WindowComponent,alert, appendFloatWindow, prompt, removeFloatWindow } from 'partic2/pComponentUi/window';import { WorkspaceContext } from './workspace';
+import { utf8conv } from 'partic2/CodeRunner/jsutils2';
+import { RpcExtendClient1, RpcExtendServer1 } from 'pxprpc/extend';
+import { Client,Server } from 'pxprpc/base';
+import { NotebookFileData,__internal__ as workeriniti } from './workerinit';
 
 export let __name__='partic2/JsNotebook/notebook'
 
-
-//LWRP = LocalWindowRequireProvider, setup to requirejs
-let LWRPSetuped=new future<{fs:SimpleFileSystem,rootPath:string}>();
-
-
-async function ensureLWRPInstalled(){
-    if(!LWRPSetuped.done){
-        await ensureDefaultFileSystem();
-        await defaultFileSystem!.ensureInited();
-        LWRPSetuped.setResult(await installRequireProvider(defaultFileSystem!));
+class RpcChooser extends React.Component<{onChoose:(rpc:ClientInfo|'local window')=>void},{}>{
+    rref={
+        registry:new ReactRefEx<RegistryUI>(),
+        registryContainerDiv:new ReactRefEx<HTMLDivElement>()
     }
-    await LWRPSetuped.get();
+    render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined; }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChild {
+        return <div>
+        <h2>From...</h2>
+        <a href="javascript:;" onClick={()=>this.props.onChoose('local window')}>Local Window</a>
+        <h2>or <a href="javascript:;" onClick={async ()=>{
+            let selected=(await this.rref.registry.waitValid()).getSelected();
+            if(selected==null){
+                alert('select at least one rpc client below.');
+                (await this.rref.registryContainerDiv.waitValid()).style.border='solid red 2px';
+                await sleep(1000);
+                (await this.rref.registryContainerDiv.waitValid()).style.border='0px';
+                return;
+            }
+            this.props.onChoose(getRegistered(selected)!);
+        }}>Use RPC</a> below</h2>
+        <div ref={this.rref.registryContainerDiv}>
+            <RegistryUI ref={this.rref.registry}/>
+        </div>
+        </div>
+    }
 }
 
-export class IJSNBFileHandler extends FileTypeHandlerBase{
+async function openRpcChooser(){
+    return new Promise<ClientInfo|'local window'|null>((resolve,reject)=>{
+        let wnd2=<WindowComponent onClose={()=>{
+            removeFloatWindow(wnd2);
+            resolve(null);
+        }} title='choose code context' >
+            <div style={{backgroundColor:'white',padding:'1px'}}>
+            <RpcChooser onChoose={(rpc)=>{
+                resolve(rpc);
+                removeFloatWindow(wnd2);
+            }}/>
+            </div>
+        </WindowComponent>
+        appendFloatWindow(wnd2);
+    })
+    
+}
+
+class IJSNBFileHandler extends FileTypeHandlerBase{
     title: string='javascript notebook';
-    extension: string='.ijsnb';
-    async create(dir: string): Promise<string> {
-        let fs=this.workspace!.fs!;
-        let path=await this.getUnusedFilename(dir,this.extension);
-        await fs.writeAll(path,new TextEncoder().encode('{}'));
-        return path;
-    }
-    async open(path: string): Promise<TabInfo> {
-        return new RunCodeTab().init({
-            id:'file://'+path,
-            title:path.substring(path.lastIndexOf('/')+1),
-            fs:this.workspace!.fs!,
-            path:path,
-            rpc:this.workspace!.props.rpc,
-        });
+    extension=['.ijsnb'];
+    async open(path: string) {
+        this.context!.openNewWindow(<NotebookViewer context={this.context!} path={path}/>,{
+            title:'Notebook:'+path.substring(path.lastIndexOf('/')+1),
+            layoutHint:__name__+'.IJSNBFileHandler'
+        })
     }
 }
 
 
-export async function initNotebookCodeContext(
-    codeContext:'local window'|ClientInfo|RemoteRunCodeContext|LocalRunCodeContext,
-    codePath?:string):Promise<{
-        rpc?:ClientInfo,code:RunCodeContext
-    }>{
-    let res:{rpc?:ClientInfo,code:RunCodeContext};
-    if(codeContext==='local window'){
-        res={
-            code:new LocalRunCodeContext()
-        }
-    }else if(codeContext instanceof ClientInfo){
-        await codeContext.ensureConnected();
-        await (await codeContext.jsServerLoadModule(RemoteCodeContextName)).free();
-        let rpc=codeContext;
-        let code=new RemoteRunCodeContext(codeContext.client!);
-        //init worker context
-        await code.runCode(`return await (async ()=>{
-            let workerinit=await import('partic2/JsNotebook/workerinit')
-            return await workerinit.ensureInited.get()})()`)
-        res={rpc,code};
-    }else if(codeContext instanceof RemoteRunCodeContext){
-        let foundRpc=findRpcClientInfoFromClient(codeContext.client1);
-        if(foundRpc===null){
-            throw new Error('RemoteRunCodeContext must attached to a registered RpcClientInfo.');
-        }
-        let rpc=foundRpc;
-        let code=codeContext;
-        //init worker context
-        await code.runCode(`return await (async ()=>{
-            let workerinit=await import('partic2/JsNotebook/workerinit')
-            return await workerinit.ensureInited.get()})()`)
-        res={rpc,code}
-    }else if(codeContext instanceof LocalRunCodeContext){
-        res={code:codeContext};
-    }else{
-        throw new Error('Unsupported code context');
-    }
-    let result1=await res.code.runCode(
-        `await (await import('partic2/CodeRunner/JsEnviron')).initCodeEnv(_ENV,{codePath:${JSON.stringify(codePath??'')}});`)
-    if(result1.err!=null){
-        logger.warning(result1.err);
-    }
-    return res;
-}
-
-
-export class RunCodeTab extends TabInfoBase{
-    codeContext?:RunCodeContext
-    fs?:SimpleFileSystem
-    path?:string;
-    rpc?:ClientInfo|'local window'
+class NotebookViewer extends React.Component<{context:WorkspaceContext,path:string},{
+    rpc?:ClientInfo,codeContext?:RunCodeContext,connectCode?:string,startupScript?:string
+}>{
     rref={
         ccl:new ReactRefEx<CodeCellList>(),
-        replccl:new ReactRefEx<RunCodeReplView>(),
-        rpcRegistry:React.createRef<WindowComponent>(),
-        actionBar:new ReactRefEx<DefaultActionBar>()
     };
-    action={} as Record<string,()=>Promise<void>>
-    inited=new future<boolean>();
-    async openCodeContextChooser(){
-        let r=await openCodeContextChooser();
+    async openRpcChooser(){
+        let r=await openRpcChooser();
+        if(r=='local window'){
+            if(this.props.context.rpc instanceof workeriniti.LoopbackRpcClient){
+                r=this.props.context.rpc
+            }else{
+                r=new workeriniti.LoopbackRpcClient('local window','loopback:local window');
+            }
+        }
         if(r!=null){
-            this.useCodeContext(r);
+            this.useRpc(r as ClientInfo);
         }
     }
-    async useCodeContext(codeContext:'local window'|ClientInfo|RemoteRunCodeContext|LocalRunCodeContext|null){
+    async useRpc(rpc:ClientInfo,opt?:{startupScript?:string}){
         try{
-            if(codeContext===null){
-                //canceled
-                return
+            let code=await connectToRemoteCodeContext(await rpc.ensureConnected(),
+            `return (await lib.importModule('partic2/JsNotebook/workerinit')).createRunCodeContextConnectorForNotebookFile(
+                ${JSON.stringify(this.props.path)}
+            )`);
+            if(this.state.codeContext!=undefined){
+                this.state.codeContext.close();
             }
-            let {rpc,code}=await initNotebookCodeContext(codeContext,this.path);
-            this.rpc=rpc;
-            this.codeContext=code;
+            this.setState({rpc,codeContext:code});
+            let jsnotebook=JSON.parse((await code.runCode('return JSON.stringify(jsnotebook)')).stringResult!);
+            if(jsnotebook==null){
+                await code.runCode(`jsnotebook={};`);
+                if(opt?.startupScript!=undefined){
+                    await code.runCode(opt.startupScript);
+                }
+            }
+            await code.runCode(`Object.assign(jsnotebook,${JSON.stringify({startupScript:opt?.startupScript??''})});`);
         }catch(e:any){
             await alert(e.toString(),'Error');
         }
-        this.requestPageViewUpdate();
     }
-    async init(initval:Partial<RunCodeTab>){
-        await super.init(initval)
-        this.rref.ccl.addEventListener('change',(ev:RefChangeEvent<any>)=>{
-            (window as any).log2=[...((window as any).log2??[]),ev]
-        })
-        if(this.fs==undefined){
-            if(this.rpc==undefined){
-                await ensureDefaultFileSystem();
-                this.fs=defaultFileSystem!;
-            }
-        }
-        if(this.rpc==undefined){
-            this.codeContext=new LocalRunCodeContext();
-            await ensureLWRPInstalled()
-        }
-        this.action.save=async()=>{
-            if(this.fs!=undefined && this.path!=undefined){
-                let cells=(await this.getCurrentCellList()).saveTo();
-                let saved=JSON.stringify({ver:1,rpc:this.getRpcStringRepresent(),path:this.path,cells})
-                await this.fs!.writeAll(this.path,new TextEncoder().encode(saved));
-            }
-        }
-        this.action.Settting=async()=>{
-            let form=new ReactRefEx<JsonForm>();
-            let dlg=await prompt(<div style={{minWidth:'300px'}}><JsonForm ref={form} type={{type:'object',fields:[
-                ['path',{type:'string'}]
-            ]}}/></div>);
-            let form2=await form.waitValid();
-            form2.value={path:this.path};
-            if((await dlg.response.get())=='ok'){
-                this.path=form2.value.path;
-            }
-            dlg.close();
-        }
-        this.inited.setResult(true);
+    componentDidMount(): void {
         this.doLoad();
-        return this;
     }
-    async getCurrentCellList(){
-        return await this.rref.ccl.waitValid();
-    }
-    ignoreRpcConfigOnLoading=false;
-    async doLoad(){
-        if(this.fs!=undefined && this.path!=undefined){
-            let t1=await this.fs.readAll(this.path);
-            if(t1==null)return;
-            let data=new Uint8Array(t1);
-            if(data.length>0){
-                let t1=data.indexOf(0);
-                if(t1>=0)data=data.slice(0,t1);
-                let {ver,rpc,cells}=JSON.parse(new TextDecoder().decode(data)) as {ver?:string,rpc?:string,cells?:string};
-                if(!this.ignoreRpcConfigOnLoading){
-                    if(rpc==='local window'){
-                        this.rpc='local window';
-                    }else if(rpc!=undefined){
-                        await persistent.load()
-                        this.rpc=getRegistered(rpc);
-                    }
-                    await this.useCodeContext(this.rpc??'local window');
-                }
-                if(cells!=undefined){
-                    (await this.getCurrentCellList()).loadFrom(cells);
-                }
-            }
+    componentWillUnmount(): void {
+        if(this.state.codeContext!=undefined){
+            this.state.codeContext.close();
         }
     }
-    onKeyDown(ev: React.JSX.TargetedKeyboardEvent<HTMLElement>){
-        this.rref.actionBar.current?.processKeyEvent(ev);
+    async doLoad(){
+        let t1=await this.props.context.fs!.readAll(this.props!.path);
+        if(t1==null)return;
+        let data=new Uint8Array(t1);
+        if(data.length==0){
+            data=utf8conv('{}');
+        }
+        let t2=data.indexOf(0);
+        if(t2>=0)data=data.slice(0,t2);
+        let f1=new NotebookFileData();
+        f1.load(data);
+        await this.useRpc((await f1.getRpcClient())!,{startupScript:f1.startupScript});
+        if(f1.cells!=undefined){
+            (await this.rref.ccl.waitValid()).loadFrom(f1.cells);
+        }
+    }
+    onKeyDown(ev: React.TargetedKeyboardEvent<HTMLElement>){
+        if(ev.code==='KeyS' && ev.ctrlKey){
+            this.doSave();
+            ev.preventDefault();
+        }
+    }
+    async doSave(){
+        let ccl=await this.rref.ccl.waitValid();
+        let cells=ccl.saveTo();
+        let saved={ver:1,rpc:this.getRpcStringRepresent(),path:this.props.path,cells} as any;
+        if(this.state.codeContext!=undefined){
+            let jsnotebook=JSON.parse((await this.state.codeContext.runCode(`return JSON.stringify(jsnotebook)`)).stringResult!);
+            saved.startupScript=jsnotebook.startupScript;
+        }
+        await this.props.context.fs!.writeAll(this.props.path,utf8conv(JSON.stringify(saved)));
+    }
+    async doSetting(){
+
     }
     protected getRpcStringRepresent(){
-        let rpc:ClientInfo|string='local window';
-        if(typeof this.rpc==='string'){
-            rpc=this.rpc
-        }else if(this.rpc !=undefined){
-            rpc=this.rpc.name;
-        }
-        return rpc;
+        return this.state.rpc?.name??'<No name>';
     }
-    renderPage() {
+    render() {
         return <div style={{width:'100%',overflow:'auto'}} onKeyDown={(ev)=>this.onKeyDown(ev)}>
         <div>
-        <a href="javascript:;" onClick={()=>this.openCodeContextChooser()}>
-            Code Context:{this.getRpcStringRepresent()}
-        </a><span>&nbsp;&nbsp;</span><DefaultActionBar action={this.action} ref={this.rref.actionBar}/></div>
-        {(this.codeContext!=undefined)?
-            <CodeCellList codeContext={this.codeContext} ref={this.rref.ccl} />:
+        <a href="javascript:;" onClick={()=>this.openRpcChooser()}>RPC:{this.getRpcStringRepresent()}</a>
+        <span>&nbsp;&nbsp;</span>
+        <a onClick={()=>this.doSave()} href="javascript:;">Save</a>
+        </div>
+        {(this.state.codeContext!=undefined)?
+            <CodeCellList codeContext={this.state.codeContext!} ref={this.rref.ccl} />:
             'No CodeContext'
         }
         </div>
@@ -226,7 +181,7 @@ export class RunCodeTab extends TabInfoBase{
 }
 
 
-export class RunCodeReplView extends React.Component<{
+class RunCodeReplView extends React.Component<{
     codeContext:RunCodeContext,onCellRun?:(cellKey:string)=>void,containerStyle?:React.JSX.CSSProperties,
     maxCellCount?:number,codePath?:string
 }>{
@@ -280,8 +235,6 @@ export class RunCodeReplView extends React.Component<{
     async beforeRender(){
         if(!this.inited){
             this.inited=true;
-            let {rpc,code}=await initNotebookCodeContext(this.props.codeContext as any,this.props.codePath);
-            this.rpc=rpc;
             this._keepScrollState();
         }
     }
@@ -293,4 +246,8 @@ export class RunCodeReplView extends React.Component<{
             <CodeCellList codeContext={this.props.codeContext} onRun={(key)=>this.onCellRun(key)} ref={this.rref.list} cellProps={{runCodeKey:'Enter'}}/>
         </div>
     }
+}
+
+export let __internal__={
+    IJSNBFileHandler,RunCodeReplView,NotebookViewer,RpcChooser,openRpcChooser
 }

@@ -6,10 +6,11 @@ import {ArrayWrap2, GenerateRandomString, GetBlobArrayBufferContent, GetCurrentT
 import {CKeyValueDb, DynamicPageCSSManager,path,selectFile} from 'partic2/jsutils1/webutils'
 import { ReactRefEx, ReactRender, css } from 'partic2/pComponentUi/domui'
 import { SimpleFileSystem,FileEntry, LocalWindowSFS } from 'partic2/CodeRunner/JsEnviron'
-import { FileTypeHandler, FileTypeHandlerBase } from './fileviewer'
-import { Workspace } from './workspace'
+import { FileTypeHandlerBase } from './fileviewer'
+import { WorkspaceContext } from './workspace'
 import { alert, confirm, prompt } from 'partic2/pComponentUi/window'
 import { TextEditor } from 'partic2/pComponentUi/texteditor'
+import { SimpleReactForm1, ValueCheckBox } from '../pComponentUi/input'
 
 
 var __name__='partic2/JsNotebook/filebrowser'
@@ -25,12 +26,12 @@ interface FileProp{
 }
 
 
-export class File extends React.Component<FileProp,{}>{
+class File extends React.Component<FileProp,{}>{
     public constructor(props?:FileProp,ctx?:any){
         super(props,ctx);
     }
     lastSelectTime:Date|null=null
-    protected onClick(ev: React.JSX.TargetedMouseEvent<HTMLDivElement>){
+    protected onClick(ev: React.TargetedMouseEvent<HTMLDivElement>){
         if(this.lastSelectTime!=null && GetCurrentTime().getTime()-this.lastSelectTime.getTime()<500){
             //Dblclick
             this.lastSelectTime=null;
@@ -52,17 +53,6 @@ export class File extends React.Component<FileProp,{}>{
 }
 
 
-export class DummyDirectoryHandler extends FileTypeHandlerBase{
-    title: string='directory';
-    extension: string='.#NOEXTENSION';
-    async create(dir: string): Promise<string> {
-        let path=await this.getUnusedFilename(dir,'');
-        let fs=this.workspace!.fs!
-        await fs.mkdir(path);
-        return path;
-    }
-}
-
 interface FileBrowserState{
     currPath?:string,
     childrenFile:{name:string,type:string}[],
@@ -71,22 +61,13 @@ interface FileBrowserState{
     textInput1:string
 };
 
-export class FileBrowser extends React.Component<{
-    sfs:SimpleFileSystem,initDir:string,
-    onCreateRequest:(dir:string)=>void,
-    onOpenRequest:(path:string)=>void,
-    workspace?:Workspace}
-    ,FileBrowserState>{
+class FileBrowser extends React.Component<{context:WorkspaceContext},FileBrowserState>{
     public constructor(props?: any | undefined, context?: any){
         super(props,context)
-        this.setState({
-            currPath:this.props.initDir,childrenFile:[],
+        this.setState({childrenFile:[],
             selectedFiles:new Set(),
-            filterText:''
+            filterText:'',currPath:''
         });
-    }
-    componentDidMount(): void {
-        this.doFileOpen(this.state.currPath??this.props.initDir)
     }
     public getParentPath(){
         var delim=this.state.currPath!.lastIndexOf('/')
@@ -96,16 +77,16 @@ export class FileBrowser extends React.Component<{
             return this.state.currPath!.substring(0,delim);
         }
     }
-    async doFileOpen(path:string){
-        let filetype=await this.props.sfs.filetype(path);
+    async DoFileOpen(path:string){
+        let filetype=await this.props.context.fs!.filetype(path);
         if(filetype=='dir'){
             let newPath=path;
             let children
             try{
-                children=await this.props.sfs.listdir(newPath);
+                children=await this.props.context.fs!.listdir(newPath);
             }catch(e1){
                 newPath='';
-                children=await this.props.sfs.listdir(newPath);
+                children=await this.props.context.fs!.listdir(newPath);
             }
             this.state.selectedFiles.clear();
             this.setState({
@@ -113,15 +94,27 @@ export class FileBrowser extends React.Component<{
                 childrenFile:children
             })
         }else if(filetype=='file'){
-            this.props.onOpenRequest(path);
+            let selectedHandle:FileTypeHandlerBase|null=null;
+            for(let t1 of this.props.context.filehandler){
+                for(let t2 of t1.extension){
+                    if(path.endsWith(t2)){
+                        selectedHandle=t1
+                        break;
+                    }
+                }
+                if(selectedHandle!=null)break;
+            }
+            if(selectedHandle==null){
+                alert('No handler for such file extension.');
+            }else{
+                selectedHandle.open(path);
+            }
         }
         
     }
     onSelectChange(path:string,selected:boolean){
         if(selected){
             this.setState({selectedFiles:new Set([path])})
-        }else{
-            //this.state.selectedFiles.delete(path)
         }
     }
     public renderFiles(){
@@ -135,7 +128,7 @@ export class FileBrowser extends React.Component<{
             return <File path={path} 
             name={v.name} type={v.type as any} selected={this.state.selectedFiles.has(path)}
             onSelectChange={(path,selected)=>this.onSelectChange(path,selected)}
-            onOpenRequest={(path)=>this.doFileOpen(path)}/>
+            onOpenRequest={(path)=>this.DoFileOpen(path)}/>
         });
     }
     async selectFiles(path:string[]){
@@ -164,12 +157,12 @@ export class FileBrowser extends React.Component<{
         let newFileName=await this._askForFileName(path.substring(path.lastIndexOf('/')+1));
         if(newFileName!=null){
             let newPath=this.state.currPath+'/'+newFileName;
-            await this.props.sfs.rename(path,newPath);
+            await this.props.context.fs!.rename(path,newPath);
         }
         await this.reloadFileInfo();
     }
     async reloadFileInfo(){
-        this.doFileOpen(this.state.currPath!);
+        this.DoFileOpen(this.state.currPath!);
     }
     async DoDelete(){
         let ans=await confirm(`Delete ${this.state.selectedFiles.size} files permenantly?`)
@@ -177,7 +170,7 @@ export class FileBrowser extends React.Component<{
             return;
         }
         for(let f1 of this.state.selectedFiles){
-            await this.props.sfs.delete2(f1)
+            await this.props.context.fs!.delete2(f1)
         }
         await this.reloadFileInfo();
     }
@@ -187,17 +180,10 @@ export class FileBrowser extends React.Component<{
             for(let t1=0;t1<selected.length;t1++){
                 let data=await GetBlobArrayBufferContent(selected.item(t1)!);
                 let name=selected.item(t1)!.name;
-                await this.props.sfs.writeAll(this.state.currPath+'/'+name,new Uint8Array(data!)!)
+                await this.props.context.fs!.writeAll(this.state.currPath+'/'+name,new Uint8Array(data!)!)
             }
         }
         await this.reloadFileInfo();
-    }
-    async DoSyncTab(){
-        let currTab=(await this.props.workspace!.rref.tv.waitValid()).getCurrentTab();
-        if(currTab==undefined)return;
-        if('path' in currTab && typeof currTab.path==='string'){
-            await this.doFileOpen(path.dirname(currTab.path as string));
-        }
     }
     _clipboardFile={
         paths:[] as string[],
@@ -218,13 +204,13 @@ export class FileBrowser extends React.Component<{
         if(this._clipboardFile.mode==='cut'){
             for(let t1 of this._clipboardFile.paths){
                 let name=t1.substring(t1.lastIndexOf('/')+1);
-                this.props.sfs.rename(t1,(this.state.currPath??'')+'/'+name);
+                await this.props.context.fs!.rename(t1,(this.state.currPath??'')+'/'+name);
             }
         }else{
             const copyFileAndDir=async (src:string,dst:string)=>{
-                if(await this.props.sfs.filetype(src)=='dir'){
-                    let children=await this.props.sfs.listdir(src);
-                    this.props.sfs.mkdir(dst)
+                if(await this.props.context.fs!.filetype(src)=='dir'){
+                    let children=await this.props.context.fs!.listdir(src);
+                    this.props.context.fs!.mkdir(dst)
                     for(let t1 of children){
                         await copyFileAndDir([src,t1.name].join('/'),[dst,t1.name].join('/'));
                     }
@@ -233,9 +219,9 @@ export class FileBrowser extends React.Component<{
                         dst+='_Copy';
                     }
                     //XXX:Not suitable for large file.
-                    let t1=await this.props.sfs.readAll(src);
+                    let t1=await this.props.context.fs!.readAll(src);
                     if(t1!=null){
-                        await this.props.sfs.writeAll(dst,t1);
+                        await this.props.context.fs!.writeAll(dst,t1);
                     }
                 }
             }
@@ -246,20 +232,37 @@ export class FileBrowser extends React.Component<{
         }
         this.reloadFileInfo();
     }
+    async DoNew(){
+        let form1=new ReactRefEx<SimpleReactForm1>();
+        let dlg=await prompt(<div><SimpleReactForm1 ref={form1}>
+            {form1=><div>
+                <div>Directory:<ValueCheckBox ref={form1.getRefForInput('isDir')}/></div>
+                <div>name:<input type="text" ref={form1.getRefForInput('name')} /></div>
+                </div>}
+        </SimpleReactForm1>
+        </div>,'New');
+        (await form1.waitValid()).value={isDir:false,name:"untitled"}
+        if(await dlg.response.get()=='ok'){
+            let {isDir,name}=(await form1.waitValid()).value;
+            if(isDir){
+                await this.props.context.fs!.mkdir(path.join((this.state.currPath??''),name));
+            }else{
+                
+            }
+            await this.reloadFileInfo();
+        }
+        dlg.close();
+    }
     filterRef=React.createRef<HTMLInputElement>();
     public renderAction(){
         return <div>
-            <a href="javascript:;" onClick={()=>this.props.onCreateRequest?.(this.state.currPath!)}>New</a>&emsp;
+            <a href="javascript:;" onClick={()=>this.DoNew()}>New</a>&emsp;
             <a href="javascript:;" onClick={()=>this.DoRenameTo()}>Rename</a>&emsp;
             <a href="javascript:;" onClick={()=>this.DoDelete()}>Delete</a>&emsp;
             <a href="javascript:;" onClick={()=>this.DoUpload()}>Upload</a>&emsp;
             <a href="javascript:;" onClick={()=>this.DoCopy()}>Copy</a>&emsp;
             <a href="javascript:;" onClick={()=>this.DoCut()}>Cut</a>&emsp;
             <a href="javascript:;" onClick={()=>this.DoPaste()}>Paste</a>&emsp;
-            {this.props.workspace!=undefined?<span>
-                <a href="javascript:;" onClick={()=>this.DoSyncTab()}>SyncTab</a>&emsp;
-            </span>
-                :null}
         </div>
 
     }
@@ -272,7 +275,7 @@ export class FileBrowser extends React.Component<{
         let dlg=await prompt(<TextEditor divClass={[css.simpleCard]} divStyle={{minWidth:300}} ref={newPathInput}/>,'Jump to');
         (await newPathInput.waitValid()).setPlainText(this.state.currPath??'');
         if(await dlg.response.get()==='ok'){
-            this.doFileOpen(await (await newPathInput.waitValid()).getPlainText());
+            this.DoFileOpen(await (await newPathInput.waitValid()).getPlainText());
         }
         dlg.close();
     }
@@ -284,11 +287,15 @@ export class FileBrowser extends React.Component<{
             {this.renderAction()}
             <input type='text' placeholder='filter' onInput={(ev)=>this.onFilterChange((ev.target as HTMLInputElement).value)}></input>
             <div style={{flexGrow:1,flexShrink:1}} ref={this.filesContainer}>
-                <File path={this.getParentPath()} name=".." onOpenRequest={(path)=>this.doFileOpen(path)}
+                <File path={this.getParentPath()} name=".." onOpenRequest={(path)=>this.DoFileOpen(path)}
                     onSelectChange={(path,selected)=>this.onSelectChange(path,selected)}
                     selected={this.state.selectedFiles.has(this.getParentPath())} type='dir'/>
                 {this.renderFiles()}
             </div>
         </div>)
     }
+}
+
+export let __internal__={
+    FileBrowser
 }

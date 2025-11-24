@@ -1,178 +1,98 @@
 
-import { ReactRender, css } from 'partic2/pComponentUi/domui';
+import { ReactRefEx, ReactRender, css } from 'partic2/pComponentUi/domui';
 import * as React from 'preact'
 import { SimpleFileSystem } from 'partic2/CodeRunner/JsEnviron';
-import { TabInfo, TabInfoBase } from 'partic2/pComponentUi/workspace';
+import { openNewWindow } from 'partic2/pComponentUi/workspace';
 import { TextEditor } from 'partic2/pComponentUi/texteditor';
-import { DefaultActionBar } from './misclib';
-import type { Workspace } from './workspace';
+import { WorkspaceContext } from './workspace';
+import { utf8conv } from 'partic2/CodeRunner/jsutils2';
 
 
 
-export interface FileTypeHandler{
-    title:string
-    extension:string|string[]
-    setWorkspace:(workspace:Workspace)=>void
-    //return path
-    create?:(dir:string)=>Promise<string>
-    open?:(path:string)=>Promise<TabInfo>
-}
 
-export class FileTypeHandlerBase implements FileTypeHandler{
+export class FileTypeHandlerBase{
     title: string='';
-    extension: string | string[]=[];
-    workspace?:Workspace
-    setWorkspace(workspace: Workspace){
-        this.workspace=workspace;
-    }
-    async getUnusedFilename(dir:string,suffix:string){
-        for(let t1=1;t1<100;t1++){
-            let testname=dir+'/'+'untitled'+t1.toString()+suffix
-            if(await this.workspace!.fs!.filetype(testname)=='none'){
-                return testname;
-            }
-        }
-        throw new Error('no available file name');
-    }
+    extension: string[]=[];
+    context?:WorkspaceContext
+    async open(path:string){}
 }
 
 
-
-export class TextFileViewer extends TabInfoBase{
-    rref={inputArea:React.createRef<TextEditor>(),actionBar:React.createRef<DefaultActionBar>()}
-    fs?:SimpleFileSystem
-    path?:string
-    initLoad:boolean=true;
+class TextFileViewer extends React.Component<{context:WorkspaceContext,path:string},{}>{
+    
+    rref={inputArea:new ReactRefEx<TextEditor>()}
     action={} as Record<string,()=>Promise<void>>;
-    async init(initval:Partial<TextFileViewer>){
-        await super.init(initval)
-        this.action.save=async ()=>{
-            let content=this.rref.inputArea.current!.getPlainText();
-            let data=new TextEncoder().encode(content);
-            await this.fs!.writeAll(this.path!,data);
+
+    onKeyDown(ev: React.JSX.TargetedKeyboardEvent<HTMLElement>){
+        if(ev.key==='KeyS'&&ev.ctrlKey){
+            this.doSave();
+            ev.preventDefault();
         }
-        return this;
     }
-    async doLoad(){
-        let data=await this.fs!.readAll(this.path!);
+    async doSave(){
+        await this.props.context.fs!.writeAll(this.props.path,utf8conv((await this.rref.inputArea.waitValid()).getPlainText()))
+    }
+    async componentDidMount() {
+        let data=await this.props.context.fs!.readAll(this.props.path);
         data=data??new Uint8Array(0);
         this.rref.inputArea.current!.setPlainText(new TextDecoder().decode(data))
     }
-    onKeyDown(ev: React.JSX.TargetedKeyboardEvent<HTMLElement>){
-        this.rref.actionBar.current?.processKeyEvent(ev);
-    }
-    renderPage(){
+    render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined; }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChildren {
         return <div className={css.flexColumn} style={{flexGrow:'1'}} onKeyDown={(ev)=>this.onKeyDown(ev)}>
-        <div><DefaultActionBar action={this.action} ref={this.rref.actionBar} /></div>
-        <TextEditor ref={(refObj)=>{
-            this.rref.inputArea.current=refObj;
-            if(this.initLoad){
-                this.doLoad();
-                this.initLoad=false;
-            }
-        }} divClass={[css.simpleCard]}/>
+        <div><a onClick={()=>this.doSave()} href="javascript:;">Save</a></div>
+        <TextEditor ref={this.rref.inputArea} divClass={[css.simpleCard]}/>
         </div>
     }
 }
 
 
 
-export class MediaFileViewerTab extends TabInfoBase{
-    rref={actionBar:React.createRef<DefaultActionBar>()}
-    fs?:SimpleFileSystem
-    path?:string
-    mediaType?:'image'|'audio'|'video'
-    initLoad:boolean=true;
-    action={} as Record<string,()=>Promise<void>>
-    async init(initval:Partial<MediaFileViewerTab>){
-        await super.init(initval);
-        await this.doLoad();
-        return this;
-    }
-    protected dataUrl?:string
+class MediaFileViewer1 extends React.Component<{context:WorkspaceContext,path:string,mediaType:string},{dataUrl?:string}>{
+    rref={}
     async doLoad(){
-        let data=await this.fs!.readAll(this.path!);
+        let data=await this.props.context.fs!.readAll(this.props.path);
         data=data??new Uint8Array(0);
-        this.dataUrl=URL.createObjectURL(new Blob([data]));
-        this.requestPageViewUpdate();
-    }
-    async onClose(): Promise<boolean> {
-        if(this.dataUrl!=undefined){
-            URL.revokeObjectURL(this.dataUrl);
-        }
-        return true;
-    }
-    onKeyDown(ev: React.JSX.TargetedKeyboardEvent<HTMLElement>){
-        this.rref.actionBar.current?.processKeyEvent(ev);
+        let dataUrl=URL.createObjectURL(new Blob([data]));
+        this.setState({dataUrl})
     }
     renderMedia(){
-        if(this.dataUrl==undefined)return;
-        if(this.mediaType==='image'){
-            return <img src={this.dataUrl}/>
-        }else if(this.mediaType==='audio'){
-            return <audio src={this.dataUrl}/>
-        }else if(this.mediaType==='video'){
-            return <video src={this.dataUrl}/>
+        if(this.state.dataUrl==undefined)return;
+        if(this.props.mediaType==='image'){
+            return <img src={this.state.dataUrl}/>
+        }else if(this.props.mediaType==='audio'){
+            return <audio src={this.state.dataUrl}/>
+        }else if(this.props.mediaType==='video'){
+            return <video src={this.state.dataUrl}/>
         }
     }
-    renderPage(){
-        return <div className={css.flexColumn} style={{flexGrow:'1'}} onKeyDown={(ev)=>this.onKeyDown(ev)}>
-        <div><DefaultActionBar action={this.action} ref={this.rref.actionBar} /></div>
+    render(){
+        return <div className={css.flexColumn} style={{flexGrow:'1'}}>
         {this.renderMedia()}
         </div>
     }
 }
 
-export class TextFileHandler extends FileTypeHandlerBase{
+class TextFileHandler extends FileTypeHandlerBase{
     title: string='text file';
-    extension: string='';
-    async create(dir: string): Promise<string> {
-        let fs=this.workspace!.fs!
-        let path=await this.getUnusedFilename(dir,'.txt')
-        await fs.writeAll(path,new Uint8Array(0))
-        return path;
-    }
-    async open(path: string): Promise<TabInfo> {
-        let fs=this.workspace!.fs!
-        let t1=new TextFileViewer();
-        let t2=await t1.init({
-            id:'file://'+path,
-            title:path.substring(path.lastIndexOf('/')+1),
-            fs:fs,path:path
+    extension=[''];
+    async open(path: string) {
+        openNewWindow(<TextFileViewer context={this.context!} path={path}/>,{
+            title:'Text File:'+path.substring(path.lastIndexOf('/')+1)
         })
-        return t2
     }
 }
 
-export class JsModuleHandler extends FileTypeHandlerBase{
-    title: string= 'js module(amd)';
-    extension:string= '.js';
-    async create(dir: string): Promise<string> {
-        let fs=this.workspace!.fs!;
-        let path=await this.getUnusedFilename(dir,'.js');
-        await fs.writeAll(path,new TextEncoder().encode("define(['require','exports','module'],function(require,exports,module){\n\n})"))
-        return path;
-    }
-    async open(path: string): Promise<TabInfo> {
-        return new TextFileViewer().init({
-            id:'file://'+path,
-            title:path.substring(path.lastIndexOf('/')+1),
-            fs:this.workspace!.fs!,path:path
-        });
-    }
-}
 
-export class ImageFileHandler extends FileTypeHandlerBase{
+class ImageFileHandler extends FileTypeHandlerBase{
     title:string='png file'
     extension=['.png','.jpg','.jpeg','.webp','.gif'];
-    async open(path: string): Promise<TabInfo> {
-        let fs=this.workspace!.fs!;
-        return new MediaFileViewerTab().init({
-            id:'file://'+path,
-            title:path.substring(path.lastIndexOf('/')+1),
-            fs:fs,path:path,
-            mediaType:'image'
-        });
+    async open(path: string){
+        openNewWindow(<MediaFileViewer1 context={this.context!} path={path} mediaType='image'/>,{
+            title:'Image File:'+path.substring(path.lastIndexOf('/')+1)
+        })
     }
 }
 
+export let __internal__={
+    TextFileViewer,MediaFileViewer1,TextFileHandler,ImageFileHandler
+}

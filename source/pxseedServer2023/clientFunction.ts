@@ -43,91 +43,65 @@ export class PxseedServer2023Function{
     }
 }
 
-
-//To be standardized BEGIN
-export async function wsPipeConnectDirectly(id:string):Promise<Io>{
-    if(wsPipeApi.wsUrl==undefined){
-        if('pxseedServer2023/pxseedhttpserver' in (await requirejs.getDefined())){
-            let {rootConfig}=await import('pxseedServer2023/pxseedhttpserver');
-            wsPipeApi.wsUrl=`ws://${rootConfig.listenOn!.host}:${rootConfig.listenOn!.port}${rootConfig.pxseedBase}/pxprpc/0`
-        }else{
-            wsPipeApi.wsUrl=(await (await import('./webentry')).getPxseedUrl()).wsPipeUrl;
+//wsPipe
+export class WebsocketPipe{
+    constructor(public wsUrl:string){};
+    directlyConnect(id:string):Promise<Io>{
+        return new WebSocketIo().connect(this.wsUrl+(this.wsUrl.includes('?')?'&':'?')+`id=${encodeURIComponent(id)}`);
+    }
+    async clientConnect(serverName:string):Promise<Io>{
+        let connectionId=GenerateRandomString();
+        let needClose=new Set<Io>();
+        try{
+            let connIo=await this.directlyConnect('/connection/'+connectionId);
+            needClose.add(connIo)
+            let servIo=await this.directlyConnect('/server/'+serverName);
+            needClose.add(servIo);
+            let ser=new Serializer().prepareSerializing(16);
+            let connectTime=GetCurrentTime().getTime();
+            let connectRequest=ser.putString('connect').putLong(BigInt(connectTime)).putString(connectionId).build();
+            await servIo.send([connectRequest]);
+            ser=new Serializer().prepareUnserializing(await connIo.receive());
+            while(!(ser.getString()=='connect' && ser.getString()==serverName)){
+                ser=new Serializer().prepareUnserializing(await connIo.receive());
+            }
+            needClose.delete(connIo);
+            return connIo;
+        }finally{
+            for(let t1 of needClose){
+                t1.close();
+            }
         }
     }
-    return new WebSocketIo().connect(wsPipeApi.wsUrl+`?id=${id}`);
-}
-
-export let wsPipeApi={
-    connect:wsPipeConnectDirectly,
-    wsUrl:undefined as string|undefined
-};
-
-
-export function wsPipeServe(serverName:string,onConnection:(io:Io)=>Generator<Promise<any>,void,any>):Task<void>{
-    return Task.fork(function*(){
-        let servIo:Io=yield* Task.yieldWrap(wsPipeApi.connect('/server/'+serverName));
+    *serverServe(serverName:string,onConnection:(io:Io)=>Generator<Promise<any>,void,any>){
+        let servIo:Io=yield* Task.yieldWrap(this.directlyConnect('/server/'+serverName));
         let ser=new Serializer().prepareSerializing(16);
         let serveTime=GetCurrentTime().getTime();
         let serveAnnounce=ser.putString('serve').putLong(BigInt(serveTime)).build();
         servIo.send([serveAnnounce]);
-        try{
-            while(Task.getAbortSignal()!=undefined){
-                let msg=yield* Task.yieldWrap(servIo.receive());
-                ser=new Serializer().prepareUnserializing(msg);
-                let command=ser.getString();
-                if(command=='serve'){
-                    let serveOn=ser.getLong();
-                    if(serveOn>serveTime){
-                        yield servIo.send([serveAnnounce])
-                    }else{
-                        servIo.close()
-                        throw new Error('Server name already used.');
-                    }
-                }else if(command=='connect'){
-                    ser.getLong(); //connect time
-                    let connectionName=ser.getString();
-                    let connIo=yield* Task.yieldWrap(wsPipeApi.connect('/connection/'+connectionName));
-                    yield connIo.send([new Serializer().prepareSerializing(16).putString('connect').putString(serverName).build()]);
-                    Task.fork(onConnection(connIo)).run();
+        while(Task.getAbortSignal()!=undefined){
+            let msg=yield* Task.yieldWrap(servIo.receive());
+            ser=new Serializer().prepareUnserializing(msg);
+            let command=ser.getString();
+            if(command=='serve'){
+                let serveOn=ser.getLong();
+                if(serveOn>serveTime){
+                    yield servIo.send([serveAnnounce])
+                }else{
+                    servIo.close()
+                    throw new Error('Server name already used.');
                 }
+            }else if(command=='connect'){
+                ser.getLong(); //connect time
+                let connectionName=ser.getString();
+                let connIo=yield* Task.yieldWrap(this.directlyConnect('/connection/'+connectionName));
+                yield connIo.send([new Serializer().prepareSerializing(16).putString('connect').putString(serverName).build()]);
+                Task.fork(onConnection(connIo)).run();
             }
-        }finally{
-            servIo.close();
-        }
-    }).run();
-}
-
-export async function wsPipeConnect(serverName:string){
-    let connectionId=GenerateRandomString();
-    let needClose=new Set<Io>();
-    try{
-        let connIo=await wsPipeApi.connect('/connection/'+connectionId);
-        needClose.add(connIo)
-        let servIo=await wsPipeApi.connect('/server/'+serverName);
-        needClose.add(servIo);
-        let ser=new Serializer().prepareSerializing(16);
-        let connectTime=GetCurrentTime().getTime();
-        let connectRequest=ser.putString('connect').putLong(BigInt(connectTime)).putString(connectionId).build();
-        await servIo.send([connectRequest]);
-        ser=new Serializer().prepareUnserializing(await connIo.receive());
-        while(!(ser.getString()=='connect' && ser.getString()==serverName)){
-            ser=new Serializer().prepareUnserializing(await connIo.receive());
-        }
-        needClose.delete(connIo);
-        return connIo;
-    }finally{
-        for(let t1 of needClose){
-            t1.close();
         }
     }
 }
 
-export async function wsPipeConnectPxseedJsUrl(url:string){
-    let servName=decodeURIComponent(GetUrlQueryVariable2(url,'serverName')??'');
-    return wsPipeConnect(servName);
-}
-
-//To be standardized END
 
 export async function getServerConfig():Promise<null|{root:PxseedServer2023StartupConfig,current:PxseedServer2023StartupConfig}>{
     if('pxseedServer2023/pxseedhttpserver' in await requirejs.getDefined()){

@@ -26,9 +26,11 @@ setupAsyncHook();
 
 export class CodeContextEventTarget extends EventTarget{
     //Used by RemoteCodeContext, to delegate event. 
-    onAnyEvent?:(event:Event)=>void;
+    onAnyEvent=new Set<(event:Event,target:CodeContextEventTarget)=>void>();
     dispatchEvent(event: Event): boolean {
-        this.onAnyEvent?.(event);
+        for(let l of this.onAnyEvent){
+            l(event,this);
+        }
         return super.dispatchEvent(event);
     }
 }
@@ -49,10 +51,6 @@ export interface RunCodeContext{
 
     close():void;
 
-    //use pipe for faster communication, avoid code compiling.
-    //return null if no such pipe.
-    //Code runing in context can create pipe server by calling _ENV.servePipe in type (name:string)=>Promise<Io>
-    connectPipe(name:string):Promise<Io|null>
 }
 //RunCodeContext.jsExec run code like this
 async function __jsExecSample(lib:typeof jsExecLib,codeContext:LocalRunCodeContext):Promise<string>{
@@ -155,11 +153,13 @@ export class LocalRunCodeContext implements RunCodeContext{
         __priv_jsExecLib:jsExecLib,
         //custom source processor for 'runCode' _ENV.__priv_processSource, run before builtin processor.
         __priv_processSource:[] as ((processContext:{source:string,_ENV:any})=>PromiseLike<void>|void)[],
-        servePipe:this.servePipe.bind(this),
         event:this.event,
         //Will be close when LocalRunCodeContext is closing.
         autoClosable:{} as Record<string,{close?:()=>void}>,
-        enableDebugger
+        enableDebugger,
+        close:function(){
+            this.__priv_codeContext.close();
+        }
     };
     localScopeProxy;
     protected onConsoleLogListener=(e:Event)=>{
@@ -204,24 +204,6 @@ export class LocalRunCodeContext implements RunCodeContext{
                 return true;
             }
         });
-    }
-    protected servingPipe=new Map<string,[Io,Io]>();
-    async connectPipe(name:string):Promise<Io|null>{
-        let pipe1=this.servingPipe.get(name);
-        if(pipe1==null){
-            return null;
-        }else{
-            this.servingPipe.delete(name);
-            return pipe1[0];
-        }
-    }
-    async servePipe(name:string):Promise<Io>{
-        let pipe1=createIoPipe();
-        this.servingPipe.set(name,pipe1);
-        return pipe1[1];
-    }
-    async queryTooltip(code: string, caret: number): Promise<string> {
-        return '';
     }
     close(): void {
         ensureFunctionProbe(console,'log').removeEventListener(FuncCallEventType,this.onConsoleLogListener);
@@ -416,35 +398,5 @@ export var jsExecLib={
             arr.push(itr.value);
         }
         return arr;
-    }
-}
-
-export let registry={
-    contexts:{} as Record<string,RunCodeContext|null>,
-    set(name:string,context:RunCodeContext|null){
-        if(context==null){
-            delete this.contexts[name];
-        }else{
-            this.contexts[name]=context;
-        }
-        this.__change.setResult(null);
-    },
-    get(name:string){
-        return this.contexts[name]??null;
-    },
-    list():string[]{
-        let t1=[];
-        for(let t2 in this.contexts){
-            t1.push(t2);
-        }
-        return t1;
-    },
-    __change:new jsutils1.future<null>(),
-    async waitChange(){
-        let fut=this.__change;
-        await fut.get();
-        if(fut==this.__change){
-            this.__change=new jsutils1.future<null>();
-        }
     }
 }

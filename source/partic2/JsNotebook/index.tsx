@@ -5,46 +5,44 @@ import { ClientInfo, getRegistered, persistent } from "partic2/pxprpcClient/regi
 import { RegistryUI } from "partic2/pxprpcClient/ui";
 
 import * as React from 'preact'
-import { Workspace } from "./workspace";
 import { WindowComponent, alert, appendFloatWindow } from "partic2/pComponentUi/window";
 import { getIconUrl } from "partic2/pxseedMedia1/index1";
-import { CodeContextChooser, findRpcClientInfoFromClient } from "./misclib";
+import { __internal__ as notebooki } from "./notebook";
 import { LocalRunCodeContext } from "partic2/CodeRunner/CodeContext";
 import { RemoteRunCodeContext } from "partic2/CodeRunner/RemoteCodeContext";
 import { Task, future } from "partic2/jsutils1/base";
 import {openNewWindow, setBaseWindowView} from 'partic2/pComponentUi/workspace'
+import { openWorkspaceWindowFor } from "./workspace";
 
 
 
 export let __name__='partic2/JsNotebook/index';
 
+let {RpcChooser}=notebooki;
 
 
-class MainView extends React.Component<{},{rpc:any}>{
+class MainView extends React.Component<{}>{
     renderChooser(){
-        return <div style={{border:'solid 1px black'}}><CodeContextChooser onChoose={async (rpc)=>{this.setState({rpc})}}/></div>
+        return <div style={{border:'solid 1px black'}}><RpcChooser onChoose={async (rpc)=>{this.openWorkspaceForRpc(rpc)}}/></div>
     }
-    renderWorkerspace(){
-        let rpc=this.state.rpc;
-        if(rpc=='local window' || (rpc instanceof LocalRunCodeContext)){
-            return <Workspace divStyle={{height:'100%'}}/>;
+    openWorkspaceForRpc(rpc:any){
+        if(rpc=='local window'){
+            return openWorkspaceWindowFor('local window');
         }else if(rpc instanceof ClientInfo){
-            return <Workspace divStyle={{height:'100%'}} rpc={rpc}/>
-        }else if(rpc instanceof RemoteRunCodeContext){
-            return <Workspace divStyle={{height:'100%'}} rpc={findRpcClientInfoFromClient(rpc.client1)!}/>
+            return openWorkspaceWindowFor(rpc)
         }else{
-            alert('Not support client');
+            alert('Unsupported client');
         }
     }
     render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined; }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChild {
-        return this.state.rpc==undefined?this.renderChooser():this.renderWorkerspace()
+        return this.renderChooser()
     }
 }
 
 
 export function *main(command:string){
     if(command=='webui'){
-        openNewWindow(<MainView/>,{title:'JS Notebook'});
+        openNewWindow(<MainView/>,{title:'JS Notebook RPC Chooser'});
     }
 }
 

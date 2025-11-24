@@ -15,7 +15,7 @@ export var __name__=requirejs.getLocalRequireModule(require);
 
 import type * as registryModType from 'partic2/packageManager/registry'
 import type { PxseedConfig } from 'pxseedBuildScript/buildlib'
-import {openWorkspaceWindowFor} from 'partic2/JsNotebook/workspace'
+import {openWorkspaceWindowFor, openWorkspaceWithProfile} from 'partic2/JsNotebook/workspace'
 import { TextEditor } from 'partic2/pComponentUi/texteditor'
 import { NewWindowHandle, NewWindowHandleLists, openNewWindow, setBaseWindowView, WorkspaceWindowContext  } from 'partic2/pComponentUi/workspace'
 
@@ -55,12 +55,12 @@ let remoteModule={
     registry:new Singleton(async ()=>{
         let rpc1=await getPersistentRegistered(ServerHostRpcName);
         if(rpc1!=undefined){
-            return await importRemoteModule<typeof import('partic2/packageManager/registry')>(
-                await (await getPersistentRegistered(ServerHostWorker1RpcName))!.ensureConnected(),'partic2/packageManager/registry');
+            return await importRemoteModule(
+                await (await getPersistentRegistered(ServerHostWorker1RpcName))!.ensureConnected(),'partic2/packageManager/registry') as typeof import('partic2/packageManager/registry');
         }else{
             //Local worker with xplatj mode.
-            return await importRemoteModule<typeof import('partic2/packageManager/registry')>(
-                await (await getPersistentRegistered(WebWorker1RpcName))!.ensureConnected(),'partic2/packageManager/registry');
+            return await importRemoteModule(
+                await (await getPersistentRegistered(WebWorker1RpcName))!.ensureConnected(),'partic2/packageManager/registry') as typeof import('partic2/packageManager/registry');
         }
     })
 }
@@ -406,7 +406,17 @@ class PackagePanel extends React.Component<{},{
     }
     async openNotebook(){
         try{
-            await openWorkspaceWindowFor((await getPersistentRegistered(ServerHostWorker1RpcName))!,'packageManager/registry');
+            let nbw=await openWorkspaceWithProfile.openJSNotebookFirstProfileWorkspace({
+                defaultRpc:ServerHostWorker1RpcName,
+                defaultStartupScript:`import2env('partic2/jsutils1/base');
+import2env('partic2/jsutils1/webutils');
+import2env('partic2/CodeRunner/jsutils2');
+import2env('partic2/packageManager/registry');`
+            });
+            let nbdir=path.join(nbw.wwwroot!,__name__,'notebook')
+            nbw.startupProfile={currPath:nbdir,openedFiles:[]};
+            await nbw.fs!.mkdir(nbdir);
+            await nbw.start();
         }catch(err:any){
             await alert(err.errorMessage,i18n.error)
         }

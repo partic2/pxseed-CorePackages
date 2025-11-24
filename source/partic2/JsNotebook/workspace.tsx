@@ -1,305 +1,172 @@
-import { FloatLayerComponent, ReactRefEx, ReactRender, css } from 'partic2/pComponentUi/domui';
+import { ReactRefEx } from 'partic2/pComponentUi/domui';
 import * as React from 'preact';
-import {  DummyDirectoryHandler, FileBrowser } from './filebrowser';
-import { openNewWindow, TabInfoBase, TabView } from 'partic2/pComponentUi/workspace';
-import { ClientInfo } from 'partic2/pxprpcClient/registry';
-import { IJSNBFileHandler, RunCodeTab } from './notebook';
-import { FileTypeHandler, JsModuleHandler, ImageFileHandler, TextFileHandler } from './fileviewer';
-import { SimpleFileSystem ,LocalWindowSFS,TjsSfs, getSimpleFileSystemFromPxprpc} from 'partic2/CodeRunner/JsEnviron';
-import { RegistryUI } from 'partic2/pxprpcClient/ui';
-import { clone, GetCurrentTime, sleep,assert, GenerateRandomString, future, throwIfAbortError } from 'partic2/jsutils1/base';
+import {  __internal__ as filebrowseri } from './filebrowser';
+import { openNewWindow } from 'partic2/pComponentUi/workspace';
+import { ClientInfo, createIoPipe, easyCallRemoteJsonFunction, getPersistentRegistered, ServerHostWorker1RpcName } from 'partic2/pxprpcClient/registry';
+import { __internal__ as notebooki } from './notebook';
+import { FileTypeHandlerBase } from './fileviewer';
+import { __internal__ as filevieweri } from './fileviewer';
+import { SimpleFileSystem ,TjsSfs, defaultFileSystem, ensureDefaultFileSystem} from 'partic2/CodeRunner/JsEnviron';
 import { tjsFrom } from 'partic2/tjshelper/tjsonjserpc';
-import { Invoker as jseioInvoker} from "partic2/pxprpcBinding/JseHelper__JseIo";
-import { StdioShellProfile1 } from './stdioshell';
-import {removeFloatWindow, WindowComponent} from 'partic2/pComponentUi/window'
-import {PointTrace} from 'partic2/pComponentUi/transform'
-import { RemoteRunCodeContext } from 'partic2/CodeRunner/RemoteCodeContext';
-import { LocalRunCodeContext, RunCodeContext } from 'partic2/CodeRunner/CodeContext';
-import {appendFloatWindow,alert} from 'partic2/pComponentUi/window'
-import { findRpcClientInfoFromClient } from './misclib';
-import { lifecycle, path } from 'partic2/jsutils1/webutils'
+import { path } from 'partic2/jsutils1/webutils'
+import { utf8conv } from 'partic2/CodeRunner/jsutils2';
+import './workerinit'
+import {__internal__ as workeriniti} from './workerinit'
+import { RpcExtendClient1, RpcExtendServer1 } from 'pxprpc/extend';
+import { Client, Server } from 'pxprpc/base';
+import { SimpleReactForm1, ValueCheckBox } from 'partic2/pComponentUi/input';
+import {prompt} from 'partic2/pComponentUi/window'
+import { assert } from 'partic2/jsutils1/base';
 const __name__='partic2/JsNotebook/workspace'
 
 
 
 
-//treat TextFileHandler as the last default opener
-let defaultFileTypeHandlers:FileTypeHandler[]=[new IJSNBFileHandler(),new JsModuleHandler(),
-    new ImageFileHandler(),new StdioShellProfile1(),
-    new TextFileHandler(),new DummyDirectoryHandler()]
 
-class CreateFileTab extends TabInfoBase{
-    ws?:Workspace
-    async init(initval:Partial<CreateFileTab>){
-        super.init({id:'internal://workspace create file',title:'create',...initval})
-        return this;
-    }
-
-    async doCreate(h:FileTypeHandler){
-        let fs=this.ws!.state.fs;
-        let path=this.ws!.rref.fb.current!.state.currPath!;
-        let newPath=await h.create!(path);
-        this.ws!.onNewFileCreated(newPath);
-    }
-    renderPage() {
-        return <div>
-            {this.ws!.fileTypeHandlers.map(v=>('create' in v)?[<a onClick={()=>this.doCreate(v)} href="javascript:;">
-                {v.title}
-            </a>,<br/>]:[])}
-        </div>
-    }
-}
-
-let tabAttrSym=Symbol('tabAttrSym');
-
-export class Workspace extends React.Component<{rpc?:ClientInfo,fs?:SimpleFileSystem,divClass?:string[],divStyle?:React.JSX.CSSProperties},{
-    fs:SimpleFileSystem,initFileDir:string,panel12SplitX?:number}>{
-    rref={
-        fb:React.createRef<FileBrowser>(),
-        tv:new ReactRefEx<TabView>(),
-        panel1:React.createRef<HTMLDivElement>(),
-        rpcRegistry:React.createRef<WindowComponent>()
-    }
-    fileTypeHandlers=clone(defaultFileTypeHandlers,1);
-    fs?:SimpleFileSystem
-    inited=new future<boolean>();
-    constructor(props:any,ctx:any){
-        super(props,ctx);
-        this.fileTypeHandlers.forEach(v=>v.setWorkspace(this));
-        this.setState({initFileDir:''});
-    }
-    initOpenedFiles:string[]=[]
-    async loadProfile(){
-        let moduleDataDir=(await this.fs!.dataDir())+'/www/'+__name__;
-        let profileFile=moduleDataDir+'/serverProfile.json';
-        let profile={currPath:moduleDataDir+'/workspace/1',openedFiles:[moduleDataDir+'/workspace/1/notebook.ijsnb']}
-        try{
-            assert(await this.fs?.filetype(profileFile)==='file');
-            let data1=await this.fs!.readAll(profileFile);
-            if(data1!=null && data1.length>0){
-                profile={...profile,...JSON.parse(new TextDecoder().decode(data1))}
+export class WorkspaceContext{
+    constructor(public rpc:ClientInfo){}
+    //optional property.
+    fs:SimpleFileSystem|null=null;
+    wwwroot:string|null=null;
+    filehandler=new Array<FileTypeHandlerBase>();
+    startupProfile:{
+        currPath:string,
+        openedFiles:string[]
+    }|null=null;
+    async ensureInited(){
+        if(this.fs==null){
+            if(this.rpc instanceof workeriniti.LoopbackRpcClient||this.rpc.url.startsWith('webworker:')||this.rpc.url.startsWith('serviceworker:')){
+                await ensureDefaultFileSystem();
+                this.fs=defaultFileSystem;
+                if(this.wwwroot==null)this.wwwroot='/www';
+            }else{
+                let tjssfs1=new TjsSfs();
+                let tjs=await tjsFrom(await this.rpc!.ensureConnected());
+                tjssfs1.from(tjs);
+                await tjssfs1.ensureInited();
+                this.fs=tjssfs1;
             }
-        }catch(e:any){
-            throwIfAbortError(e);
-            await this.fs!.mkdir(profile.currPath);
-            await this.fs!.writeAll(profileFile,new TextEncoder().encode(JSON.stringify(profile)));
-            for(let t1 of profile.openedFiles){
-                if((await this.fs!.filetype(t1))==='none'){
-                    await this.fs!.mkdir(path.dirname(t1));
-                    await this.fs!.writeAll(t1,new TextEncoder().encode(JSON.stringify({
-                        "ver": 1,
-                        "path": t1,
-                        "cells": JSON.stringify({'cellList': [
-                            {'cellInput': '//_ENV is the default "global" context for Code Cell \n_ENV',
-                            'cellOutput': ['', null],
-                            'key': 'rnd12rjykngi1ufte7uq'},
-                            {'cellInput': '//Also globalThis are available \nglobalThis',
-                            'cellOutput': ['', null],
-                            'key': 'rnd1inpn4a83tgvabops'},
-                            {'cellInput': `//"import" is also available as expected
+        }
+        if(this.wwwroot==null){
+            this.wwwroot=await easyCallRemoteJsonFunction(await this.rpc!.ensureConnected(),'partic2/jsutils1/webutils','getWWWRoot',[]);
+        }
+        for(let t1 of this.filehandler){
+            t1.context=this;
+        }
+        if(this.filehandler.length==0){
+            this.filehandler.push(new notebooki.IJSNBFileHandler(),new filevieweri.ImageFileHandler(),
+            new filevieweri.ImageFileHandler(),new filevieweri.TextFileHandler())
+        }
+    }
+    openNewWindow:typeof openNewWindow=async function(vnode,options){
+        return openNewWindow(vnode,options);
+    }
+
+    fileBrowser=filebrowseri.FileBrowser
+    async start(){
+        await this.ensureInited();
+        let FileBrowser=this.fileBrowser
+        let rref={
+            fb:new ReactRefEx<InstanceType<typeof FileBrowser>>()
+        }
+        this.openNewWindow(<FileBrowser context={this} ref={rref.fb}/>,{title:'JS Notebook File Browser',layoutHint:__name__+'.FileBrowser'})
+        let fb=await rref.fb.waitValid();
+        if(this.startupProfile==null){
+            let profileFile=await this.fs!.readAll(path.join(this.wwwroot!,__name__,'serverProfile.json'));
+            if(profileFile!=null){
+                this.startupProfile=JSON.parse(utf8conv(profileFile));
+            }
+        }
+        if(this.startupProfile==null){
+            let currPath=path.join(this.wwwroot!,__name__,'workspace/1');
+            let t1=path.join(currPath,'notebook.ijsnb');
+            this.startupProfile={currPath,openedFiles:[t1]};
+            if(await this.fs!.filetype(t1)==='none'){
+                await this.fs!.writeAll(t1,utf8conv(JSON.stringify({
+                    "ver": 1,
+                    "path": t1,
+                    "cells": JSON.stringify({'cellList': [
+                        {'cellInput': '//_ENV is the default "global" context for Code Cell \n_ENV',
+                        'cellOutput': ['', null],
+                        'key': 'rnd12rjykngi1ufte7uq'},
+                        {'cellInput': '//Also globalThis are available \nglobalThis',
+                        'cellOutput': ['', null],
+                        'key': 'rnd1inpn4a83tgvabops'},
+                        {'cellInput': `//"import" is also available as expected
 import * as jsutils2  from 'partic2/CodeRunner/jsutils2'
 u8=jsutils2.u8hexconv(new Uint8Array([11,22,33]))
 console.info(u8)
 console.info(Array.from(jsutils2.u8hexconv(u8)))`,
-                            'cellOutput': ['', null],
-                            'key': 'rnd1gn3dzsjben57zmdc'}],
-                      'consoleOutput': {}})
-                    })));
-                }
+                        'cellOutput': ['', null],
+                        'key': 'rnd1gn3dzsjben57zmdc'}],
+                    'consoleOutput': {}})
+                })))
             }
+            await this.fs!.writeAll(path.join(this.wwwroot!,__name__,'serverProfile.json'),utf8conv(JSON.stringify(this.startupProfile)));
         }
-        this.setState({initFileDir:profile.currPath})
-        this.initOpenedFiles=profile.openedFiles;
-    }
-    async saveProfile(){
-        let moduleDataDir=(await this.fs!.dataDir())+'/www/'+__name__;
-        let openedFiles=[]
-        for(let tab of this.rref.tv.current!.getTabs()){
-            if(tabAttrSym in tab){
-                openedFiles.push((tab as any)[tabAttrSym].filePath);
-            }
+        await fb.DoFileOpen(this.startupProfile.currPath);
+        for(let t1 of this.startupProfile.openedFiles){
+            await fb.DoFileOpen(t1);
         }
-        let profile={
-            currPath:this.rref.fb.current?.state.currPath,
-            openedFiles
-        }
-        let profileFile=moduleDataDir+'/serverProfile.json';
-        await this.fs!.writeAll(profileFile,new TextEncoder().encode(JSON.stringify(profile)))
-    }
-    onPauseListener=async ()=>{
-        await this.saveProfile();
-    }
-    componentDidMount(): void {
-        this.init().catch((e)=>alert(e.toString()));
-        lifecycle.addEventListener('pause',this.onPauseListener);
-    }
-    componentWillUnmount(): void {
-        lifecycle.removeEventListener('pause',this.onPauseListener);
-    }
-    async init(){
-        if(this.inited.done){
-            return;
-        }
-        if(this.props.fs==undefined){
-            if(this.props.rpc!=undefined){
-                await this.props.rpc.ensureConnected()
-            }
-            if(this.props.rpc==undefined){
-                let t1=new LocalWindowSFS();
-                await t1.ensureInited();
-                this.fs=t1;
-                this.setState({fs:t1});
-            }else{
-                try{
-                    let fs1=await getSimpleFileSystemFromPxprpc(await this.props.rpc.ensureConnected());
-                    assert(fs1!=undefined);
-                    await fs1.ensureInited();
-                    this.fs=fs1;
-                    this.setState({fs:fs1});
-                }catch(e){
-                    //fallback to localwindowsfs
-                    let t1=new LocalWindowSFS();
-                    await t1.ensureInited();
-                    this.fs=t1;
-                    this.setState({fs:t1});
-                }
-            }
-        }else{
-            this.fs=this.props.fs!
-            this.setState({fs:this.props.fs!});
-        }
-        await this.loadProfile();
-        this.inited.setResult(true);
-        this.forceUpdate();
-        for(let t1 of this.initOpenedFiles){
-            await this.doOpenFileRequest(t1);
-        }
-    }
-    async doOpenFileRequest(path:string){
-        await this.inited.get();
-        let lowercasePath=path.toLowerCase();
-        for(let t1 of this.fileTypeHandlers){
-            let matched=false;
-            if(typeof t1.extension==='string'){
-                if(lowercasePath.endsWith(t1.extension) && 'open' in t1)matched=true;
-            }else{
-                for(let t2 of t1.extension){
-                    if(lowercasePath.endsWith(t2)){
-                        matched=true;
-                        break;
-                    }
-                }
-            }
-            if(matched){
-                let t2=await t1.open!(path);
-                (t2 as any)[tabAttrSym]={filePath:path};
-                (await this.rref.tv.waitValid()).addTab(t2);
-                (await this.rref.tv.waitValid()).openTab(t2.id);
-                break;
-            }
-        }
-    }
-    async openNotebookFor(supportedContext:'local window'|ClientInfo|RemoteRunCodeContext|LocalRunCodeContext,notebookFile?:string){
-        await this.inited.get();
-        let moduleDataDir=(await this.fs!.dataDir())+'/www/'+__name__;
-        if(notebookFile==undefined){
-            notebookFile=moduleDataDir+'/workspace/1/notebook.ijsnb';
-        }
-        if((await this.fs!.filetype(notebookFile))==='none'){
-            await this.fs!.mkdir(path.dirname(notebookFile));
-            await this.fs!.writeAll(notebookFile,new TextEncoder().encode('{}'));
-        }
-        await this.doOpenFileRequest(notebookFile);
-        for(let tab of  (await this.rref.tv.waitValid()).getTabs()){
-            if(tab instanceof RunCodeTab && tab.path===notebookFile){
-                tab.ignoreRpcConfigOnLoading=true;
-                await tab.inited.get();
-                await tab.useCodeContext(supportedContext);
-            }
-        }
-    }
-    async onNewFileCreated(path:string){
-        await this.rref.fb.current!.reloadFileInfo()
-        await this.rref.fb.current!.selectFiles([path])
-        this.rref.fb.current!.DoRenameTo()
-    }
-    async doCreateFileRequest(dir:string){
-        await this.inited.get();
-        let t1=await new CreateFileTab().init({ws:this});
-        (await this.rref.tv.waitValid()).addTab(t1);
-        (await this.rref.tv.waitValid()).openTab(t1.id);
-    }
-    async openBookmarkTab(){
-        //TODO
-    }
-    __panel12SpliterMove=new PointTrace({
-        onMove:(curr,start)=>{
-            this.setState({panel12SplitX:curr.x-start.x});
-        }
-    });
-    render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined; }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChild {
-        if(!this.inited.done){
-            return null;
-        }
-        return <div className={[css.flexRow,...(this.props.divClass??[])].join(' ')} 
-                    style={{width:'100%',height:'100%',...(this.props.divStyle??{})}} >
-            <WindowComponent ref={this.rref.rpcRegistry} title='rpc registry'>
-                <RegistryUI />
-            </WindowComponent>
-            <div style={{flexBasis:(this.state.panel12SplitX??302-2)+'px',flexShrink:'0'
-                ,height:'100%',overflowY:'auto'}} ref={this.rref.panel1}>
-                <a href="javascript:;" onClick={()=>this.rref.rpcRegistry.current?.activate()}>RpcRegistry</a><span>&nbsp;&nbsp;</span>
-                <div style={{flexGrow:1}}>
-                <FileBrowser ref={this.rref.fb} sfs={this.state.fs} initDir={this.state.initFileDir} workspace={this}
-            onOpenRequest={(path)=>this.doOpenFileRequest(path)} onCreateRequest={(dir)=>this.doCreateFileRequest(dir)}/>
-                </div>
-            </div>
-
-            <div style={{flexBasis:'5px',flexShrink:'0',backgroundColor:'grey',cursor:'ew-resize'}} 
-                onMouseDown={(ev)=>{
-                    let x=this.rref.panel1.current?.getBoundingClientRect().left
-                    this.__panel12SpliterMove.start({x:x??0,y:ev.clientY},true);
-                    ev.preventDefault();
-                }}
-                onTouchStart={(ev)=>{
-                    let x=this.rref.panel1.current?.getBoundingClientRect().left
-                    this.__panel12SpliterMove.start({x:x??0,y:ev.touches[0].clientY},true);
-                    ev.preventDefault();
-                }}
-            ></div>
-            <div className={css.flexColumn} style={{flexGrow:'1',minWidth:0,flexShrink:'1'}}>
-                <TabView ref={this.rref.tv}/>
-            </div>
-        </div>
     }
 }
 
-export let defaultOpenWorkspaceWindowFor=async function (supportedContext:'local window'|ClientInfo|RemoteRunCodeContext|LocalRunCodeContext,title?:string){
-    let wsref=new ReactRefEx<Workspace>();
-    let newWindowHandle=await (async ()=>{
-        if(supportedContext=='local window' || (supportedContext instanceof LocalRunCodeContext)){
-            return openNewWindow(<Workspace ref={wsref} divStyle={{backgroundColor:'white'}}/>,{title})
-        }else if(supportedContext instanceof ClientInfo){
-            return openNewWindow(<Workspace ref={wsref} rpc={supportedContext} divStyle={{backgroundColor:'white'}}/>,{title})
-        }else if(supportedContext instanceof RemoteRunCodeContext){
-            let rpc=findRpcClientInfoFromClient(supportedContext.client1);
-            assert(rpc!=null);
-            return openNewWindow(<Workspace ref={wsref} rpc={rpc!} divStyle={{backgroundColor:'white'}}/>,{title})
+async function openJSNotebookFirstProfileWorkspace(opt:{
+    defaultStartupScript?:string,
+    defaultRpc?:string
+}){
+    class NotebookOnlyFileBrowser extends filebrowseri.FileBrowser{
+        async DoNew(): Promise<void> {
+            let form1=new ReactRefEx<SimpleReactForm1>();
+            let dlg=await prompt(<div><SimpleReactForm1 ref={form1}>
+                {form1=><div>
+                    <div>Directory:<ValueCheckBox ref={form1.getRefForInput('isDir')}/></div>
+                    <div>name:<input type="text" ref={form1.getRefForInput('name')} /></div>
+                    </div>}
+            </SimpleReactForm1>
+            </div>,'New');
+            (await form1.waitValid()).value={isDir:false,name:"untitled.ijsnb"}
+            if(await dlg.response.get()=='ok'){
+                let {isDir,name}=(await form1.waitValid()).value;
+                if(isDir){
+                    await this.props.context.fs!.mkdir(path.join((this.state.currPath??''),name));
+                }else if(name.endsWith('.ijsnb')){
+                    await this.props.context.fs!.writeAll(path.join((this.state.currPath??''),name),utf8conv(JSON.stringify({
+                        rpc:opt.defaultRpc,startupScript:opt.defaultStartupScript
+                    })))
+                }else{
+                    await this.props.context.fs!.writeAll(path.join((this.state.currPath??''),name),new Uint8Array(0));
+                }
+                await this.reloadFileInfo();
+            }
+            dlg.close();
         }
-    })();
-    if(newWindowHandle!=null){
-        (await wsref.waitValid()).openNotebookFor(supportedContext);
-        newWindowHandle.waitClose().then(async ()=>{
-            let ws=await wsref.waitValid();
-            await ws.saveProfile();
-        })
     }
+    let rpc1=await getPersistentRegistered(opt.defaultRpc??ServerHostWorker1RpcName);
+    assert(rpc1!=null,'rpc not found.');
+    let workspace=new WorkspaceContext(rpc1);
+    await workspace.ensureInited();
+    workspace.fileBrowser=NotebookOnlyFileBrowser;
+    return workspace;
+}
+
+let defaultOpenWorkspaceWindowFor=async function (supportedContext:'local window'|ClientInfo){
+    if(supportedContext==='local window'){
+        supportedContext=new workeriniti.LoopbackRpcClient('local window','loopback:local window');
+    }
+    let workspace=new WorkspaceContext(supportedContext);
+    await workspace.ensureInited()
+    await workspace.start();
 }
 
 export async function setDefaultOpenWorkspaceWindowFor(openNotebook:typeof openWorkspaceWindowFor){
     defaultOpenWorkspaceWindowFor=openNotebook;
 }
 
-export async function openWorkspaceWindowFor(supportedContext:'local window'|ClientInfo|RemoteRunCodeContext|LocalRunCodeContext,title?:string){
-    defaultOpenWorkspaceWindowFor(supportedContext,title);
+export async function openWorkspaceWindowFor(supportedContext:'local window'|ClientInfo){
+    defaultOpenWorkspaceWindowFor(supportedContext);
+}
+
+export let openWorkspaceWithProfile={
+    openJSNotebookFirstProfileWorkspace
 }
