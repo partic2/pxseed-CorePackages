@@ -24,18 +24,19 @@ async function remoteCall(stringParam:string,objectParam:any){
         callProp1:async (prop:string,param:any[])=>{
             return [JSON.stringify(await objectParam.value[prop](...param)),null];
         },
-        pullCodeContextEvent:async ()=>{
-            return new Promise<[string,any]>((resolve)=>{
-                let listener=(event:Event,target:CodeContextEventTarget)=>{
-                    if(event instanceof CodeContextEvent){
-                        resolve([JSON.stringify({type:event.type,data:event.data}),null]);
-                    }else{
-                        resolve([JSON.stringify({type:event.type}),null]);
-                    }
-                    objectParam.value.event.onAnyEvent.delete(listener);
-                }
-                objectParam.value.event.onAnyEvent.add(listener);
-            })
+        pullCodeContextEvent:async (timeGt:number)=>{
+            let codeContext=objectParam.value as RunCodeContext
+            let events:any[]=[];
+            const checkEvent=()=>{
+                events=codeContext.event._cachedEventQueue.arr().filter(t1=>t1.time>timeGt)
+                    .map(t1=>({type:t1.event.type,data:(t1.event as any).data,time:t1.time}));
+            }
+            checkEvent();
+            if(events.length===0){
+                await codeContext.event._cachedEventQueue.waitForQueueChange();
+                checkEvent();
+            }
+            return [JSON.stringify(events),null];
         }
     }
     let {fn,param}=JSON.parse(stringParam);
@@ -76,12 +77,18 @@ export class RemoteRunCodeContext implements RunCodeContext{
     protected remoteCall?:RpcExtendClientCallable|null;
     protected async pullEventLoop(){
         try{
+            let lastEventTime=0;
             while(this._remoteContext!=null){
                 let t1=await this.remoteCall!.call(JSON.stringify({fn:'pullCodeContextEvent',
-                    param:[]
+                    param:[lastEventTime]
                 }),this._remoteContext);
-                let {type,data}=JSON.parse(t1[0]);
-                this.event.dispatchEvent(new CodeContextEvent(type,{data}));
+                let events=JSON.parse(t1[0]) as any[];
+                for(let t1 of events){
+                    this.event.dispatchEvent(new CodeContextEvent(t1.type,{data:t1.data}));
+                }
+                if(events.length>0){
+                    lastEventTime=events.at(-1)!.time;
+                }
             }
         }catch(err:any){
             throwIfAbortError(err)

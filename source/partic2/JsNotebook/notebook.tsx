@@ -70,7 +70,7 @@ class IJSNBFileHandler extends FileTypeHandlerBase{
     title: string='javascript notebook';
     extension=['.ijsnb'];
     async open(path: string) {
-        this.context!.openNewWindow(<NotebookViewer context={this.context!} path={path}/>,{
+        return await this.context!.openNewWindow(<NotebookViewer context={this.context!} path={path}/>,{
             title:'Notebook:'+path.substring(path.lastIndexOf('/')+1),
             layoutHint:__name__+'.IJSNBFileHandler'
         })

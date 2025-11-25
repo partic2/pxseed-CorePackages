@@ -1,4 +1,4 @@
-import { ArrayBufferConcat, ArrayWrap2, GenerateRandomString, Ref2, Task, assert, future, requirejs, throwIfAbortError ,TaskLocalRef } from "partic2/jsutils1/base";
+import { ArrayBufferConcat, ArrayWrap2, GenerateRandomString, Ref2, Task, assert, future, requirejs, throwIfAbortError ,TaskLocalRef, mutex, sleep } from "partic2/jsutils1/base";
 import { getPersistentRegistered, importRemoteModule } from "partic2/pxprpcClient/registry";
 
 
@@ -208,7 +208,37 @@ export function deepEqual(a:any, b:any) {
 	return true;
 }
 
-
+export class DebounceCall{
+    protected callId:number=1;
+    protected result=new future();
+    protected mut=new mutex();
+    constructor(public fn:()=>Promise<void>,public delayMs:number){}
+    async call(){
+        if(this.callId==-1){
+            //waiting fn return
+            return await this.result.get();
+        }
+        this.callId++;
+        let thisCallId=this.callId;
+        await sleep(this.delayMs);
+        if(thisCallId==this.callId){
+        try{
+            this.callId=-1;
+            let r=await this.fn();
+            this.result.setResult(r);
+        }catch(e){
+            this.result.setException(e);
+        }finally{
+            this.callId=1;
+            let r2=this.result;
+            this.result=new future();
+            return r2.get();
+        }}else{
+            return await this.result.get();
+        }
+        
+    }
+}
 
 export function setupAsyncHook(){
 	if(!('__onAwait' in Promise)){

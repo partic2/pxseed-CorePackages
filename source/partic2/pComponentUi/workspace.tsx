@@ -6,40 +6,10 @@ import {GenerateRandomString, GetCurrentTime, Ref2, copy, future, mutex, partial
 import { appendFloatWindow, removeFloatWindow, WindowComponent } from './window';
 import { getIconUrl } from 'partic2/pxseedMedia1/index1';
 import { GetPersistentConfig, SavePersistentConfig } from 'partic2/jsutils1/webutils';
+import {DebounceCall} from 'partic2/CodeRunner/jsutils2'
 
 let __name__=requirejs.getLocalRequireModule(require);
 
-class DelayOnceCall{
-    protected callId:number=1;
-    protected result=new future();
-    protected mut=new mutex();
-    constructor(public fn:()=>Promise<void>,public delayMs:number){}
-    async call(){
-        if(this.callId==-1){
-            //waiting fn return
-            return await this.result.get();
-        }
-        this.callId++;
-        let thisCallId=this.callId;
-        await sleep(this.delayMs);
-        if(thisCallId==this.callId){
-        try{
-            this.callId=-1;
-            let r=await this.fn();
-            this.result.setResult(r);
-        }catch(e){
-            this.result.setException(e);
-        }finally{
-            this.callId=1;
-            let r2=this.result;
-            this.result=new future();
-            return r2.get();
-        }}else{
-            return await this.result.get();
-        }
-        
-    }
-}
 
 class CNewWindowHandleLists extends EventTarget{
     value=new Array<NewWindowHandle>();
@@ -64,6 +34,10 @@ export interface NewWindowHandle extends OpenNewWindopwOption{
     hide:()=>Promise<void>,
     isHidden:()=>Promise<boolean>,
     children:Set<NewWindowHandle>,
+    //For window has layoutHint
+    saveWindowPosition?:()=>void
+    forgetWindowPosition?:()=>void
+
 }
 export let WorkspaceWindowContext=React.createContext<{lastWindow?:NewWindowHandle}>({});
 export let openNewWindow=async function(contentVNode:React.VNode,options?:OpenNewWindopwOption):Promise<NewWindowHandle>{
@@ -95,6 +69,16 @@ export let openNewWindow=async function(contentVNode:React.VNode,options?:OpenNe
         },
         async isHidden(){
             return (await this.windowRef.waitValid()).isHidden()
+        },
+        async saveWindowPosition(){
+            config1=await GetPersistentConfig(__name__);
+            config1.savedWindowLayout![options.layoutHint!]={time:GetCurrentTime().getTime(),...(await windowRef.waitValid()).state.layout};
+            await SavePersistentConfig(__name__);
+        },
+        async forgetWindowPosition(){
+            config1=await GetPersistentConfig(__name__);
+            delete config1.savedWindowLayout![options.layoutHint!]
+            await SavePersistentConfig(__name__);
         },
         windowRef,windowVNode:null as any,
         children:new Set<NewWindowHandle>()
@@ -164,11 +148,7 @@ export let openNewWindow=async function(contentVNode:React.VNode,options?:OpenNe
     let window1=await windowRef.waitValid();
     window1.setState({layout:{...layout1}})
     if(options.layoutHint!=undefined){
-        let saveLayout=new DelayOnceCall(async ()=>{
-            config1=await GetPersistentConfig(__name__);
-            config1.savedWindowLayout![options.layoutHint!]={time:GetCurrentTime().getTime(),...(await windowRef.waitValid()).state.layout};
-            await SavePersistentConfig(__name__);
-        },3000);
+        let saveLayout=new DebounceCall(handle.saveWindowPosition,3000);
         onWindowLayooutChange=()=>{
             saveLayout.call()
         }

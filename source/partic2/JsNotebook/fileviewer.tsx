@@ -14,7 +14,7 @@ export class FileTypeHandlerBase{
     title: string='';
     extension: string[]=[];
     context?:WorkspaceContext
-    async open(path:string){}
+    async open(path:string):Promise<{waitClose?:()=>Thenable<void>}>{return {}}
 }
 
 
@@ -76,9 +76,9 @@ class TextFileHandler extends FileTypeHandlerBase{
     title: string='text file';
     extension=[''];
     async open(path: string) {
-        openNewWindow(<TextFileViewer context={this.context!} path={path}/>,{
+        return await openNewWindow(<TextFileViewer context={this.context!} path={path}/>,{
             title:'Text File:'+path.substring(path.lastIndexOf('/')+1)
-        })
+        });
     }
 }
 
@@ -87,7 +87,7 @@ class ImageFileHandler extends FileTypeHandlerBase{
     title:string='png file'
     extension=['.png','.jpg','.jpeg','.webp','.gif'];
     async open(path: string){
-        openNewWindow(<MediaFileViewer1 context={this.context!} path={path} mediaType='image'/>,{
+        return await openNewWindow(<MediaFileViewer1 context={this.context!} path={path} mediaType='image'/>,{
             title:'Image File:'+path.substring(path.lastIndexOf('/')+1)
         })
     }

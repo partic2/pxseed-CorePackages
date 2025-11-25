@@ -5,37 +5,6 @@ import { getWWWRoot } from "partic2/jsutils1/webutils";
 
 const __name__=requirejs.getLocalRequireModule(require);
 
-export class DelayOnceCall{
-    protected callId:number=1;
-    protected result=new future();
-    protected mut=new mutex();
-    constructor(public fn:()=>Promise<void>,public delayMs:number){}
-    async call(){
-        if(this.callId==-1){
-            //waiting fn return
-            return await this.result.get();
-        }
-        this.callId++;
-        let thisCallId=this.callId;
-        await sleep(this.delayMs);
-        if(thisCallId==this.callId){
-        try{
-            this.callId=-1;
-            let r=await this.fn();
-            this.result.setResult(r);
-        }catch(e){
-            this.result.setException(e);
-        }finally{
-            this.callId=1;
-            let r2=this.result;
-            this.result=new future();
-            return r2.get();
-        }}else{
-            return await this.result.get();
-        }
-        
-    }
-}
 
 let DefaultSerializingOption={
     maxDepth:6,
@@ -555,10 +524,22 @@ export const builtInCompletionHandlers={
     }
 }
 
+export class CodeCellListData{
+    cellList=new Array<{cellInput:string,cellOutput:[any,string|null],key:string}>();
+    consoleOutput:{[cellKey:string]:{content:string}}={};
+    loadFrom(data:string){
+        let loaded=fromSerializableObject(JSON.parse(data),{});
+        this.cellList=loaded.cellList;
+        this.consoleOutput=loaded.consoleOutput;
+    }
+    saveTo():string{
+        return JSON.stringify(toSerializableObject({cellList:this.cellList,consoleOutput:this.consoleOutput},{}));
+    }
+}
+
 export const defaultCompletionHandlers:Array<(context:CodeCompletionContext)=>Promise<void>>=[
     builtInCompletionHandlers.checkIsInStringLiteral,
     builtInCompletionHandlers.propertyCompletion,
     builtInCompletionHandlers.importStatementCompletion,
     builtInCompletionHandlers.customFunctionParameterCompletion,
 ]
-

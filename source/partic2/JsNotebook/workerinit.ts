@@ -51,9 +51,9 @@ export class NotebookFileData{
     }
     load(data:Uint8Array){
         let r=JSON.parse(utf8conv(data));
-        this.rpc=r.rpc;
-        this.startupScript=r.startupScript;
-        this.cells=r.cells;
+        if(r.rpc!=undefined)this.rpc=r.rpc;
+        this.startupScript=r.startupScript??null;
+        this.cells=r.cells??null;
     }
     async getRpcClient(){
         if(this.rpc instanceof ClientInfo){

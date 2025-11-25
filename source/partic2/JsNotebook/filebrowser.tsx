@@ -93,6 +93,10 @@ class FileBrowser extends React.Component<{context:WorkspaceContext},FileBrowser
                 currPath:newPath,
                 childrenFile:children
             })
+            if(this.props.context.startupProfile!=undefined){
+                this.props.context.startupProfile.currPath=path;
+                await this.props.context.saveStartupProfile();
+            }
         }else if(filetype=='file'){
             let selectedHandle:FileTypeHandlerBase|null=null;
             for(let t1 of this.props.context.filehandler){
@@ -107,7 +111,19 @@ class FileBrowser extends React.Component<{context:WorkspaceContext},FileBrowser
             if(selectedHandle==null){
                 alert('No handler for such file extension.');
             }else{
-                selectedHandle.open(path);
+                let handleTask=await selectedHandle.open(path);
+                if(handleTask.waitClose!=undefined){
+                    (async ()=>{
+                        if(this.props.context.startupProfile!=null){
+                            this.props.context.startupProfile!.openedFiles.push(path);
+                            await this.props.context.saveStartupProfile();
+                            await handleTask.waitClose!();
+                            let removeAt=this.props.context.startupProfile!.openedFiles.indexOf(path);
+                            this.props.context.startupProfile!.openedFiles.splice(removeAt);
+                            await this.props.context.saveStartupProfile();
+                        }
+                    })();
+                }
             }
         }
         

@@ -9,7 +9,7 @@ import { __internal__ as filevieweri } from './fileviewer';
 import { SimpleFileSystem ,TjsSfs, defaultFileSystem, ensureDefaultFileSystem} from 'partic2/CodeRunner/JsEnviron';
 import { tjsFrom } from 'partic2/tjshelper/tjsonjserpc';
 import { path } from 'partic2/jsutils1/webutils'
-import { utf8conv } from 'partic2/CodeRunner/jsutils2';
+import { DebounceCall, utf8conv } from 'partic2/CodeRunner/jsutils2';
 import './workerinit'
 import {__internal__ as workeriniti} from './workerinit'
 import { RpcExtendClient1, RpcExtendServer1 } from 'pxprpc/extend';
@@ -29,10 +29,14 @@ export class WorkspaceContext{
     fs:SimpleFileSystem|null=null;
     wwwroot:string|null=null;
     filehandler=new Array<FileTypeHandlerBase>();
+
+    //startupProfile is store to save and recover the workspace status.
     startupProfile:{
         currPath:string,
         openedFiles:string[]
     }|null=null;
+    saveStartupProfile=async ()=>{}
+
     async ensureInited(){
         if(this.fs==null){
             if(this.rpc instanceof workeriniti.LoopbackRpcClient||this.rpc.url.startsWith('webworker:')||this.rpc.url.startsWith('serviceworker:')){
@@ -58,10 +62,31 @@ export class WorkspaceContext{
             new filevieweri.ImageFileHandler(),new filevieweri.TextFileHandler())
         }
     }
+    async useRemoteFileAsStartupProfileStore(path2:string){
+        let profileFile:Uint8Array|null=null;
+        try{profileFile=await this.fs!.readAll(path2);}catch(err){};
+        if(profileFile!=null){
+            try{
+                this.startupProfile=JSON.parse(utf8conv(profileFile));
+            }catch(err){
+                //bad profile file, create new.
+            };
+        }
+        let saveStartupProfile=new DebounceCall(async ()=>{
+                await this.fs!.writeAll(path2,utf8conv(JSON.stringify(this.startupProfile)));
+            },500);
+        if(profileFile!=null){
+            try{
+                this.startupProfile=JSON.parse(utf8conv(profileFile));
+            }catch(err){
+                //bad profile file
+            };
+        }
+        this.saveStartupProfile=async ()=>{await saveStartupProfile.call()}
+    }
     openNewWindow:typeof openNewWindow=async function(vnode,options){
         return openNewWindow(vnode,options);
     }
-
     fileBrowser=filebrowseri.FileBrowser
     async start(){
         await this.ensureInited();
@@ -71,11 +96,9 @@ export class WorkspaceContext{
         }
         this.openNewWindow(<FileBrowser context={this} ref={rref.fb}/>,{title:'JS Notebook File Browser',layoutHint:__name__+'.FileBrowser'})
         let fb=await rref.fb.waitValid();
+        
         if(this.startupProfile==null){
-            let profileFile=await this.fs!.readAll(path.join(this.wwwroot!,__name__,'serverProfile.json'));
-            if(profileFile!=null){
-                this.startupProfile=JSON.parse(utf8conv(profileFile));
-            }
+            await this.useRemoteFileAsStartupProfileStore(path.join(this.wwwroot!,__name__,'serverProfile.json'))
         }
         if(this.startupProfile==null){
             let currPath=path.join(this.wwwroot!,__name__,'workspace/1');
@@ -102,10 +125,13 @@ console.info(Array.from(jsutils2.u8hexconv(u8)))`,
                     'consoleOutput': {}})
                 })))
             }
-            await this.fs!.writeAll(path.join(this.wwwroot!,__name__,'serverProfile.json'),utf8conv(JSON.stringify(this.startupProfile)));
+            await this.saveStartupProfile()
         }
-        await fb.DoFileOpen(this.startupProfile.currPath);
-        for(let t1 of this.startupProfile.openedFiles){
+        await fb.DoFileOpen(this.startupProfile!.currPath);
+        //Clone and clear, to avoid recursive open and save window.
+        let toOpen=[...this.startupProfile!.openedFiles];
+        this.startupProfile.openedFiles.length=0;
+        for(let t1 of toOpen){
             await fb.DoFileOpen(t1);
         }
     }

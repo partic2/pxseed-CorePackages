@@ -5,10 +5,10 @@ import { CodeContextEvent, ConsoleDataEventData, RunCodeContext } from './CodeCo
 import * as React from 'preact'
 import { DynamicPageCSSManager, globalInputState, GlobalInputStateTracer } from 'partic2/jsutils1/webutils';
 import { TextEditor } from 'partic2/pComponentUi/texteditor';
-import { DelayOnceCall,CodeContextRemoteObjectFetcher, fromSerializableObject, inspectCodeContextVariable, CodeCompletionItem, toSerializableObject } from './Inspector';
+import { CodeContextRemoteObjectFetcher, fromSerializableObject, inspectCodeContextVariable, CodeCompletionItem, toSerializableObject, CodeCellListData } from './Inspector';
 import { ObjectViewer } from './Component1';
 import { text2html } from 'partic2/pComponentUi/utils';
-import { FlattenArraySync } from './jsutils2';
+import { FlattenArraySync,DebounceCall } from './jsutils2';
 import {appendFloatWindow,removeFloatWindow, WindowComponent, WindowsList, WindowsListContext} from 'partic2/pComponentUi/window'
 
 
@@ -84,7 +84,7 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
         }
         this.setState({codeCompleteCandidate:[]})
     }
-    protected requestCodeComplete=new DelayOnceCall(async ()=>{
+    protected requestCodeComplete=new DebounceCall(async ()=>{
         this.setState({
             codeCompleteCandidate:await this.props.codeContext.codeComplete(
                 this.getCellInput(),
@@ -96,7 +96,7 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
             </div>)
         });
     },200);
-    protected requestUpdateTooltips=new DelayOnceCall(async ()=>{
+    protected requestUpdateTooltips=new DebounceCall(async ()=>{
         this.props.onTooltips?.(<div>
             {this.state.extraTooltips?<div dangerouslySetInnerHTML={{__html:this.state.extraTooltips}}></div>:null}
             {this.renderCodeComplete()}
@@ -158,7 +158,7 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
         let t1=this.rref.codeInput.current!.getPlainText()
         return t1;
     }
-    getCellOutput(){
+    getCellOutput():[any,string|null]{
         return [this.state.cellOutput,this.state.resultVariable??null];
     }
     setCellInput(input:string){
@@ -291,7 +291,7 @@ export class DefaultCodeCellList extends React.Component<
             cellTooltips:null|{content:React.VNode,left:number,top:number,maxWidth:number,maxHeight:number},
             padBottomCell:number
         }>{
-    priv__initCellValue:{input:string,output:[any,string|undefined]}[]|null=null;
+    priv__initCellValue:{input:string,output:[any,string|null]}[]|null=null;
     protected lastRunCellKey:string='';
     constructor(prop:any,ctx:any){
         super(prop,ctx);
@@ -455,41 +455,30 @@ export class DefaultCodeCellList extends React.Component<
         }
     }
     saveTo():string{
-        let saved={
-            cellList:this.state.list.map((cell,index)=>({
+        let cellData=new CodeCellListData();
+        cellData.cellList=this.state.list.map((cell,index)=>({
                 cellInput:cell.ref.current!.getCellInput(),
                 cellOutput:cell.ref.current!.getCellOutput(),
                 key:cell.key
-            })),
-            consoleOutput:this.state.consoleOutput
-        }
-        return JSON.stringify(toSerializableObject(saved,{}));
-    }
-    protected async validLoadFromData(data:string):Promise<any>{
-        let loaded=JSON.parse(fromSerializableObject(data,{}));
-        for(let t1 of loaded.cellList){
-            assert(typeof(t1.cellInput)==='string');
-            assert(t1.cellOutput.length==2);
-            assert(typeof(t1.cellOutput[1])==='string'||t1.cellOutput[1]===null);
-            assert(typeof(t1.key)==='string');
-        }
-        return loaded;
+            }));
+        cellData.consoleOutput=this.state.consoleOutput;
+        return cellData.saveTo();
     }
     async loadFrom(data:string){
         try{
-            let loaded=await this.validLoadFromData(data);
-            let cellList=(loaded.cellList as {cellInput:string,cellOutput:[any,string|undefined],key:string}[]);
-            while(this.state.list.length<cellList.length){
+            let cellData=new CodeCellListData();
+            cellData.loadFrom(data);;
+            while(this.state.list.length<cellData.cellList.length){
                 this.state.list.push({ref:new ReactRefEx<CodeCell>(),key:GenerateRandomString()});
             }
             let consoleOutput={} as typeof this.state.consoleOutput;
-            for(let k1 in loaded.consoleOutput){
-                let index=cellList.findIndex(v=>v.key===k1);
+            for(let k1 in cellData.consoleOutput){
+                let index=cellData.cellList.findIndex(v=>v.key===k1);
                 if(index>=0){
-                    consoleOutput[this.state.list[index].key]=loaded.consoleOutput[k1];
+                    consoleOutput[this.state.list[index].key]=cellData.consoleOutput[k1];
                 }
             }
-            this.priv__initCellValue=cellList.map(v=>({input:v.cellInput,output:v.cellOutput}));
+            this.priv__initCellValue=cellData.cellList.map(v=>({input:v.cellInput,output:v.cellOutput}));
             this.setState({consoleOutput})
             this.forceUpdate();
         }catch(e:any){
