@@ -11,12 +11,13 @@ import { tjsFrom } from 'partic2/tjshelper/tjsonjserpc';
 import { path } from 'partic2/jsutils1/webutils'
 import { DebounceCall, utf8conv } from 'partic2/CodeRunner/jsutils2';
 import './workerinit'
-import {__internal__ as workeriniti} from './workerinit'
+import {NotebookFileData, __internal__ as workeriniti} from './workerinit'
 import { RpcExtendClient1, RpcExtendServer1 } from 'pxprpc/extend';
 import { Client, Server } from 'pxprpc/base';
 import { SimpleReactForm1, ValueCheckBox } from 'partic2/pComponentUi/input';
 import {prompt} from 'partic2/pComponentUi/window'
-import { assert } from 'partic2/jsutils1/base';
+import { assert, GenerateRandomString } from 'partic2/jsutils1/base';
+import { CodeCellListData } from '../CodeRunner/Inspector';
 const __name__='partic2/JsNotebook/workspace'
 
 
@@ -88,13 +89,14 @@ export class WorkspaceContext{
         return openNewWindow(vnode,options);
     }
     fileBrowser=filebrowseri.FileBrowser
+    title='JS Notebook'
     async start(){
         await this.ensureInited();
         let FileBrowser=this.fileBrowser
         let rref={
             fb:new ReactRefEx<InstanceType<typeof FileBrowser>>()
         }
-        this.openNewWindow(<FileBrowser context={this} ref={rref.fb}/>,{title:'JS Notebook File Browser',layoutHint:__name__+'.FileBrowser'})
+        this.openNewWindow(<FileBrowser context={this} ref={rref.fb}/>,{title:this.title+' File Browser',layoutHint:__name__+'.FileBrowser'})
         let fb=await rref.fb.waitValid();
         
         if(this.startupProfile==null){
@@ -105,24 +107,25 @@ export class WorkspaceContext{
             let t1=path.join(currPath,'notebook.ijsnb');
             this.startupProfile={currPath,openedFiles:[t1]};
             if(await this.fs!.filetype(t1)==='none'){
-                await this.fs!.writeAll(t1,utf8conv(JSON.stringify({
-                    "ver": 1,
-                    "path": t1,
-                    "cells": JSON.stringify({'cellList': [
-                        {'cellInput': '//_ENV is the default "global" context for Code Cell \n_ENV',
-                        'cellOutput': ['', null],
-                        'key': 'rnd12rjykngi1ufte7uq'},
-                        {'cellInput': '//Also globalThis are available \nglobalThis',
-                        'cellOutput': ['', null],
-                        'key': 'rnd1inpn4a83tgvabops'},
-                        {'cellInput': `//"import" is also available as expected
+                let ccld=new CodeCellListData();
+                ccld.cellList.push(
+                    {'cellInput': '//_ENV is the default "global" context for Code Cell \n_ENV',
+                    'cellOutput': ['', null],
+                    'key': 'rnd12rjykngi1ufte7uq'},
+                    {'cellInput': '//Also globalThis are available \nglobalThis',
+                    'cellOutput': ['', null],
+                    'key': 'rnd1inpn4a83tgvabops'},
+                    {'cellInput': `//"import" is also available as expected
 import * as jsutils2  from 'partic2/CodeRunner/jsutils2'
 u8=jsutils2.u8hexconv(new Uint8Array([11,22,33]))
 console.info(u8)
 console.info(Array.from(jsutils2.u8hexconv(u8)))`,
-                        'cellOutput': ['', null],
-                        'key': 'rnd1gn3dzsjben57zmdc'}],
-                    'consoleOutput': {}})
+                    'cellOutput': ['', null],
+                    'key': 'rnd1gn3dzsjben57zmdc'})
+                await this.fs!.writeAll(t1,utf8conv(JSON.stringify({
+                    "ver": 1,
+                    "path": t1,
+                    "cells": ccld.saveTo()
                 })))
             }
             await this.saveStartupProfile()
@@ -138,8 +141,10 @@ console.info(Array.from(jsutils2.u8hexconv(u8)))`,
 }
 
 async function openJSNotebookFirstProfileWorkspace(opt:{
+    defaultRpc?:string,
     defaultStartupScript?:string,
-    defaultRpc?:string
+    notebookDirectory?:((c:WorkspaceContext)=>Promise<string>)|string,
+    sampleCode?:string[]
 }){
     class NotebookOnlyFileBrowser extends filebrowseri.FileBrowser{
         async DoNew(): Promise<void> {
@@ -173,6 +178,39 @@ async function openJSNotebookFirstProfileWorkspace(opt:{
     let workspace=new WorkspaceContext(rpc1);
     await workspace.ensureInited();
     workspace.fileBrowser=NotebookOnlyFileBrowser;
+    if(opt.notebookDirectory!=undefined){
+        let nbdir='';
+        if(typeof opt.notebookDirectory==='function'){
+            nbdir=await opt.notebookDirectory(workspace);
+        }else{
+            nbdir=workspace.wwwroot+'/'+opt.notebookDirectory;
+        }
+        let createProfile=true;
+        try{
+            let profileData=await workspace.fs!.readAll(nbdir+'/profile.json');
+            assert(profileData!=null);
+            JSON.parse(utf8conv(profileData));
+        }catch(err){
+            let openedFiles:string[]=[]
+            if(opt.sampleCode!=undefined && await workspace.fs!.filetype(nbdir+'/sample.ijsnb')=='none'){
+                let nbfdata=new NotebookFileData();
+                nbfdata.rpc=rpc1;
+                nbfdata.startupScript=opt.defaultStartupScript??'';
+                let ccldata=new CodeCellListData();
+                ccldata.cellList.push(...opt.sampleCode.map(t1=>({
+                    cellInput:t1,
+                    cellOutput:[null,null] as any,key:GenerateRandomString()
+                })));
+                nbfdata.cells=ccldata.saveTo();
+                await workspace.fs!.writeAll(nbdir+'/sample.ijsnb',nbfdata.dump());
+                openedFiles.push(nbdir+'/sample.ijsnb');
+            }
+            await workspace.fs!.writeAll(nbdir+'/profile.json',utf8conv(JSON.stringify({
+                currPath:nbdir,openedFiles
+            })))
+        }
+        await workspace.useRemoteFileAsStartupProfileStore(nbdir+'/profile.json');
+    }
     return workspace;
 }
 
