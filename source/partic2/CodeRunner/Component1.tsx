@@ -4,6 +4,7 @@ import { assert, GenerateRandomString, requirejs, ToDataUrl } from 'partic2/jsut
 import { text2html } from 'partic2/pComponentUi/utils';
 import { DynamicPageCSSManager } from 'partic2/jsutils1/webutils';
 import {u8hexconv} from './jsutils2'
+import { LocalRunCodeContext } from './CodeContext';
 
 
 let __name__=requirejs.getLocalRequireModule(require)
@@ -62,8 +63,9 @@ export class ObjectViewer extends React.Component<
                     }else{
                         this.setState({viewer:await viewerFactory(robj)});
                     }
-                    
                 }
+            }else{
+                this.setState({viewer:null});
             }
         }catch(err:any){
             console.warn(__name__,':',err.toString());
@@ -212,8 +214,12 @@ export class ObjectViewer extends React.Component<
 }
 
 
-export class HtmlViewer extends React.Component<{name:string,object:{html?:string}}>{
+export class HtmlViewer extends React.Component<{name:string,object:{html?:string,js?:string}}>{
     render(props?: React.RenderableProps<ObjectViewerProps, any> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChildren {
+        if(this.props.object.js!=undefined){
+            new Function('component',this.props.object.js)(this);
+            this.props.object.js=undefined;
+        }
         if(this.props.object.html!=undefined){
             return <div>
                 <div className={css1.propName}>{this.props.name}:</div>
@@ -224,14 +230,10 @@ export class HtmlViewer extends React.Component<{name:string,object:{html?:strin
         }
     }
 }
-export function createViewableHtml(source:{html?:string}){
-    let opt:{html?:string}={};
-    if(source.html!=undefined){
-        opt.html=source.html
-    }
+export function createViewableHtml(source:{html?:string,js?:string}){
     return {
         [CustomViewerFactoryProp]:__name__+'.HtmlViewer',
-        ...opt
+        ...source
     }
 }
 

@@ -43,6 +43,50 @@ defaultFuncMap[__name__+'.getConnectionFromUrl']=new RpcExtendServerCallable(asy
     return await getConnectionFromUrl(url)
 }).typedecl('s->o');
 
+export class IoPipeServer{
+    static serving:Record<string,IoPipeServer>={}
+    pendingAccept=new ArrayWrap2<Io>();
+    closed=false;
+    constructor(public name:string){
+        this.pendingAccept.queueSizeLimit=5;
+        if(IoPipeServer.serving[name]!=undefined){
+            IoPipeServer.serving[name].close();
+        }
+        IoPipeServer.serving[name]=this;
+    }
+    close(){
+        this.pendingAccept.cancelWaiting();
+        this.closed=true;
+        this.pendingAccept.arr().length=0;
+        delete IoPipeServer.serving[this.name];
+    }
+    async accept(){
+        if(this.closed)throw new Error('closed.');
+        return await this.pendingAccept.queueBlockShift();
+    }
+    async connect(){
+        if(this.closed)throw new Error('closed.');
+        let [a,b]=createIoPipe();
+        await this.pendingAccept.queueBlockPush(b);
+        return a;
+    }
+    static async connect(name:string){
+        if(this.serving[name]!=undefined){
+            return this.serving[name].connect();
+        }else{
+            return null;
+        }
+    }
+}
+
+defaultFuncMap[__name__+'.newIoPipeServer']=new RpcExtendServerCallable(async (name:string)=>new IoPipeServer(name)).typedecl('s->o');
+defaultFuncMap[__name__+'.IoPipeServerAccept']=new RpcExtendServerCallable(async (server:IoPipeServer)=>{
+    return await server.accept();
+}).typedecl('o->o');
+defaultFuncMap[__name__+'.IoPipeServerConnect']=new RpcExtendServerCallable(async (name:string)=>{
+    return await IoPipeServer.connect(name);
+}).typedecl('s->o');
+
 
 export type OnlyAsyncFunctionProps<Mod>={
     [P in (keyof Mod & string)]:Mod[P] extends (...args:any[])=>Promise<any>?Mod[P]:never
@@ -62,6 +106,9 @@ export interface RemoteRegistryFunction{
     jsExec(code:string,obj:RpcExtendClientObject|null):Promise<RpcExtendClientObject|null>;
     bufferData(obj:RpcExtendClientObject):Promise<Uint8Array>;
     anyToString(obj:RpcExtendClientObject):Promise<string>;
+    newIoPipeServer(name:string):Promise<RpcExtendClientObject>;
+    IoPipeServerAccept(server:RpcExtendClientObject):Promise<Io>;
+    IoPipeServerConnect(name:string):Promise<Io>;
 }
 
 export let internalProps = Symbol(__name__+'.internalProps');
@@ -184,10 +231,15 @@ export class IoOverPxprpc implements Io{
     }
 }
 
-export function createIoPipe():[Io,Io]{
+export function createIoPipe(opts?:{bufferQueueSize?:number}):[Io,Io]{
+    opts=opts??{
+        bufferQueueSize:5
+    }
     let a2b=new ArrayWrap2<Uint8Array>();
     let b2a=new ArrayWrap2<Uint8Array>();
     let closed=false
+    a2b.queueSizeLimit=opts.bufferQueueSize;
+    b2a.queueSizeLimit=opts.bufferQueueSize;
     function oneSide(r:ArrayWrap2<Uint8Array>,s:ArrayWrap2<Uint8Array>):Io{
         let tio={
             isClosed:()=>{
@@ -200,17 +252,17 @@ export function createIoPipe():[Io,Io]{
             send: async (data: Uint8Array[]): Promise<void> =>{
                 if(closed)throw new Error('closed.');
                 if(data.length==1){
-                    s.queueSignalPush(data[0])
+                    s.queueBlockPush(data[0])
                 }else{
-                    s.queueSignalPush(new Uint8Array(ArrayBufferConcat(data)));
+                    s.queueBlockPush(new Uint8Array(ArrayBufferConcat(data)));
                 }
             },
             close: ()=>{
                 closed=true;
                 r.cancelWaiting();
                 s.cancelWaiting();
-                a2b.arr().splice(0,a2b.arr().length);
-                b2a.arr().splice(0,b2a.arr().length);
+                a2b.arr().length=0;
+                b2a.arr().length=0;
             }
         }
         return tio;
@@ -276,6 +328,15 @@ class RemoteRegistryFunctionImpl implements RemoteRegistryFunction{
     async anyToString(obj:RpcExtendClientObject):Promise<string>{
         return this.funcs[6]!.call(obj);
     }
+    async newIoPipeServer(name: string): Promise<RpcExtendClientObject> {
+        return this.funcs[10]!.call(name);
+    }
+    async IoPipeServerAccept(server: RpcExtendClientObject): Promise<Io> {
+        return new IoOverPxprpc(await this.funcs[11]!.call(server));
+    }
+    async IoPipeServerConnect(name: string): Promise<Io> {
+        return new IoOverPxprpc(await this.funcs[12]!.call(name));
+    }
     async ensureInit(){
         if(this.funcs.length==0){
             this.funcs=[
@@ -289,6 +350,9 @@ class RemoteRegistryFunctionImpl implements RemoteRegistryFunction{
                 await getRpcFunctionOn(this.client1!,__name__+'.callJsonFunction','sss->s'),
                 await getRpcFunctionOn(this.client1!,__name__+'.unloadModule','s->'),
                 await getRpcFunctionOn(this.client1!,__name__+'.runJsonResultCode','s->s'),
+                await getRpcFunctionOn(this.client1!,__name__+'.newIoPipeServer','s->o'), //[10]
+                await getRpcFunctionOn(this.client1!,__name__+'.IoPipeServerAccept','o->o'),
+                await getRpcFunctionOn(this.client1!,__name__+'.IoPipeServerConnect','s->o'),
             ]
         }
     }
