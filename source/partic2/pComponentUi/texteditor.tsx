@@ -72,7 +72,7 @@ export class TextEditor extends ReactEventTarget<TextEditorProps,{}>{
         if(ev.defaultPrevented){
             return;
         }
-        if(ev.key.toLowerCase()=='z' && ev.ctrlKey){
+        if(ev.code=='KeyZ' && ev.ctrlKey){
             ev.preventDefault();
             if(ev.shiftKey){
                 this.textRedo();
@@ -86,9 +86,10 @@ export class TextEditor extends ReactEventTarget<TextEditorProps,{}>{
         style={{wordBreak:'break-all',overflowWrap:'word-break',position:'relative',...this.props.divStyle}}
         className={(this.props.divClass??[]).join(' ')}
         onPaste={(ev)=>{this.onPasteHandler(ev.clipboardData!.getData('text/plain'));ev.preventDefault()}}
+        {...this.props.divAttr}
         onBlur={(ev)=>this.onBlurHandler(ev)} onFocus={(ev)=>this.onFocusHandler(ev)}
         onKeyDown={(ev)=>this.onKeyDownHandler(ev)}
-        {...this.props.divAttr}> </div>
+        > </div>
     }
     insertText(text:string){
         let {anchor,focus}=this.getTextCaretSelectedRange();

@@ -3,7 +3,6 @@ import {RpcExtendServerCallable, defaultFuncMap, TableSerializer} from 'pxprpc/e
 
 import * as fs from 'fs/promises'
 import * as os from 'os'
-import * as fse from 'fs-extra'
 import * as net from 'net'
 import {sep} from 'path'
 import {ChildProcessWithoutNullStreams, spawn} from 'child_process'
@@ -66,7 +65,7 @@ defaultFuncMap['JseHelper.JseIo.open']=new RpcExtendServerCallable(async(path:st
 }).typedecl('ssi->o');
 defaultFuncMap['JseHelper.JseIo.rmdir']=new RpcExtendServerCallable(async(path:string)=>fs.rmdir(path)).typedecl('s->');
 defaultFuncMap['JseHelper.JseIo.mkdir']=new RpcExtendServerCallable(async(path:string)=>fs.mkdir(path,{recursive:true})).typedecl('s->');
-defaultFuncMap['JseHelper.JseIo.copyFile']=new RpcExtendServerCallable(async(path:string,newPath:string)=>fse.copy(path,newPath,{overwrite:true})).typedecl('ss->');
+defaultFuncMap['JseHelper.JseIo.copyFile']=new RpcExtendServerCallable(async(path:string,newPath:string)=>fs.cp(path,newPath,{recursive:true,force:true})).typedecl('ss->');
 defaultFuncMap['JseHelper.JseIo.readdir']=new RpcExtendServerCallable(async(path:string)=>{
     let ser=new TableSerializer().setColumnsInfo(null,['name','type','size','mtime']);
     for(let f of await fs.readdir(path)){
@@ -80,7 +79,7 @@ defaultFuncMap['JseHelper.JseIo.readdir']=new RpcExtendServerCallable(async(path
     }
     return ser.build();
 }).typedecl('s->b');
-defaultFuncMap['JseHelper.JseIo.rm']=new RpcExtendServerCallable(async(path:string)=>fse.remove(path)).typedecl('s->');
+defaultFuncMap['JseHelper.JseIo.rm']=new RpcExtendServerCallable(async(path:string)=>fs.rm(path,{recursive:true,force:true})).typedecl('s->');
 defaultFuncMap['JseHelper.JseIo.execCommand']=new RpcExtendServerCallable(async(command:string)=>{
     let proc=spawn(command,{
         stdio:'pipe',shell:true
