@@ -1,63 +1,48 @@
 import { RpcExtendClient1 } from "pxprpc/extend";
 
-import { Client } from "pxprpc/base";
+import { Client, Io } from "pxprpc/base";
 import { WebSocketIo } from "pxprpc/backend";
 import { assert, throwIfAbortError } from "partic2/jsutils1/base";
 import { getConnectionFromUrl, getPersistentRegistered, ServerHostRpcName, ServerHostWorker1RpcName } from "partic2/pxprpcClient/registry";
+import { buildTjs } from "partic2/tjshelper/tjsbuilder";
+import { PxprpcIoFromTjsStream, TjsReaderDataSource } from "partic2/tjshelper/tjsutil";
 
-let rpc4XplatjJavaServer:null|RpcExtendClient1=null;
 
 
-async function getAndInitRpcForPort(port:number){
-    let rpcClient:null|RpcExtendClient1=null;
-    try{
-        if(globalThis.process?.versions?.node!=undefined){
-            let {PxprpcIoFromSocket}=await import('partic2/nodehelper/nodeio');
-            let socket1=new PxprpcIoFromSocket();
-            await socket1.connect({host:'127.0.0.1',port});
-            rpcClient=new RpcExtendClient1(new Client(socket1));
-            await rpcClient.init();
+
+let pxseedLoaderRuntimeBridge0Client:RpcExtendClient1|null=null;
+
+export async function getRpc4RuntimeBridge0(){
+    if(pxseedLoaderRuntimeBridge0Client==null || !pxseedLoaderRuntimeBridge0Client.baseClient.isRunning()){
+        if((globalThis as any).__pxprpc4tjs__!=undefined){
+            let {PxprpcRtbIo}=await import('partic2/tjshelper/tjsenv');
+            let io1=await PxprpcRtbIo.connect('/pxprpc/runtime_bridge/0');
+            assert(io1!=null,'pxprpc runtimebridge connect failed.');
+            pxseedLoaderRuntimeBridge0Client=await new RpcExtendClient1(new Client(io1)).init();
+        }else{
+            let tjs=await buildTjs();
+            let conn=await tjs.connect('tcp','127.0.0.1',2048) as tjs.Connection;
+            let io1=new PxprpcIoFromTjsStream(conn,conn,conn);
+            pxseedLoaderRuntimeBridge0Client=await new RpcExtendClient1(new Client(io1)).init();
         }
-    }catch(err:any){
-        throwIfAbortError(err);
-    }finally{
-        rpc4XplatjCServer=null;
     }
-    try{
-        if(await getPersistentRegistered(ServerHostRpcName)!=null){
-            let conn=await getConnectionFromUrl(
-                `iooverpxprpc:${ServerHostRpcName}/${encodeURIComponent(
-                    `pxseedjs:partic2/nodehelper/nodeio.createIoPxseedJsUrl?type=tcp&port=${port}`
-                    )}`);
-            assert(conn!=null);
-            rpcClient=new RpcExtendClient1(new Client(conn));
-            await rpcClient.init();
-        }
-    }catch(err:any){
-        throwIfAbortError(err);
-    }finally{
-        rpc4XplatjCServer=null;
-    }
-    if(rpcClient==null){
-        let wsurl=`${window.location.protocol.replace(/^http/,'ws')}://${window.location.host}'/pxprpc/${port}`
-        rpcClient=new RpcExtendClient1(new Client(await new WebSocketIo().connect(wsurl)));
-        await rpcClient.init();
-    }
-    return rpcClient;
+    return pxseedLoaderRuntimeBridge0Client!;
 }
 
-export async function getRpc4XplatjJavaServer(){
-    if(rpc4XplatjJavaServer==null){
-        rpc4XplatjJavaServer=await getAndInitRpcForPort(2050);
+let pxseedLoaderRuntimeBridgeJava0Client:RpcExtendClient1|null=null;
+export async function getRpc4RuntimeBridgeJava0(){
+    if(pxseedLoaderRuntimeBridgeJava0Client==null || !pxseedLoaderRuntimeBridgeJava0Client.baseClient.isRunning()){
+        if((globalThis as any).__pxprpc4tjs__!=undefined){
+            let {PxprpcRtbIo}=await import('partic2/tjshelper/tjsenv');
+            let io1=await PxprpcRtbIo.connect('/pxprpc/runtime_bridge/java/0');
+            assert(io1!=null,'pxprpc runtimebridge connect failed.');
+            pxseedLoaderRuntimeBridgeJava0Client=await new RpcExtendClient1(new Client(io1)).init();
+        }else{
+            let tjs=await buildTjs();
+            let conn=await tjs.connect('tcp','127.0.0.1',2050) as tjs.Connection;
+            let io1=new PxprpcIoFromTjsStream(conn,conn,conn);
+            pxseedLoaderRuntimeBridgeJava0Client=await new RpcExtendClient1(new Client(io1)).init();
+        }
     }
-    return rpc4XplatjJavaServer;
-}
-
-let rpc4XplatjCServer:null|RpcExtendClient1=null;
-
-export async function getRpc4XplatjCServer(){
-    if(rpc4XplatjCServer==null){
-        rpc4XplatjCServer=await getAndInitRpcForPort(2048);
-    }
-    return rpc4XplatjCServer
+    return pxseedLoaderRuntimeBridgeJava0Client!;
 }

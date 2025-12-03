@@ -151,7 +151,7 @@ export let pathCompat={
 }
 
 export async function buildNodeCompatApiTjs(){
-  const {buildTjs,XplatjDefaultRpcName}=await import('partic2/tjshelper/tjsbuilder');
+  const {buildTjs}=await import('partic2/tjshelper/tjsbuilder');
   const tjs=await buildTjs();
   const {TjsSfs}=await import('partic2/CodeRunner/JsEnviron');
   const fs=new TjsSfs();
@@ -170,13 +170,6 @@ export async function buildNodeCompatApiTjs(){
         if(wwwroot.startsWith('/')){
             wwwroot='/'+wwwroot;
         }
-    }else{
-        if(await getPersistentRegistered(XplatjDefaultRpcName)!=undefined){
-          let {pathname}=new URL(getWWWRoot());
-          if(pathname.startsWith('/localFile')){
-              wwwroot=pathname.replace(/^\/localFile/,'');
-          }
-        }           
     }
   }
   

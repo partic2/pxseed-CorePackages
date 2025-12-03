@@ -1,7 +1,7 @@
 import { RpcExtendClient1, RpcExtendClientCallable, RpcExtendClientObject } from 'pxprpc/extend'
 import { getRpcFunctionOn } from 'partic2/pxprpcClient/registry';
 import { Serializer } from 'pxprpc/base';
-import { getRpc4XplatjCServer } from './rpcregistry';
+import { getRpc4RuntimeBridge0 } from './rpcregistry';
 export class Invoker {
     RemoteName = 'pxprpc_libuv';
     rpc__client?: RpcExtendClient1;
@@ -182,6 +182,6 @@ export let defaultInvoker:Invoker|null=null
 export async function ensureDefaultInvoker(){
     if(defaultInvoker==null){
         defaultInvoker=new Invoker();
-        defaultInvoker.useClient(await getRpc4XplatjCServer());
+        defaultInvoker.useClient(await getRpc4RuntimeBridge0());
     }
 }
