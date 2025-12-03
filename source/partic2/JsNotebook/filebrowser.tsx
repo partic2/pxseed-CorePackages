@@ -263,7 +263,7 @@ class FileBrowser extends React.Component<{context:WorkspaceContext},FileBrowser
             if(isDir){
                 await this.props.context.fs!.mkdir(path.join((this.state.currPath??''),name));
             }else{
-                
+                await this.props.context.fs!.writeAll(path.join((this.state.currPath??''),name),new Uint8Array(0));
             }
             await this.reloadFileInfo();
         }

@@ -3,6 +3,15 @@
     <head>
         <meta charset="UTF-8"/>
         <script src="./pxseedInit.js" type="text/javascript"></script>
+        <script type="text/javascript">
+        (function(){
+            var jsentryQuery=globalThis.location.search.match(/__jsentry=([^&]*)/);
+            if(jsentryQuery!=null){
+                var jsentry=decodeURIComponent(jsentryQuery[1]);
+                __pxseedInit.main(jsentry);
+            }
+        })();
+    </script>
     </head>
     <body>
     </body>
