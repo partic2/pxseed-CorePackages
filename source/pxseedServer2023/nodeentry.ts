@@ -5,15 +5,12 @@ import { config, defaultRouter, loadConfig, rootConfig, saveConfig, serverComman
 
 export let __name__='pxseedServer2023/nodeentry';
 
-import { ArrayBufferConcat, ArrayWrap2, future, requirejs, sleep, Task } from 'partic2/jsutils1/base';
+import { ArrayBufferConcat, ArrayWrap2, future, Ref2, requirejs, sleep, Task } from 'partic2/jsutils1/base';
 import {Client, Io} from 'pxprpc/base'
 import {Duplex, EventEmitter, Readable} from 'stream'
-import { IncomingHttpHeaders, IncomingMessage, Server, ServerResponse } from 'http';
+import { IncomingHttpHeaders, IncomingMessage, OutgoingMessage, Server, ServerResponse } from 'http';
 import {dirname,join as pathJoin} from 'path'
 import { Server as PxprpcBaseServer } from 'pxprpc/base'
-import Koa from 'koa'
-import KoaRouter from 'koa-router'
-import koaFiles from 'koa-files'
 import { GetUrlQueryVariable2, getWWWRoot, lifecycle } from 'partic2/jsutils1/webutils';
 import { ChildProcess, spawn } from 'child_process';
 import {WebSocketServer } from 'ws'
@@ -32,37 +29,37 @@ export let WsServer={
     ws:new WebSocketServer({noServer:true}),
     handle:function(req: IncomingMessage, socket: Duplex, head: Buffer){
         let url=new URL(req.url!,`http://${req.headers.host}`);
-        if(url.pathname in this.router){
-            this.ws.handleUpgrade(req,socket,head,(client,req)=>{
-                this.router[url.pathname](new NodeWsIo(client),req.url,req.headers);
-            })
-        }else{
-            let request=new Request(url,{
-                method:req.method,
-                headers:Object.entries(req.headers).map(t1=>{
-                    if(typeof t1[1]!=='string'){
-                        return [t1[0],(t1[1]??'').toString()] as [string,string]
-                    }else{
-                        return t1 as [string,string];
-                    }
-                })
-            });
-            let accepted=false;
-            defaultHttpHandler.onwebsocket({
-                request,
-                accept:async ()=>{
-                    accepted=true;
-                    return new Promise((resolve)=>this.ws.handleUpgrade(req,socket,head,(client)=>{
-                        resolve(new NodeWsConnectionAdapter2(client))
-                    }));
+        let request=new Request(url,{
+            method:req.method,
+            headers:Object.entries(req.headers).map(t1=>{
+                if(typeof t1[1]!=='string'){
+                    return [t1[0],(t1[1]??'').toString()] as [string,string]
+                }else{
+                    return t1 as [string,string];
                 }
-            });
-            if(!accepted){
+            })
+        });
+        let accepted=false;
+        defaultHttpHandler.onwebsocket({
+            request,
+            accept:async ()=>{
+                accepted=true;
+                return new Promise((resolve)=>this.ws.handleUpgrade(req,socket,head,(client)=>{
+                    resolve(new NodeWsConnectionAdapter2(client))
+                }));
+            }
+        });
+        if(!accepted){
+            if(url.pathname in this.router){
+                this.ws.handleUpgrade(req,socket,head,(client,req)=>{
+                    this.router[url.pathname](new NodeWsIo(client),req.url,req.headers);
+                })
+            }else{
                 socket.end();
             }
-        }
-        
+        }        
     },
+    //compatibility ONLY
     router:{} as {[path:string]:(io:NodeWsIo,url:string|undefined,headers?:IncomingHttpHeaders)=>void}
 }
 
@@ -70,16 +67,34 @@ export let WsServer={
 WsServer.ws.on('error',(err)=>console.log(err));
 
 export let httpServ=new Server();
-export let koaServ=new Koa();
-koaServ.proxy=true;
-export let koaRouter=new KoaRouter();
+//To keep compatibility with old Koa server, koa server can override it and deligate request to default handler.
+export let httpOnRequest=new Ref2(async (nodereq:IncomingMessage,noderes: ServerResponse)=>{
+    let url=new URL(nodereq.url!,`http://${nodereq.headers.host}`);
+    let req=new Request(url,{
+        method:nodereq.method,
+        headers:Object.entries(nodereq.headers).map(t1=>{
+            if(typeof t1[1]!=='string'){
+                return [t1[0],(t1[1]??'').toString()] as [string,string]
+            }else{
+                return t1 as [string,string];
+            }
+        }),
+        body:['GET','HEAD'].includes(nodereq.method??'')?undefined:new ReadableStream(new NodeReadableDataSource(nodereq)),
+        duplex:'half'
+    } as RequestInit);
+    let resp=await defaultHttpHandler.onfetch(req);
+    resp.headers.forEach((v,k)=>{
+        noderes.setHeader(k,v);
+    });
+    noderes.statusCode=resp.status;
+    if(resp.body!=null){
+        Readable.fromWeb(resp.body as any).pipe(noderes,{end:true});
+    }else{
+        noderes.end();
+    }
+});
 
-
-import { SimpleHttpServerRouter, WebSocketServerConnection } from 'partic2/tjshelper/httpprot';
 import { defaultHttpHandler } from './pxseedhttpserver';
-
-
-let pxseedFilesServer=koaFiles(dirname(dirname(__dirname)));
 
 
 let noderunJs=getWWWRoot()+'/noderun.js'
@@ -134,8 +149,6 @@ async function runCommand(cmd:string,cwd?:string){
     return stdoutbuffer.join('');
 }
 
-
-//Should move to another file?
 export async function startServer(){
     //(await import('inspector')).open(9229,'127.0.0.1',true);
     console.info('argv',process.argv);
@@ -143,7 +156,9 @@ export async function startServer(){
     httpServ.on('upgrade',(req,socket,head)=>{
         WsServer.handle(req,socket,head)
     });
-    httpServ.on('request',koaServ.callback());
+    httpServ.on('request',(req,res)=>{
+        httpOnRequest.get()(req,res);
+    });
     async function doListen(){
         let p=new future<any>();
         const cb=(err:any)=>{
@@ -172,56 +187,7 @@ export async function startServer(){
     }
     if(!listenSucc)throw new Error('No available listen port.');
     
-    koaServ.use(async (ctx,next)=>{
-        await next()
-        if(ctx.status==404){
-            let req=new Request('http://localhost'+ctx.req.url,{
-                method:ctx.request.method,
-                headers:Object.entries(ctx.headers).map(t1=>{
-                    if(typeof t1[1]!=='string'){
-                        return [t1[0],(t1[1]??'').toString()] as [string,string]
-                    }else{
-                        return t1 as [string,string];
-                    }
-                }),
-                body:['GET','HEAD'].includes(ctx.request.method)?undefined:new ReadableStream(new NodeReadableDataSource(ctx.req)),
-                duplex:'half'
-            } as RequestInit);
-            let resp=await defaultHttpHandler.onfetch(req);
-            resp.headers.forEach((v,k)=>{
-                ctx.headers[k]=v;
-            });
-            ctx.status=resp.status;
-            if(resp.body!=null){
-                ctx.body=Readable.fromWeb(resp.body as any);
-            }
-        }
-    })
-    koaServ.use(koaRouter.middleware())
-    
     console.log(JSON.stringify(config,undefined,2));
-    
-    let blockFilesMatchReg=(config.blockFilesMatch??[]).map(exp=>new RegExp(exp));
-    for(let dir1 of config.serveDirectory??[]){
-        koaRouter.get(config.pxseedBase+`/${dir1}/:filepath(.+)`,async (ctx,next)=>{
-            let filepath=ctx.params.filepath as string;
-            filepath=`/${dir1}/${filepath}`
-            for(let re1 of blockFilesMatchReg){
-                if(re1.test(filepath)){
-                    ctx.response.status=403;
-                    ctx.response.body=`File access is blocked by blockFilesMatch rule: ${re1.source}`;
-                    return;
-                }
-            }
-            let savedPath=ctx.path;
-            ctx.path=filepath
-            await next();
-            ctx.path=savedPath
-            if(filepath==='/www/pxseedInit.js'){
-                ctx.set('Cache-Control','no-cache');
-            }
-        },pxseedFilesServer);
-    }
     
     ensureInit.setResult(0);
     
@@ -286,8 +252,6 @@ export let __inited__=(async ()=>{
         return doExit();
     }
     await setupHttpServerHandler()
-    defaultRouter.setHandler(config.pxseedBase+'/www',null);
-    defaultRouter.setHandler(config.pxseedBase+'/source',null);
 })();
 
 

@@ -1,6 +1,6 @@
 
 import { ExtendStreamReader } from "partic2/CodeRunner/jsutils2";
-import { future, ArrayWrap2, Ref2, CanceledError, ArrayBufferConcat, throwIfAbortError, assert, Task, ArrayBufferToBase64 } from "partic2/jsutils1/base";
+import { future, ArrayWrap2, Ref2, CanceledError, ArrayBufferConcat, throwIfAbortError, assert, Task, ArrayBufferToBase64, GetCurrentTime } from "partic2/jsutils1/base";
 import {getFileSystemReadableStream, SimpleFileSystem} from 'partic2/CodeRunner/JsEnviron'
 
 const decode=TextDecoder.prototype.decode.bind(new TextDecoder());
@@ -333,9 +333,42 @@ export class WebSocketServerStreamHandler implements WebSocketServerConnection {
 	}
 }
 
+let httpRequestExp=/^([A-Z-]+) ([^ ]+) HTTP\/([^ \t]+)\r\n$/;
+let httpResponseExp=/^HTTP\/([^ \t]+)\s+(\.+)\s+(.*)$/
+let httpUrlExp=/^(https?):\/\/(?:\[([^\]]+)\]|([^/?#:]+))(?::(\d+))?(.*)$/
+const lineSpliter='\n'.charCodeAt(0);
+
+async function parseHttpKevValueHeader(r:ExtendStreamReader){
+	let headers=new Headers();
+	for(let t1=0;t1<64*1024;t1++){
+		let line=decode(await r!.readUntil(lineSpliter));
+		if(line=='\r\n')break;
+		let sepAt=line.indexOf(':');
+		headers.set(line.substring(0,sepAt),line.substring(sepAt+1,line.length-2).trim())
+	}
+	return headers;
+}
+async function parseHttpRequestHeader(r:ExtendStreamReader){
+	let reqHdr=decode(await r.readUntil(lineSpliter));
+	let matchResult=reqHdr.match(httpRequestExp);
+	assert(matchResult!=null);
+	let method=matchResult[1];
+	let pathname=matchResult[2];
+	let httpVersion=matchResult[3];
+	return {method,pathname,httpVersion,headers:await parseHttpKevValueHeader(r)};
+}
+async function parseHttpResponseHeader(r:ExtendStreamReader){
+	let respHdr=decode(await r.readUntil(lineSpliter));
+	let matchResult=respHdr.match(httpResponseExp);
+	assert(matchResult!=null);
+	let httpVersion=matchResult[1];
+	let status=matchResult[2];
+	let statusText=matchResult[3];
+	return {httpVersion,status,statusText,headers:await parseHttpKevValueHeader(r)};
+	
+}
 
 export class HttpServer{
-	static requestExp = /^([A-Z-]+) ([^ ]+) HTTP\/([^ \t]+)\r\n$/;
 	onfetch:(request:Request)=>Promise<Response>=async ()=>new Response();
 	onwebsocket:(controller:{
 		request:Request
@@ -390,25 +423,8 @@ export class HttpServer{
 			}).run();
 		}
 	}
-	protected async pParseHttpHeader(r:ExtendStreamReader){
-		const lineSpliter='\n'.charCodeAt(0);
-		var reqHdr=decode(await r.readUntil(lineSpliter));
-		let matchResult=reqHdr.match(HttpServer.requestExp);
-		assert(matchResult!=null);
-		let method=matchResult[1];
-		let pathname=matchResult[2];
-		let httpVersion=matchResult[3];
-		let headers=new Headers();
-		for(let t1=0;t1<64*1024;t1++){
-			let line=decode(await r!.readUntil(lineSpliter));
-			if(line=='\r\n')break;
-			let sepAt=line.indexOf(':');
-			headers.set(line.substring(0,sepAt),line.substring(sepAt+1,line.length-2).trim())
-		}
-		return {method,pathname,httpVersion,headers}
-	}
 	protected async pParseHttpRequest(r:ExtendStreamReader){
-		let header1=await this.pParseHttpHeader(r);
+		let header1=await parseHttpRequestHeader(r);
 		let bodySource
 		if(header1.headers.get('transfer-encoding')==='chunked'){
 			bodySource={
@@ -468,7 +484,7 @@ export class HttpServer{
 			body:['GET','HEAD'].includes(header1.method.toUpperCase())?undefined
 				:new ReadableStream(bodySource),
 			headers:header1.headers,
-			duplex: 'half' //BUG:TS compain it, but it's required in this case.
+			duplex: 'half' //BUG:TS complain with it, but it's required in this case.
 		} as RequestInit);
 		return req;
 	}
@@ -509,6 +525,114 @@ export class HttpServer{
 			}
 		}
 	}
+}
+
+interface BasicRequest{
+	readonly method:string
+	readonly url:string
+	readonly body:ReadableStream<Uint8Array> | null
+	readonly headers: Headers
+	readonly arrayBuffer: () => Promise<ArrayBuffer>
+}
+
+export class HttpClient{
+	protected async pWriteRequest(w:WritableStreamDefaultWriter<Uint8Array>,req:BasicRequest){
+		let urlMatch=req.url.match(httpUrlExp);
+		assert(urlMatch!=null);
+		let protocol=urlMatch[1];
+		let hostname=urlMatch[2]??urlMatch[3];
+		let port=urlMatch[4];
+		let pathquery=urlMatch[5];
+		let headersString=new Array<string>();
+		let chunked=req.headers.get('transfer-encoding')=='chunked'
+		req.headers.forEach((val,key)=>{
+			headersString.push(`${key}: ${val}`);
+		});
+		let nonChunkBody:ArrayBuffer|null=null;
+		if(!chunked && !req.headers.has('content-length')){
+			nonChunkBody=await req.arrayBuffer();
+			headersString.push('Content-Length:' +String(nonChunkBody.byteLength));
+		}
+		await w.write(encode(
+			[
+				`${req.method} ${pathquery} HTTP/1.1\r\n`,
+				...headersString,
+				'\r\n'
+			].join('\r\n'))
+		);
+		if(req.body!=undefined){
+			if(chunked){
+				await req.body.pipeTo(new WritableStream({
+					write:async (chunk: Uint8Array, controller: WritableStreamDefaultController)=>{
+						await w.write(new Uint8Array(ArrayBufferConcat([encode(chunk.length.toString(16)+'\r\n'),chunk,encode('\r\n')])));
+					}
+				}));
+				await w.write(encode('0\r\n\r\n'));
+			}else if(nonChunkBody!=null){
+				await w.write(new Uint8Array(nonChunkBody!));
+			}else{
+				await req.body.pipeTo(new WritableStream({
+					write:async (chunk: Uint8Array, controller: WritableStreamDefaultController)=>{
+						await w.write(chunk);
+					}
+				}));
+			}
+		}
+	}
+	protected async pParseHttpResponse(r:ExtendStreamReader){
+		let header1=await parseHttpResponseHeader(r);
+		let bodySource:any
+		if(header1.headers.get('transfer-encoding')==='chunked'){
+			bodySource={
+				pull:async (controller:ReadableStreamDefaultController<Uint8Array>)=>{
+					let length=Number(decode(await r.readUntil('\n'.charCodeAt(0))).trim());
+					if(length==0){
+						let eoc=new Uint8Array(2);
+						await r.readInto(eoc);
+						assert(decode(eoc)=='\r\n');
+						controller.close();
+					}else{
+						let buf=new Uint8Array(length);
+						let writePos=new Ref2<number>(0);
+						while(writePos.get()<length){
+							await r.readInto(buf,writePos);
+						}
+						let eoc=new Uint8Array(2);
+						await r.readInto(eoc);
+						assert(decode(eoc)=='\r\n');
+						controller.enqueue(buf);
+					}
+				}
+			}
+		}else if(header1.headers.has('content-length')){
+			bodySource={
+				pull:async (controller:ReadableStreamDefaultController<Uint8Array>)=>{
+					let contentLength=Number(header1.headers.get('content-length')!.trim());
+					let buf=new Uint8Array(contentLength);
+					let writePos=new Ref2<number>(0);
+					while(writePos.get()<length){
+						await r.readInto(buf,writePos);
+					}
+					controller.enqueue(buf);
+					controller.close();
+				}
+			}
+		}else{
+			bodySource={
+				pull:async (controller:ReadableStreamDefaultController<Uint8Array>)=>{
+					controller.close();
+				}
+			}
+		}
+		bodySource satisfies UnderlyingDefaultSource<Uint8Array>;
+		let req=new Response(bodySource,{
+			status:Number(header1.status),
+			statusText:header1.statusText,
+			headers:header1.headers
+		});
+		return req;
+	}
+	//TODO: How to implement fetch?
 }
 
 interface HttpRouterHandler{
@@ -583,14 +707,37 @@ export class SimpleFileServer{
     constructor(public fs:SimpleFileSystem){}
 	pathStartAt=0;
 	showIndex=true;
+	cacheControl:(filePath:string)=>Promise<{maxAge:number}|'no-cache'|'no-store'>=async (filepath:string)=>({maxAge:86400})
+	interceptor:(filePath:string)=>Promise<Response|null>=async ()=>null;
     onfetch=async (req:Request):Promise<Response>=>{
 		let {pathname}=new URL(req.url)
-        let filepath=pathname.substring(this.pathStartAt);
+        let filepath=decodeURIComponent(pathname.substring(this.pathStartAt));
         try{
+			{
+				let t1=await this.interceptor(filepath);
+				if(t1!==null){
+					return t1;
+				}
+			}
 			let filetype=await this.fs.filetype(filepath);
 			if(filetype==='file'){
 				let statResult=await this.fs.stat(filepath);
 				let headers=new Headers();
+				headers.set('date',GetCurrentTime().toUTCString())
+				let t1=await this.cacheControl(filepath);
+				if(typeof t1==='string'){
+					headers.set('cache-control',t1);
+				}else{
+					headers.set('cache-control','max-age='+t1.maxAge);
+				}
+				if(t1!=='no-store'){
+					let etag=String(statResult.mtime.getTime());
+					headers.set('etag',etag);
+					let ifNoneMatch=req.headers.get('If-None-Match');
+					if(ifNoneMatch===etag){
+						return new Response(null,{status:304,headers})
+					}
+				}
 				let fileNameAt=filepath.lastIndexOf('/');
 				let fileName=filepath.substring(fileNameAt+1);
 				let extStartAt=fileName.lastIndexOf('.');
@@ -607,7 +754,7 @@ export class SimpleFileServer{
 					headers.set('transfer-encoding','chunked')
 				}
 				return new Response(getFileSystemReadableStream(this.fs,filepath),
-						{headers});
+						{status:200,headers});
 			}else if(filetype==='dir' && this.showIndex){
 				let children=await this.fs.listdir(filepath);
 				let lastName=pathname.substring(Math.max(0,pathname.lastIndexOf('/')));

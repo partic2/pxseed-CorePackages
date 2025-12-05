@@ -18,7 +18,6 @@ export interface PxseedServer2023StartupConfig{
     pxseedBase?:string,
     listenOn?:{host:string,port:number},
     initModule?:string[],
-    pxprpcCheckOrigin?:string[]|false,
     //If key!==null. Client should provide url parameter 'key' to get authorization from websocket.
     //DON'T expose the config file to public, if pxprpc is accessible from public. 
     pxprpcKey?:string|null
@@ -29,24 +28,19 @@ export interface PxseedServer2023StartupConfig{
     subprocessIndex?:number
     //RegExp to block private/secret file access.
     blockFilesMatch?:string[]
-    //Specify the directory serve as file server. default is ['www','source'].
-    //'source' is added to enable sourceMap.
-    serveDirectory?:string[]
 };
 
 export let config:PxseedServer2023StartupConfig={
     pxseedBase:'/pxseed',
     listenOn:{host:'127.0.0.1',port:2081},
     initModule:[],
-    pxprpcCheckOrigin:['localhost','127.0.0.1','[::1]'],
     pxprpcKey:null,
     deamonMode:{
         enabled:false,
         subprocessConfig:[]
     },
     //pxprpcKey should be secret.
-    blockFilesMatch:['^/www/pxseedServer2023/config\\.json$'],
-    serveDirectory:['www','source']
+    blockFilesMatch:['^/+www/+pxseedServer2023/+config\\.json$']
 };
 
 export let rootConfig={...config};
@@ -82,6 +76,7 @@ export async function loadConfig(){
         }
     }catch(e){
         console.warn(`config file not found, write to ${getWWWRoot()+'/pxseedServer2023/config.json'}`)
+        config.pxprpcKey=GenerateRandomString(8);
         await saveConfig(config)
     }
 }
@@ -112,21 +107,6 @@ async function pxprpcHandler(ctl:{
         accept:()=>Promise<WebSocketServerConnection> 
     }){
     let pass=false;
-    if(config.pxprpcCheckOrigin===false || ctl.request.headers.get('origin')==undefined){
-        pass=true;
-    }else if(ctl.request.headers.get('origin')!=undefined){
-        let originUrl=new URL(ctl.request.headers.get('origin')!);
-        for(let t1 of [config.listenOn!.host,...(config.pxprpcCheckOrigin as string[])]){
-            if(originUrl.hostname===t1){
-                pass=true;
-                break;
-            };
-        }
-    }
-    if(!pass){
-        return;
-    }
-    pass=false;
     if(config.pxprpcKey===null){
         pass=true;
     }else{
@@ -196,6 +176,23 @@ export async function setupHttpServerHandler(){
     let fileServer=new SimpleFileServer(new DirAsRootFS(tjsfs,wwwroot));
     fileServer.pathStartAt=(config.pxseedBase+'/www').length;
     defaultRouter.setHandler(config.pxseedBase+'/www',{fetch:fileServer.onfetch});
+    let blockFileMatchRegex=config.blockFilesMatch?.map(t1=>new RegExp(t1))??[];
+    fileServer.interceptor=async (path)=>{
+        path='/www'+path;
+        for(let t1 of blockFileMatchRegex){
+            if(t1.test(path)){
+                return new Response(null,{status:403});
+            }
+        }
+        return null;
+    }
+    fileServer.cacheControl=async (filePath)=>{
+        if(filePath==='/index.html'||filePath==='/pxseedInit.js'){
+            return 'no-cache'
+        }else{
+            return {maxAge:86400}
+        }
+    }
     {
         //For sourcemap
         fileServer=new SimpleFileServer(new DirAsRootFS(tjsfs,path.join(wwwroot,'..','source')));
