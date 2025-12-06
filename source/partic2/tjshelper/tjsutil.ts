@@ -41,7 +41,7 @@ export class PxprpcIoFromTjsStream implements Io{
 		let size=new DataView(buf1.buffer).getInt32(0,true);
 		buf1=new Uint8Array(size);
 		let readCount=0;
-		while(readCount<=size){
+		while(readCount<size){
 			let nread=await this.r!.read(new Uint8Array(buf1.buffer,readCount,size-readCount));
 			if(nread===null || nread===0){
 				throw new Error("packet truncated.");

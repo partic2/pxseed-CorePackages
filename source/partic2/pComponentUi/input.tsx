@@ -45,12 +45,12 @@ export class ReactInputValueCollection extends EventTarget{
             return this.inputRef[name];
         }
         let rref=new ReactRefEx<ReactInput>();
-        rref.addEventListener('change',(ev:RefChangeEvent<ReactInput>)=>{
-            if(ev.data.prev!=null){
-                ev.data.prev.removeEventListener('change',this._onInputValueChange);
+        rref.watch((r,prev)=>{
+            if(prev!=null){
+                prev.removeEventListener('change',this._onInputValueChange);
             }
-            if(ev.data.curr!=null){
-                ev.data.curr.addEventListener('change',this._onInputValueChange);
+            if(r.get()!=null){
+                r.get()!.addEventListener('change',this._onInputValueChange);
             }
         });
         this.inputRef[name]=rref;

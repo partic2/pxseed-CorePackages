@@ -232,3 +232,7 @@ export async function serverCommand(cmd:string,param:any){
     }
     throw new Error(`No handler for command ${cmd}`)
 }
+
+export async function initNotebookCodeEnv(_ENV:any){
+    Object.assign(_ENV,serverCommandRegistry);
+}

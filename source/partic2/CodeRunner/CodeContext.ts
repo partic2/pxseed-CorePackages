@@ -10,7 +10,7 @@ import { inspectCodeContextVariable, toSerializableObject, fromSerializableObjec
 import { Io } from 'pxprpc/base';
 import { createIoPipe } from 'partic2/pxprpcClient/registry';
 import { addAsyncHook, JsSourceReplacePlan, setupAsyncHook } from './pxseedLoader';
-import { TaskLocalRef } from './jsutils2';
+import { CFuncCallProbe, ensureFunctionProbe, OnConsoleData, TaskLocalRef } from './jsutils2';
 
 
 acorn.defaultOptions.allowAwaitOutsideFunction=true;
@@ -71,69 +71,12 @@ export interface ConsoleDataEventData{
     message:string
 }
 
-let FuncCallEventType=jsutils1.GenerateRandomString();
-
-class FuncCallEvent extends Event{
-    originalFunction:Function|null=null;
-    probe?:CFuncCallProbe
-    argv:any[]=[]
-}
-
-class CFuncCallProbe extends EventTarget{
-    name?:string
-    constructor(public originalFunction:Function){
-        super();
-    }
-    hooked(){
-        let that=this;
-        return function(this:any,...argv:any[]){
-            let e=new FuncCallEvent(FuncCallEventType);
-            e.argv=argv;
-            e.originalFunction=that.originalFunction;
-            e.probe=that;
-            try{
-                that.dispatchEvent(e)
-            }catch(err){
-                //Mute any error, to avoid recursive call.
-            };
-            return that.originalFunction.apply(this,argv);
-        };
-    }
-}
-let CodeContextProp=Symbol('CodeContextProp');
-interface ICodeContextProp{
-    funcCallProbe?:CFuncCallProbe
-}
-
 export async function enableDebugger(){
     try{
         if(globalThis?.process?.versions?.node!=undefined){
             (await import('inspector')).open(9229);
         }
     }catch(err){};
-}
-
-function ensureFunctionProbe<T>(o:T,p:keyof T):CFuncCallProbe{
-    let func=o[p] as any;
-    let p2:ICodeContextProp;
-    if(CodeContextProp in func){
-        p2=func[CodeContextProp];
-        if(p2.funcCallProbe==undefined){
-            p2.funcCallProbe=new CFuncCallProbe(func);
-            p2.funcCallProbe.name=p.toString();
-            o[p]=p2.funcCallProbe.hooked() as any;
-            (o[p] as any)[CodeContextProp]=p2;
-        }
-    }else{
-        p2={
-            funcCallProbe:new CFuncCallProbe(func)
-        }
-        p2.funcCallProbe!.name=p.toString();
-        func[CodeContextProp]=p2;
-        o[p]=p2.funcCallProbe!.hooked() as any;
-        (o[p] as any)[CodeContextProp]=p2;
-    }
-    return p2.funcCallProbe!
 }
 
 export class LocalRunCodeContext implements RunCodeContext{
@@ -162,11 +105,9 @@ export class LocalRunCodeContext implements RunCodeContext{
         }
     };
     localScopeProxy;
-    protected onConsoleLogListener=(e:Event)=>{
-        let e2=e as FuncCallEvent;
-        let name=e2.probe?.name??'';
+    protected onConsoleLogListener=(level:string,argv:any)=>{
         let outputTexts:string[]=[];
-        for(let t1 of e2.argv){
+        for(let t1 of argv){
             if(typeof t1=='object'){
                 outputTexts.push(JSON.stringify(toSerializableObject(t1,{})));
             }else{
@@ -175,18 +116,14 @@ export class LocalRunCodeContext implements RunCodeContext{
         }
         let evt=new CodeContextEvent<ConsoleDataEventData>('console.data',{
             data:{
-                level:name,
+                level,
                 message:outputTexts.join(' ')
             }
         });
         this.event.dispatchEvent(evt);
     }
     constructor(){
-        ensureFunctionProbe(console,'log').addEventListener(FuncCallEventType,this.onConsoleLogListener);
-        ensureFunctionProbe(console,'debug').addEventListener(FuncCallEventType,this.onConsoleLogListener);
-        ensureFunctionProbe(console,'info').addEventListener(FuncCallEventType,this.onConsoleLogListener);
-        ensureFunctionProbe(console,'warn').addEventListener(FuncCallEventType,this.onConsoleLogListener);
-        ensureFunctionProbe(console,'error').addEventListener(FuncCallEventType,this.onConsoleLogListener);
+        OnConsoleData.add(this.onConsoleLogListener);
         this.localScope.__priv_codeContext=this;
         this.localScope._ENV=this.localScope;
         this.localScope.console={...console};
@@ -206,11 +143,7 @@ export class LocalRunCodeContext implements RunCodeContext{
         });
     }
     close(): void {
-        ensureFunctionProbe(console,'log').removeEventListener(FuncCallEventType,this.onConsoleLogListener);
-        ensureFunctionProbe(console,'debug').removeEventListener(FuncCallEventType,this.onConsoleLogListener);
-        ensureFunctionProbe(console,'info').removeEventListener(FuncCallEventType,this.onConsoleLogListener);
-        ensureFunctionProbe(console,'warn').removeEventListener(FuncCallEventType,this.onConsoleLogListener);
-        ensureFunctionProbe(console,'error').removeEventListener(FuncCallEventType,this.onConsoleLogListener);
+        OnConsoleData.delete(this.onConsoleLogListener);
         this.event.dispatchEvent(new CodeContextEvent('close'));
         for(let [k1,v1] of Object.entries(this.localScope.autoClosable as Record<string,{close?:()=>void}>)){
             if(v1.close!=undefined){

@@ -11,11 +11,11 @@ import { openNewWindow} from 'partic2/pComponentUi/workspace'
 import { getAttachedRemoteRigstryFunction, getPersistentRegistered, ServerHostRpcName, ServerHostWorker1RpcName } from 'partic2/pxprpcClient/registry'
 import { PxseedServer2023Function } from './clientFunction'
 import { requirejs, sleep, throwIfAbortError } from 'partic2/jsutils1/base'
-import { GetJsEntry } from 'partic2/jsutils1/webutils'
+import { GetJsEntry, path } from 'partic2/jsutils1/webutils'
 
 import {} from 'partic2/jsutils1/webutils'
 import { getPxseedUrl, updatePxseedServerConfig } from './webentry'
-import { RpcExtendClient1 } from 'pxprpc/extend'
+import {openWorkspaceWithProfile} from 'partic2/JsNotebook/workspace'
 
 
 async function alertIfError<T>(p:()=>Promise<T>){
@@ -107,14 +107,22 @@ export class PxseedServerAdministrateTool extends React.Component<{},{
                 <a href="javascript:;" onClick={()=>this.buildPackage()}>build packages</a>
                 <a href="javascript:;" onClick={()=>this.forceRebuildPackages()}>force rebuild pakcages</a>
                 <a href="javascript:;" onClick={()=>this.restartServerHostWorker1()}>restart server host worker 1</a>
-                <a href="javascript:;">stop server</a>
                 {(this.state.serverConfig?.deamonMode?.enabled==true)?this.state.serverConfig!.deamonMode.subprocessConfig.map((cfg,index)=>{
                     return <a href="javascript:;" onClick={()=>this.restartSubprocess(index)}>
                         restart subprocess {index} on {`${cfg.listenOn?.host}:${cfg.listenOn?.port}`}
                     </a>
                 }):null}
+                <a href="javascript:;" onClick={()=>this.openNotebookWorkspace()}>notebook</a>
             </div>
         </div>
+    }
+    async openNotebookWorkspace(){
+        let wb=await openWorkspaceWithProfile.openJSNotebookFirstProfileWorkspace({
+            defaultRpc:ServerHostWorker1RpcName,
+            defaultStartupScript:`await (await import('pxseedServer2023/pxseedhttpserver')).initNotebookCodeEnv(_ENV)`,
+            notebookDirectory:path.join(__name__,'..','notebook')
+        });
+        wb.start();
     }
     async doLogin(){
         await updatePxseedServerConfig(this.state.pxprpcKey);

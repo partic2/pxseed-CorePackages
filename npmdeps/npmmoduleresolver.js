@@ -34,3 +34,5 @@ exports.npmimport=async function(moduleId){
     }
     return null;
 }
+
+exports.npmrequire=require

@@ -214,70 +214,60 @@ export class RefChangeEvent<T> extends Event{
         super('change')
     }
 }
-export class ReactRefEx<T> extends EventTarget implements React.RefObject<T>{
-    __current:T|null=null;
+
+export class ReactRefEx<T> extends Ref2<T|null> implements React.RefObject<T>{
     constructor(){
-        super();
-        this.addEventListener('change',(evt:RefChangeEvent<T>)=>{
+        super(null);
+        this.watch((r,prev)=>{
             for(let t1 of this.__forwardTo){
                 if(typeof t1==='function'){
-                    t1(evt.data.curr);
+                    t1(r.get());
                 }else if(t1!=null){
-                    t1.current=evt.data.curr;
+                    t1.current=r.get()
                 }
             }
         })
     }
     set current(curr:T|null){
-        let prev=this.__current;
-        this.__current=curr;
-        this.dispatchEvent(new RefChangeEvent<T>({prev,curr}))
+        this.set(curr);
     }
     get current():T|null{
-        return this.__current;
+        return this.get();
     }
     __forwardTo:React.Ref<T>[]=[];
     forward(refs:React.Ref<T>[]){
         this.__forwardTo.push(...refs);
         return this;
     }
-    addEventListener(type: 'change', callback: ((evt:RefChangeEvent<T>)=>void)|EventListenerOrEventListenerObject|null , options?: AddEventListenerOptions | boolean): void
-    addEventListener(type: string, callback: EventListenerOrEventListenerObject | null, options?: AddEventListenerOptions | boolean): void {
-        super.addEventListener(type,callback,options);
-    }
-    removeEventListener(type: 'change', callback: ((evt:RefChangeEvent<T>)=>void)|EventListenerOrEventListenerObject|null): void
-    removeEventListener(type: string, callback: EventListenerOrEventListenerObject | null, options?: EventListenerOptions | boolean): void {
-        super.removeEventListener(type,callback,options);
-    }
     async waitValid(){
         if(this.current!=null){
             return this.current;
         }else{
             return new Promise<T>((resolve)=>{
-                const onRefChange=(ev:RefChangeEvent<T>)=>{
-                    if(ev.data.curr!=null){
-                        this.removeEventListener('change',onRefChange);
-                        resolve(ev.data.curr);
+                const onRefChange=(r:this)=>{
+                    if(r.get()!=null){
+                        this.unwatch(onRefChange);
+                        resolve(r.get()!);
                     }
                 }
-                this.addEventListener('change',onRefChange)
+                this.watch(onRefChange);
             });
         }
-        
     }
     async waitInvalid(){
-        if(this.current==null){
-            return
-        }
-        return new Promise<undefined>((resolve)=>{
-            const onRefChange=(ev:RefChangeEvent<T>)=>{
-                if(ev.data.curr==null){
-                    this.removeEventListener('change',onRefChange);
-                    resolve(undefined);
+        if(this.current!=null){
+            return this.current;
+        }else{
+            return new Promise<void>((resolve)=>{
+                const onRefChange=(r:this)=>{
+                    if(r.get()!=null){
+                        this.unwatch(onRefChange);
+                        resolve();
+                    }
                 }
-            }
-            this.addEventListener('change',onRefChange)
-        });
+                this.watch(onRefChange);
+            });
+        }
     }
 }
 
@@ -309,8 +299,8 @@ export class FloatLayerComponent<
     }
 }
 
-
-export function ReactRender<T1 extends DomComponentGroup|HTMLElement>(vnode:React.ComponentChild,container:HTMLElement|DomComponentGroup|'create'|Ref2<T1>){
+//container accept Ref2<HTMLElement>|Ref2<DomComponentGroup>|HTMLElement|DomComponentGroup|'create', But tsc complain with it , So I use any now.
+export function ReactRender(vnode:React.ComponentChild,container:Ref2<HTMLElement>|Ref2<DomComponentGroup>|HTMLElement|DomComponentGroup|'create'){
     if(container instanceof HTMLElement){
         React.render(vnode,container);
     }else if(container instanceof DomComponentGroup){

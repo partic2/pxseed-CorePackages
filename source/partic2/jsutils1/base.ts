@@ -586,11 +586,12 @@ export class Ref2<CT>{
     public get():CT{
         return this.__val;
     }
-    protected watcher:Set<(r:Ref2<CT>,oldValue:CT)=>void>=new Set();
-    public watch(onUpdated:(r:Ref2<CT>,oldValue:CT)=>void){
+    //tsc complain with it's type, So I use Function directly.
+    protected watcher:Set<Function>=new Set();
+    public watch(onUpdated:(r:this,previousValue:CT)=>void){
         this.watcher.add(onUpdated);
     }
-    public unwatch(onUpdated:(r:Ref2<CT>,oldValue:CT)=>void){
+    public unwatch(onUpdated:(r:this,previousValue:CT)=>void){
         this.watcher.delete(onUpdated);
     }
 }

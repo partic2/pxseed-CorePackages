@@ -264,4 +264,51 @@ export function setupAsyncHook(){
 	}
 }
 
+
+export class CFuncCallProbe{
+	name?:string
+	beforeFunctionEnter=new Set<(argv:any[],probe:CFuncCallProbe,hookedThis:any)=>void>();
+	constructor(public originalFunction:Function){}
+	hooked(){
+		let that=this;
+		return function(this:any,...argv:any[]){
+			for(let t1 of that.beforeFunctionEnter){
+				try{t1(argv,that as any,this);}catch(err){};
+			}
+			return that.originalFunction.apply(this,argv);
+		};
+	}
+}
+let funcProbeProp=Symbol('funcProbeProp');
+export function ensureFunctionProbe<T>(o:T,p:keyof T):CFuncCallProbe{
+	let func=o[p] as any;
+	let p2:any;
+	if(funcProbeProp in func){
+		p2=func[funcProbeProp];
+		if(p2.funcCallProbe==undefined){
+			p2.funcCallProbe=new CFuncCallProbe(func);
+			p2.funcCallProbe.name=p.toString();
+			o[p]=p2.funcCallProbe.hooked() as any;
+			(o[p] as any)[funcProbeProp]=p2;
+		}
+	}else{
+		p2={
+			funcCallProbe:new CFuncCallProbe(func)
+		}
+		p2.funcCallProbe!.name=p.toString();
+		func[funcProbeProp]=p2;
+		o[p]=p2.funcCallProbe!.hooked() as any;
+		(o[p] as any)[funcProbeProp]=p2;
+	}
+	return p2.funcCallProbe!
+}
+
+export let OnConsoleData=new Set<(logLevel:'log'|'debug'|'info'|'warn'|'error',argv:any[])=>void>();
+
+ensureFunctionProbe(console,'log').beforeFunctionEnter.add((argv)=>OnConsoleData.forEach(t1=>t1('log',argv)));
+ensureFunctionProbe(console,'debug').beforeFunctionEnter.add((argv)=>OnConsoleData.forEach(t1=>t1('debug',argv)));
+ensureFunctionProbe(console,'info').beforeFunctionEnter.add((argv)=>OnConsoleData.forEach(t1=>t1('info',argv)));
+ensureFunctionProbe(console,'warn').beforeFunctionEnter.add((argv)=>OnConsoleData.forEach(t1=>t1('warn',argv)));
+ensureFunctionProbe(console,'error').beforeFunctionEnter.add((argv)=>OnConsoleData.forEach(t1=>t1('error',argv)));
+
 setupAsyncHook();
