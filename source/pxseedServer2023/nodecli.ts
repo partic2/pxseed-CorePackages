@@ -1,4 +1,4 @@
-
+import 'partic2/nodehelper/env'
 import './pxseedhttpserver'
 
 import type {} from '@txikijs/types/src/index'
@@ -20,6 +20,9 @@ async function cliMain(){
     cli.codeContext.localScope.exit=(exitCode?:number)=>{
         cli.codeContext.close();
         process.exit(exitCode??0);
+    }
+    cli.codeContext.localScope.startServer=async ()=>{
+        await import('./nodeentry')
     }
     let args=[...process.argv];
     let found=false;
