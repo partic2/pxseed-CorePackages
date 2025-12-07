@@ -1,5 +1,5 @@
 
-import { LocalRunCodeContext, RunCodeContext } from 'partic2/CodeRunner/CodeContext';
+import { CodeContextEvent, LocalRunCodeContext, RunCodeContext } from 'partic2/CodeRunner/CodeContext';
 import { CodeCellList } from 'partic2/CodeRunner/WebUi';
 import { GenerateRandomString, GetCurrentTime, IamdeeScriptLoader, WaitUntil, assert, future, logger, requirejs, sleep } from 'partic2/jsutils1/base';
 import * as React from 'preact'
@@ -18,6 +18,9 @@ import { utf8conv } from 'partic2/CodeRunner/jsutils2';
 import { RpcExtendClient1, RpcExtendServer1 } from 'pxprpc/extend';
 import { Client,Server } from 'pxprpc/base';
 import { NotebookFileData,__internal__ as workeriniti } from './workerinit';
+import { PredefinedCodeContextViewerContext } from 'partic2/CodeRunner/Component1';
+import { openNewWindow } from 'partic2/pComponentUi/workspace';
+import { CodeCellListData } from 'partic2/CodeRunner/Inspector';
 
 export let __name__='partic2/JsNotebook/notebook'
 
@@ -97,6 +100,10 @@ class NotebookViewer extends React.Component<{context:WorkspaceContext,path:stri
             this.useRpc(r as ClientInfo);
         }
     }
+    __notebookViewerEventHandler=(ev:CodeContextEvent)=>{
+        let {call,argv}=ev.data;
+        (this as any)[call](...argv);
+    }
     async useRpc(rpc:ClientInfo,opt?:{startupScript?:string}){
         try{
             let code=await connectToRemoteCodeContext(await rpc.ensureConnected(),
@@ -105,7 +112,9 @@ class NotebookViewer extends React.Component<{context:WorkspaceContext,path:stri
             )`);
             if(this.state.codeContext!=undefined){
                 this.state.codeContext.close();
+                this.state.codeContext.event.removeEventListener(`${__name__}.NotebookViewer`,this.__notebookViewerEventHandler)
             }
+            code.event.addEventListener(`${__name__}.NotebookViewer`,this.__notebookViewerEventHandler)
             this.setState({rpc,codeContext:code});
             let jsnotebook=JSON.parse((await code.runCode('return JSON.stringify(jsnotebook)')).stringResult!);
             if(jsnotebook==null){
@@ -115,6 +124,12 @@ class NotebookViewer extends React.Component<{context:WorkspaceContext,path:stri
                 }
             }
             await code.runCode(`Object.assign(jsnotebook,${JSON.stringify({startupScript:opt?.startupScript??''})});`);
+            await code.runCode(`jsnotebook.doSave=(...argv)=>_ENV.event.dispatchEvent(new CodeContextEvent('${__name__}.NotebookViewer',{data:{call:'doSave',argv}}))`);
+            await code.runCode(`jsnotebook.openNewWindowPreactComponent=(...argv)=>_ENV.event.dispatchEvent(new CodeContextEvent('${__name__}.NotebookViewer',{data:{call:'openNewWindowPreactComponent',argv}}))`);
+            await code.runCode(`jsnotebook.openRpcChooser=(...argv)=>_ENV.event.dispatchEvent(new CodeContextEvent('${__name__}.NotebookViewer',{data:{call:'openRpcChooser',argv}}))`);
+            await code.runCode(`jsnotebook.updateNotebookCodeCellsData=(...argv)=>_ENV.event.dispatchEvent(new CodeContextEvent('${__name__}.NotebookViewer',{data:{call:'updateNotebookCodeCellsData',argv}}))`);
+            await code.runCode(`jsnotebook.setCodeCellsDataOnRemoteJsNotebook=(...argv)=>_ENV.event.dispatchEvent(new CodeContextEvent('${__name__}.NotebookViewer',{data:{call:'setCodeCellsDataOnRemoteJsNotebook',argv}}))`);
+            
         }catch(e:any){
             await alert(e.toString(),'Error');
         }
@@ -162,21 +177,40 @@ class NotebookViewer extends React.Component<{context:WorkspaceContext,path:stri
     async doSetting(){
 
     }
+    async openNewWindowPreactComponent(module:string,className:string,options?:{title:string}){
+        let PreactComp=(await requirejs.promiseRequire<any>(module))[className];
+        openNewWindow(<PreactComp/>,{
+            ...options
+        })
+    }
+    async updateNotebookCodeCellsData(cellsData:string){
+        let ccl=await this.rref.ccl.waitValid();
+        ccl.loadFrom(cellsData);
+    }
+    async setCodeCellsDataOnRemoteJsNotebook(){
+        let ccl=await this.rref.ccl.waitValid();
+        await this.state.codeContext?.runCode(`jsnotebook.codeCellsData=${JSON.stringify(ccl.saveTo())}`);
+    }
     protected getRpcStringRepresent(){
         return this.state.rpc?.name??'<No name>';
     }
     render() {
-        return <div style={{width:'100%',overflow:'auto'}} onKeyDown={(ev)=>this.onKeyDown(ev)}>
-        <div>
-        <a href="javascript:;" onClick={()=>this.openRpcChooser()}>RPC:{this.getRpcStringRepresent()}</a>
-        <span>&nbsp;&nbsp;</span>
-        <a onClick={()=>this.doSave()} href="javascript:;">Save</a>
-        </div>
-        {(this.state.codeContext!=undefined)?
-            <CodeCellList codeContext={this.state.codeContext!} ref={this.rref.ccl} />:
-            'No CodeContext'
+        return <PredefinedCodeContextViewerContext.Consumer>{
+            value=>{
+                return <div style={{width:'100%',overflow:'auto'}} onKeyDown={(ev)=>this.onKeyDown(ev)}>
+                <div>
+                <a href="javascript:;" onClick={()=>this.openRpcChooser()}>RPC:{this.getRpcStringRepresent()}</a>
+                <span>&nbsp;&nbsp;</span>
+                <a onClick={()=>this.doSave()} href="javascript:;">Save</a>
+                </div>
+                {(this.state.codeContext!=undefined)?
+                    <CodeCellList codeContext={this.state.codeContext!} ref={this.rref.ccl}/>:
+                    'No CodeContext'
+                }
+                </div>
+            }
         }
-        </div>
+        </PredefinedCodeContextViewerContext.Consumer>
     }
 }
 

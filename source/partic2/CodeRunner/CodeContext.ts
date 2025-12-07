@@ -28,11 +28,18 @@ export class CodeContextEventTarget extends EventTarget{
     //Used by RemoteCodeContext, to delegate event. 
     _cachedEventQueue=new jsutils1.ArrayWrap2<{time:number,event:Event}>();
     _eventQueueExpiredTime=1000;
-    dispatchEvent(event: Event): boolean {
+    dispatchEvent(event: CodeContextEvent): boolean {
         this._cachedEventQueue.queueSignalPush({time:jsutils1.GetCurrentTime().getTime(),event});
         setTimeout(()=>this._cachedEventQueue.arr().shift(),this._eventQueueExpiredTime);
         return super.dispatchEvent(event);
     }
+    addEventListener(type: string, callback: ((ev:CodeContextEvent)=>void)|EventListenerOrEventListenerObject | null, options?: AddEventListenerOptions | boolean): void{
+        super.addEventListener(type,callback as any,options);
+    }
+    removeEventListener(type: string, callback: ((ev:CodeContextEvent)=>void)|EventListenerOrEventListenerObject | null, options?: AddEventListenerOptions | boolean): void {
+        super.removeEventListener(type,callback as any);
+    }
+    
 }
 
 export interface RunCodeContext{
@@ -58,7 +65,7 @@ async function __jsExecSample(lib:typeof jsExecLib,codeContext:LocalRunCodeConte
     return '';
 }
 
-export class CodeContextEvent<T> extends Event{
+export class CodeContextEvent<T=any> extends Event{
     public data:T|undefined=undefined;
     constructor(type?:string,initDict?:{data?:T}){
         super(type??__name__+'.CodeContextEvent',{});
@@ -88,8 +95,8 @@ export class LocalRunCodeContext implements RunCodeContext{
         //this CodeContext
         __priv_codeContext:undefined,
         //import implemention
-        __priv_import:async function(module:string){
-            let imp=this.__priv_codeContext.importHandler(module);
+        __priv_import:(module:string)=>{
+            let imp=this.importHandler(module);
             return imp;
         },
         //some utils provide by codeContext
@@ -97,11 +104,14 @@ export class LocalRunCodeContext implements RunCodeContext{
         //custom source processor for 'runCode' _ENV.__priv_processSource, run before builtin processor.
         __priv_processSource:[] as ((processContext:{source:string,_ENV:any})=>PromiseLike<void>|void)[],
         event:this.event,
+        CodeContextEvent,
+        Task:jsutils1.Task,
+        TaskLocalRef,
+        TaskLocalEnv,
         //Will be close when LocalRunCodeContext is closing.
         autoClosable:{} as Record<string,{close?:()=>void}>,
-        enableDebugger,
-        close:function(){
-            this.__priv_codeContext.close();
+        close:()=>{
+            this.close();
         }
     };
     localScopeProxy;
@@ -323,6 +333,7 @@ export class LocalRunCodeContext implements RunCodeContext{
 
 export var jsExecLib={
     jsutils1,LocalRunCodeContext,toSerializableObject,fromSerializableObject,importModule:(name:string)=>import(name),
+    enableDebugger,
     iteratorNext:async <T>(iterator:(Iterator<T>|AsyncIterator<T>),count:number)=>{
         let arr=[];
         for(let t1=0;t1<count;t1++){
