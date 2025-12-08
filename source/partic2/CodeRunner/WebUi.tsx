@@ -28,7 +28,7 @@ export interface CodeCellProps{
     onFocusChange?:(focusin:boolean)=>void,
     onTooltips?:(vnode:React.VNode|null)=>void,
     divStyle?:React.CSSProperties,
-    divProps?:React.AllCSSProperties
+    divAttr?:React.HTMLAttributes<HTMLDivElement>
 }
 interface CodeCellStats{
     //Serializable object
@@ -173,12 +173,17 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
         this.rref.codeInput.current!.deleteText(delCount);
         this.rref.codeInput.current!.insertText(cc.candidate);
     }
+    protected __focusedCheck=false;
     protected renderCodeComplete(){
         if(this.state.codeCompleteCandidate!=null){
-            return <div style={{display:'flex',flexDirection:'column',maxHeight:'300px'}}>
+            return <div style={{display:'flex',flexDirection:'column',maxHeight:'300px'}} tabIndex={0} onFocusIn={()=>this.__focusedCheck=true}>
                 {this.state.codeCompleteCandidate.map(v=>{
                     return <div>
-                    <a href="javascript:;" onClick={()=>this.insertCodeComplete(v)}>{v.candidate}</a>
+                    <a href="javascript:;" onClick={()=>{
+                        this.insertCodeComplete(v);
+                        this.props.onTooltips?.(null);
+                        this.setState({codeCompleteCandidate:[]});
+                    }}>{v.candidate}</a>
                     </div>
                 })}
             </div>
@@ -189,20 +194,16 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
             this.props.onFocusChange(focusin);
         }
         if(focusin){
-            //avoid click event failed.
-            await sleep(100);
             this.setState({focusin:true});
+            this.__focusedCheck=true;
         }else{
             //wait to check focus really move out
-            await sleep(500);
-            if(document.activeElement==null || 
-                (this.rref.container.current!=null &&
-                (document.activeElement.compareDocumentPosition(
-                    this.rref.container.current!)&Node.DOCUMENT_POSITION_CONTAINS)===0)){
-                this.setState({focusin:false})
+            this.__focusedCheck=false;
+            await sleep(100);
+            if(!this.__focusedCheck){
+                this.setState({focusin:false,codeCompleteCandidate:[]});
+                this.props.onTooltips?.(null);
             }
-            this.setState({codeCompleteCandidate:[]})
-            this.props.onTooltips?.(null);
         }
     }
     protected async onBtnRun(){
@@ -235,8 +236,20 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
     render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined; }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChild {
         this.prepareRender();
         return <div style={{display:'flex',flexDirection:'column',position:'relative',...this.props.divStyle}} ref={this.rref.container} 
-            onFocusOut={()=>this.doOnFocusChange(false)} onFocusIn={()=>{this.doOnFocusChange(true)}} 
-            {...this.props.divProps} >
+                {...this.props.divAttr}
+                onFocusIn={(ev)=>{
+                    this.props.divAttr?.onFocusIn?.(ev);
+                    if(!ev.defaultPrevented){
+                        this.doOnFocusChange(true);
+                    }
+                }}
+                onFocusOut={(ev)=>{
+                    this.props.divAttr?.onFocusOut?.(ev);
+                    if(!ev.defaultPrevented){
+                        this.doOnFocusChange(false);
+                    }
+                }}
+            >
             <TextEditor ref={this.rref.codeInput} divAttr={{onKeyDown:(ev)=>this.onCellKeyDown(ev)}}
             onInput={(target,inputData)=>this.onCellInput(target,inputData)} divClass={[css.inputCell]} />
             {this.state.focusin?<div style={{position:'relative',display:'flex',justifyContent:'end'}}>
@@ -247,7 +260,7 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
                 {this.state.extraTooltips?<div dangerouslySetInnerHTML={{__html:this.state.extraTooltips}}></div>:null}
                 {this.renderCodeComplete()}
             </div>}
-            <div style={{overflow:'auto'}}>
+            <div style={{overflow:'auto'}} tabindex={0}>
                 <ObjectViewer object={this.state.cellOutput} name={''} />
             </div>
         </div>
@@ -276,6 +289,7 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
     }
 }
 
+
 export class DefaultCodeCellList extends React.Component<
         {
             codeContext:RunCodeContext,
@@ -288,7 +302,7 @@ export class DefaultCodeCellList extends React.Component<
             error:string|null,
             codeContext:RunCodeContext|null,
             lastFocusCellKey:string,
-            cellTooltips:null|{content:React.VNode,left:number,top:number,maxWidth:number,maxHeight:number},
+            cellTooltips:null|{content:React.VNode,left:number,top:number,maxWidth:number,maxHeight:number,cellKey:string},
             padBottomCell:number
         }>{
     priv__initCellValue:{input:string,output:[any,string|null]}[]|null=null;
@@ -389,7 +403,7 @@ export class DefaultCodeCellList extends React.Component<
                     left=left+maxWidth-150;
                     maxWidth=150;
                 }
-                this.setState({cellTooltips:{left,top,maxWidth,maxHeight,content:node}});
+                this.setState({cellTooltips:{left,top,maxWidth,maxHeight,content:node,cellKey:cell.key}});
             }
         }
     }

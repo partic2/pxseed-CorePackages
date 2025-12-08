@@ -14,7 +14,7 @@ import { Server as PxprpcBaseServer } from 'pxprpc/base'
 import { GetUrlQueryVariable2, getWWWRoot, lifecycle } from 'partic2/jsutils1/webutils';
 import { ChildProcess, spawn } from 'child_process';
 import {WebSocketServer } from 'ws'
-import { NodeReadableDataSource, NodeWsConnectionAdapter2, NodeWsIo } from 'partic2/nodehelper/nodeio';
+import { NodeReadableDataSource, NodeWsConnectionAdapter2 } from 'partic2/nodehelper/nodeio';
 import { createIoPipe } from 'partic2/pxprpcClient/registry';
 import { RpcExtendClient1 } from 'pxprpc/extend';
 import { WebSocketIo } from 'pxprpc/backend';
@@ -52,7 +52,7 @@ export let WsServer={
         if(!accepted){
             if(url.pathname in this.router){
                 this.ws.handleUpgrade(req,socket,head,(client,req)=>{
-                    this.router[url.pathname](new NodeWsIo(client),req.url,req.headers);
+                    this.router[url.pathname](new NodeWsConnectionAdapter2(client) as any,req.url,req.headers);
                 })
             }else{
                 socket.end();
@@ -60,7 +60,7 @@ export let WsServer={
         }        
     },
     //compatibility ONLY
-    router:{} as {[path:string]:(io:NodeWsIo,url:string|undefined,headers?:IncomingHttpHeaders)=>void}
+    router:{} as {[path:string]:(io:Io,url:string|undefined,headers?:IncomingHttpHeaders)=>void}
 }
 
 

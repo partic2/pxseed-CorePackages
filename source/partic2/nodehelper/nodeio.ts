@@ -205,55 +205,12 @@ export async function createIoPxseedJsUrl(url:string){
 
 import { WebSocket } from 'ws'
 import { WebSocketIo } from "pxprpc/backend";
-export class NodeWsIo implements Io{
-    priv__cached=new ArrayWrap2<Uint8Array>([])
-    closed:boolean=false;
-    constructor(public ws:WebSocket){
-        ws.on('message',(data,isBin)=>{
-            if(data instanceof ArrayBuffer){
-                this.priv__cached.queueSignalPush(new Uint8Array(data))
-            }else if(data instanceof Buffer){
-                this.priv__cached.queueSignalPush(new Uint8Array(data.buffer,data.byteOffset,data.byteLength));
-            }else if(data instanceof Array){
-                this.priv__cached.queueSignalPush(new Uint8Array(ArrayBufferConcat(data)));
-            }else{
-                throw new Error('Unknown data type')
-            }
-        });
-        ws.on('close',(code,reason)=>{
-            this.closed=true;
-            this.priv__cached.cancelWaiting();
-        });
-    }
-    async receive(): Promise<Uint8Array> {
-        try{
-            let wsdata=await this.priv__cached.queueBlockShift();
-            return wsdata;
-        }catch(e){
-            if(e instanceof CanceledError && this.closed){
-                this.ws.close();
-                throw new Error('closed.')
-            }else{
-                this.ws.close();
-                throw e;
-            }
-        }
-    }
-    async send(data: Uint8Array[]): Promise<void> {
-        this.ws.send(ArrayBufferConcat(data));
-    }
-    close(): void {
-        this.ws.close();
-        this.closed=true;
-        this.priv__cached.cancelWaiting();
-    }
-}
-
 
 import { WebSocketServerConnection } from 'partic2/tjshelper/httpprot';
 
 export class NodeWsConnectionAdapter2 implements WebSocketServerConnection{
     protected priv__cached=new ArrayWrap2<Uint8Array|string>();
+    closed:boolean=false;
     constructor(public ws:WebSocket){
         this.ws.on('message',(data,isbin)=>{
             let chunk
@@ -267,7 +224,11 @@ export class NodeWsConnectionAdapter2 implements WebSocketServerConnection{
                 chunk=data;
             }
             this.priv__cached.queueSignalPush(chunk);
-        })
+        });
+        ws.on('close',(code,reason)=>{
+            this.closed=true;
+            this.priv__cached.cancelWaiting();
+        });
     }
     async send(obj: Uint8Array | string | Array<Uint8Array>): Promise<void> {
         if(obj instanceof Array){
@@ -279,7 +240,18 @@ export class NodeWsConnectionAdapter2 implements WebSocketServerConnection{
         }));
     }
     async receive(): Promise<Uint8Array | string> {
-        return await this.priv__cached.queueBlockShift();
+        try{
+            let wsdata=await this.priv__cached.queueBlockShift();
+            return wsdata;
+        }catch(e){
+            if(e instanceof CanceledError && this.closed){
+                this.ws.close();
+                throw new Error('closed.')
+            }else{
+                this.ws.close();
+                throw e;
+            }
+        }
     }
     close(): void {
         this.ws.close();
