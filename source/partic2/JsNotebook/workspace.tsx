@@ -17,7 +17,7 @@ import { Client, Server } from 'pxprpc/base';
 import { SimpleReactForm1, ValueCheckBox } from 'partic2/pComponentUi/input';
 import {prompt} from 'partic2/pComponentUi/window'
 import { assert, GenerateRandomString } from 'partic2/jsutils1/base';
-import { CodeCellListData } from '../CodeRunner/Inspector';
+import { CodeCellListData } from 'partic2/CodeRunner/Inspector';
 const __name__='partic2/JsNotebook/workspace'
 
 
@@ -38,6 +38,13 @@ export class WorkspaceContext{
     }|null=null;
     saveStartupProfile=async ()=>{}
 
+    private pathNormailize(path:string){
+        path=path!.replace(/\\/g,'/');
+        if(!path!.startsWith('/')){
+            path='/'+path!;
+        }
+        return path;
+    }
     async ensureInited(){
         if(this.fs==null){
             if(this.rpc instanceof workeriniti.LoopbackRpcClient||this.rpc.url.startsWith('webworker:')||this.rpc.url.startsWith('serviceworker:')){
@@ -53,7 +60,7 @@ export class WorkspaceContext{
             }
         }
         if(this.wwwroot==null){
-            this.wwwroot=await easyCallRemoteJsonFunction(await this.rpc!.ensureConnected(),'partic2/jsutils1/webutils','getWWWRoot',[]);
+            this.wwwroot=this.pathNormailize(await easyCallRemoteJsonFunction(await this.rpc!.ensureConnected(),'partic2/jsutils1/webutils','getWWWRoot',[]));
         }
         for(let t1 of this.filehandler){
             t1.context=this;
@@ -69,6 +76,8 @@ export class WorkspaceContext{
         if(profileFile!=null){
             try{
                 this.startupProfile=JSON.parse(utf8conv(profileFile));
+                this.startupProfile!.currPath=this.pathNormailize(this.startupProfile!.currPath);
+                this.startupProfile!.openedFiles=this.startupProfile!.openedFiles!.map(t1=>this.pathNormailize(t1));
             }catch(err){
                 //bad profile file, create new.
             };
@@ -76,13 +85,6 @@ export class WorkspaceContext{
         let saveStartupProfile=new DebounceCall(async ()=>{
                 await this.fs!.writeAll(path2,utf8conv(JSON.stringify(this.startupProfile)));
             },500);
-        if(profileFile!=null){
-            try{
-                this.startupProfile=JSON.parse(utf8conv(profileFile));
-            }catch(err){
-                //bad profile file
-            };
-        }
         this.saveStartupProfile=async ()=>{await saveStartupProfile.call()}
     }
     openNewWindow:typeof openNewWindow=async function(vnode,options){

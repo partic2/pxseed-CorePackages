@@ -1,4 +1,4 @@
-import { LocalWindowSFS, defaultFileSystem, ensureDefaultFileSystem, initNotebookCodeEnv, installRequireProvider } from "partic2/CodeRunner/JsEnviron";
+import { defaultFileSystem, ensureDefaultFileSystem, initNotebookCodeEnv, installRequireProvider } from "partic2/CodeRunner/JsEnviron";
 import { future } from "partic2/jsutils1/base";
 import { ClientInfo, createIoPipe, getPersistentRegistered, rpcWorkerInitModule } from "partic2/pxprpcClient/registry";
 import { LocalRunCodeContext, RunCodeContext } from "partic2/CodeRunner/CodeContext";
@@ -6,6 +6,7 @@ import { createConnectorWithNewRunCodeContext } from "partic2/CodeRunner/RemoteC
 import { utf8conv } from "partic2/CodeRunner/jsutils2";
 import { RpcExtendClient1, RpcExtendServer1 } from "pxprpc/extend";
 import { Client, Server } from "pxprpc/base";
+import { CodeCellListData } from "../CodeRunner/Inspector";
 
 export var __name__='partic2/JsNotebook/workerinit'
 
@@ -39,7 +40,7 @@ export let __internal__={
 export class NotebookFileData{
     cells:string|null=null;
     rpc:string|ClientInfo='local window';
-    startupScript='';
+    startupScript:string='';
     dump(){
         let rpcString='local window';
         if(this.rpc instanceof ClientInfo){
@@ -52,8 +53,18 @@ export class NotebookFileData{
     load(data:Uint8Array){
         let r=JSON.parse(utf8conv(data));
         if(r.rpc!=undefined)this.rpc=r.rpc;
-        this.startupScript=r.startupScript??null;
-        this.cells=r.cells??null;
+        this.startupScript=r.startupScript??'';
+        this.cells=r.cells??'';
+    }
+    getCellsData(){
+        let cld=new CodeCellListData();
+        if(this.cells!=null){
+            cld.loadFrom(this.cells);
+        }
+        return cld;
+    }
+    setCellsData(ccld:CodeCellListData){
+        this.cells=ccld.saveTo();
     }
     async getRpcClient(){
         if(this.rpc instanceof ClientInfo){
@@ -70,6 +81,7 @@ export let runningRunCodeContextForNotebookFile=new Map<string,RunCodeContext>()
 
 export async function createRunCodeContextConnectorForNotebookFile(notebookFilePath:string){
     await __inited__;
+    
     if(!runningRunCodeContextForNotebookFile.has(notebookFilePath)){
         let connector=await createConnectorWithNewRunCodeContext();
         runningRunCodeContextForNotebookFile.set(notebookFilePath,connector.value);
@@ -79,6 +91,39 @@ export async function createRunCodeContextConnectorForNotebookFile(notebookFileP
         if(connector.value instanceof LocalRunCodeContext){
             await initNotebookCodeEnv(connector.value.localScope,{codePath:notebookFilePath});
         }
+        await ensureDefaultFileSystem();
+        let nbd=new NotebookFileData();
+        let fileData=await defaultFileSystem!.readAll(notebookFilePath);
+        if(fileData!=null){
+            nbd.load(fileData);
+        }
+        if(nbd.startupScript!==''){
+            await connector.value.runCode(nbd.startupScript);
+        }
     }
     return {value:runningRunCodeContextForNotebookFile.get(notebookFilePath)!};
+}
+
+export async function runNotebook(notebookFilePath:string,cellsIndex:number[]|'all cells'){
+    let cc=await createRunCodeContextConnectorForNotebookFile(notebookFilePath);
+    await ensureDefaultFileSystem();
+    let nbd=new NotebookFileData();
+    let fileData=await defaultFileSystem!.readAll(notebookFilePath);
+    if(fileData!=null){
+        nbd.load(fileData);
+    }
+    let cld=nbd.getCellsData();
+    if(cellsIndex==='all cells'){
+        for(let t1 of cld.cellList){
+            await cc.value.runCode(t1.cellInput);
+        }
+    }else{
+        for(let t1 of cellsIndex){
+            let cellInput=cld.cellList.at(t1)?.cellInput;
+            if(cellInput!=undefined){
+                await cc.value.runCode(cellInput)
+            }
+        }
+    }
+    return cc.value;
 }

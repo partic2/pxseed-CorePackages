@@ -4,6 +4,10 @@ import { CKeyValueDb, getWWWRoot, kvStore, path } from "partic2/jsutils1/webutil
 import type {} from '@txikijs/types/src/index'
 import { ClientInfo } from "partic2/pxprpcClient/registry";
 import type { LocalRunCodeContext } from "./CodeContext";
+import { type CodeCompletionContext } from "./Inspector";
+import { RpcExtendClient1 } from "pxprpc/extend";
+import { utf8conv } from "./jsutils2";
+import { buildTjs } from "partic2/tjshelper/tjsbuilder";
 
 //treat both slash and back slash as sep
 function dirname2(path:string){
@@ -637,15 +641,25 @@ export class LocalWindowSFS implements SimpleFileSystem{
 
 export let defaultFileSystem:SimpleFileSystem|null=null;
 export async function ensureDefaultFileSystem(){
-    defaultFileSystem=new LocalWindowSFS();
-    await defaultFileSystem.ensureInited()
+    if(defaultFileSystem===null){
+        if(globalThis.location?.protocol.startsWith('http')){
+            defaultFileSystem=new LocalWindowSFS();
+        }else{
+            let tjs1=await buildTjs();
+            let t1=new TjsSfs();
+            t1.from(tjs1);
+            defaultFileSystem=t1;
+        }
+        await defaultFileSystem.ensureInited()
+    }
+}
+export function setDefaultFileSystem(fs:SimpleFileSystem){
+    defaultFileSystem=fs;
 }
 
 import type * as nodefsmodule from 'fs/promises'
 import type * as nodepathmodule from 'path'
-import { type CodeCompletionContext } from "./Inspector";
-import { RpcExtendClient1 } from "pxprpc/extend";
-import { utf8conv } from "./jsutils2";
+
 
 export class NodeSimpleFileSystem implements SimpleFileSystem{
     
@@ -901,11 +915,18 @@ export async function installRequireProvider(fs:SimpleFileSystem,rootPath?:strin
     return {fs,rootPath:rootPath??'www'}
 }
 
+export function getSimpleFileSysteNormalizedWWWRoot(){
+    let wwwroot=getWWWRoot().replace(/\\/g,'/');
+    if(!wwwroot.startsWith('/')){
+        wwwroot='/'+wwwroot;
+    }
+    return wwwroot;
+}
+
 interface CodeContextEnvInitVar{
     fs:{
         simple?:SimpleFileSystem,
         codePath?:string,
-        env:'unknown'|'node'|'browser',
         loadScript:(path:string)=>Promise<void>
     },
     //import all members of module into _ENV
@@ -915,23 +936,10 @@ interface CodeContextEnvInitVar{
 
 //Used in workerinit.createRunCodeContextConnectorForNotebookFile
 export async function initNotebookCodeEnv(_ENV:any,opt?:{codePath?:string}){
-    let env:'unknown'|'node'|'browser'='unknown'
-    if(globalThis.process?.versions?.node!=undefined){
-        env='node'
-    }else if(globalThis.navigator!=undefined){
-        env='browser'
-    }
-    let simplefs=undefined as SimpleFileSystem|undefined;
-    if(installedRequirejsResourceProvider.length>0){
-        simplefs=installedRequirejsResourceProvider[0].fs
-    }else if(env==='node'){
-        simplefs=new NodeSimpleFileSystem();
-        await simplefs.ensureInited();
-    }
+    await ensureDefaultFileSystem();
     let fs:CodeContextEnvInitVar['fs']={
-        simple: simplefs,
+        simple: defaultFileSystem!,
         codePath: opt?.codePath,
-        env: env,
         loadScript:async function(path:string){
             assert(this.simple!=undefined);
             if(path.startsWith('.')){

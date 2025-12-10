@@ -226,6 +226,11 @@ export let serverCommandRegistry:Record<string,(param:any)=>any>={
     }
 }
 
+export function pxseedRunStartupModules(){
+    Promise.allSettled(config.initModule!.map(mod=>requirejs.promiseRequire(mod)));
+    import('partic2/packageManager/onServerStartup');
+}
+
 export async function serverCommand(cmd:string,param:any){
     if(serverCommandRegistry[cmd]!=undefined){
         return serverCommandRegistry[cmd](param);

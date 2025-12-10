@@ -1,8 +1,12 @@
 
 import {PxseedConfig, processDirectory, sourceDir} from 'pxseedBuildScript/buildlib'
-import {defaultHttpClient, getWWWRoot, kvStore} from 'partic2/jsutils1/webutils'
+import {defaultHttpClient, getWWWRoot, kvStore, path} from 'partic2/jsutils1/webutils'
 import {ArrayBufferConcat, ArrayWrap2, GenerateRandomString, assert, logger, requirejs} from 'partic2/jsutils1/base'
 import { getNodeCompatApi, readJson, runCommand, writeJson } from 'pxseedBuildScript/util';
+import { defaultFileSystem, ensureDefaultFileSystem, getSimpleFileSysteNormalizedWWWRoot } from 'partic2/CodeRunner/JsEnviron';
+import { NotebookFileData, runNotebook } from 'partic2/JsNotebook/workerinit';
+import { CodeCellListData } from 'partic2/CodeRunner/Inspector';
+import { ServerHostWorker1RpcName } from '../pxprpcClient/registry';
 
 export let __name__=requirejs.getLocalRequireModule(require);
 
@@ -262,6 +266,11 @@ export interface PackageManagerOption{
         //type installHandlerFunc=(moduleName:string)=>void
         function:string
     },
+    onServerStartup?:{
+        module:string,
+        //type installHandlerFunc=(moduleName:string)=>void
+        function:string
+    }
     dependencies?:string[],
     repositories?:{
         [name:string]:string[]
@@ -809,5 +818,31 @@ export async function importPackagesInstallation(installationInfo:{repos:RepoCon
         }catch(e:any){
             log.warning(`importPackagesInstallation install package ${pkg} failed.`+e.toString())
         };
+    }
+}
+
+export async function sendOnStartupEventForAllPackages(){
+    for await (let pkg of listPackages()){
+        let pmopt=getPMOptFromPcfg(pkg);
+        if(pmopt!=null){
+            if(pmopt.onServerStartup!=null){
+                try{
+                    (await import(pmopt.onServerStartup.module))[pmopt.onServerStartup.function]();
+                }catch(err){};
+            }
+        }
+    }
+    await ensureDefaultFileSystem();
+    
+    let startupNotebook=getSimpleFileSysteNormalizedWWWRoot()+'/'+path.join(__name__,'..','notebook','startup.ijsnb');
+    if(await defaultFileSystem!.filetype(startupNotebook)=='none'){
+        let nbd=new NotebookFileData();
+        let ccld=new CodeCellListData();
+        ccld.cellList.push({cellInput:`//All cells in this notebook will be executed when server(and packageManager) started.`,cellOutput:[null,''],key:GenerateRandomString()});
+        nbd.setCellsData(ccld);
+        nbd.rpc=ServerHostWorker1RpcName;
+        await defaultFileSystem!.writeAll(startupNotebook,nbd.dump());
+    }else{
+        await runNotebook(startupNotebook,'all cells');
     }
 }

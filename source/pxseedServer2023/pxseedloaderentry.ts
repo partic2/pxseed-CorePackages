@@ -159,7 +159,7 @@ export let __inited__=(async ()=>{
     console.warn('entry url:'+entryUrl)
     
     await pxseedhttpserver.setupHttpServerHandler()
-    
+    pxseedhttpserver.pxseedRunStartupModules();
     try{
         let invoker1=new rtbridgeInvoker();
         await invoker1.useClient(pxprpcRuntimeBridgeClient);

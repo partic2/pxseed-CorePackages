@@ -1,7 +1,7 @@
 
 import { WebMessage } from "pxprpc/backend";
-import { Io, Server } from "pxprpc/base";
-import { RpcExtendServer1, RpcExtendServerCallable, defaultFuncMap } from "pxprpc/extend";
+import { Client, Io, Server } from "pxprpc/base";
+import { RpcExtendClient1, RpcExtendServer1, RpcExtendServerCallable, defaultFuncMap } from "pxprpc/extend";
 
 //Avoid to static import any module other than '"pxprpc" and "partic2/jsutils1/base"', To avoid incorrect call before workerInitModule imported.
 import { requirejs } from "partic2/jsutils1/base";
@@ -42,7 +42,8 @@ async function savedAsBootModules(){
 
 //Almost only used by './registry'
 let rpcWorkerInited=false;
-async function loadRpcWorkerInitModule(workerInitModule:string[]){
+let workerParentRpcId='';
+async function loadRpcWorkerInitModule(workerInitModule:string[],workerParentRpcIdIn?:string){
     if(!rpcWorkerInited){
         rpcWorkerInited=true;
         await Promise.allSettled(workerInitModule.map(v=>import(v)));
@@ -50,6 +51,22 @@ async function loadRpcWorkerInitModule(workerInitModule:string[]){
         rpcWorkerInitModule.push(...workerInitModule);
         await savedAsBootModules();
     }
+    if(workerParentRpcIdIn!=undefined){
+        workerParentRpcId=workerParentRpcIdIn
+    }
+}
+
+let workerParentRpcClient:RpcExtendClient1|null=null;
+
+export async function getRpcClientConnectWorkerParent(opt?:{forceReconnect?:boolean}){
+    if(opt?.forceReconnect){
+        workerParentRpcClient=null;
+    }
+    if(workerParentRpcClient!=null)return workerParentRpcClient;
+    let wm=new WebMessage.Connection();
+    await wm.connect(workerParentRpcId,3000);
+    workerParentRpcClient=await new RpcExtendClient1(new Client(wm)).init();
+    return workerParentRpcClient;
 }
 
 export let __internal__={

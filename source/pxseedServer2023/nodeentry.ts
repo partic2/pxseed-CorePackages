@@ -1,7 +1,7 @@
 //To initialize node environment. For these don't want to start http server, just import this module.
 import 'partic2/nodehelper/env'
 
-import { config, defaultRouter, loadConfig, rootConfig, saveConfig, serverCommand, serverCommandRegistry, setupHttpServerHandler, subprocessMagic } from './pxseedhttpserver';
+import { config, defaultRouter, loadConfig, pxseedRunStartupModules, rootConfig, saveConfig, serverCommand, serverCommandRegistry, setupHttpServerHandler, subprocessMagic } from './pxseedhttpserver';
 
 export let __name__='pxseedServer2023/nodeentry';
 
@@ -202,7 +202,6 @@ export async function startServer(){
         });
     });
     
-    Promise.allSettled(config.initModule!.map(mod=>requirejs.promiseRequire(mod)));
     if(config.deamonMode!.enabled){
         let subprocs:ChildProcess[]=[]
         for(let t1=0;t1<config.deamonMode!.subprocessConfig.length;t1++){
@@ -252,6 +251,7 @@ export let __inited__=(async ()=>{
         return doExit();
     }
     await setupHttpServerHandler()
+    pxseedRunStartupModules()
 })();
 
 

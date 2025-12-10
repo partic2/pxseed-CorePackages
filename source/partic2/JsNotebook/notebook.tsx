@@ -5,7 +5,6 @@ import { GenerateRandomString, GetCurrentTime, IamdeeScriptLoader, WaitUntil, as
 import * as React from 'preact'
 
 import {ClientInfo, createIoPipe, getAttachedRemoteRigstryFunction, getPersistentRegistered, getRegistered, listRegistered, persistent, ServerHostWorker1RpcName} from 'partic2/pxprpcClient/registry'
-import { installRequireProvider,SimpleFileSystem,defaultFileSystem,ensureDefaultFileSystem } from 'partic2/CodeRunner/JsEnviron';
 import { FileTypeHandlerBase } from './fileviewer';
 
 import { connectToRemoteCodeContext, __name__ as RemoteCodeContextName } from 'partic2/CodeRunner/RemoteCodeContext';
@@ -119,9 +118,6 @@ class NotebookViewer extends React.Component<{context:WorkspaceContext,path:stri
             let jsnotebook=JSON.parse((await code.runCode('return JSON.stringify(jsnotebook)')).stringResult!);
             if(jsnotebook==null){
                 await code.runCode(`jsnotebook={};`);
-                if(opt?.startupScript!=undefined){
-                    await code.runCode(opt.startupScript);
-                }
             }
             await code.runCode(`Object.assign(jsnotebook,${JSON.stringify({startupScript:opt?.startupScript??''})});`);
             await code.runCode(`jsnotebook.doSave=(...argv)=>_ENV.event.dispatchEvent(new CodeContextEvent('${__name__}.NotebookViewer',{data:{call:'doSave',argv}}))`);

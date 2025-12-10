@@ -104,7 +104,7 @@ export let __inited__=(async ()=>{
     }catch(err:any){console.error(err.toString())}
     
     await pxseedhttpserver.setupHttpServerHandler()
-
+    pxseedhttpserver.pxseedRunStartupModules();
     console.info('serving on :'+port1);
     let webuientry='partic2/packageManager/webui';
     let entryUrl=`http://127.0.0.1:${port1}${pxseedBase}/www/index.html?__jsentry=pxseedServer2023%2fwebentry&__redirectjsentry=${encodeURIComponent(webuientry)}&__pxprpcKey=${pxseedhttpserver.config.pxprpcKey}`;

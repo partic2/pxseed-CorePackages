@@ -1,6 +1,6 @@
 import type { LocalRunCodeContext, RunCodeContext } from "./CodeContext";
 import { ArrayBufferToBase64, ArrayWrap2, Base64ToArrayBuffer, GenerateRandomString, future, mutex, requirejs, sleep, throwIfAbortError } from "partic2/jsutils1/base";
-import { SimpleFileSystem, installedRequirejsResourceProvider } from "./JsEnviron";
+import { SimpleFileSystem, defaultFileSystem, ensureDefaultFileSystem, installedRequirejsResourceProvider } from "./JsEnviron";
 import { getWWWRoot } from "partic2/jsutils1/webutils";
 
 const __name__=requirejs.getLocalRequireModule(require);
@@ -302,55 +302,59 @@ export async function importNameCompletion(partialName:string){
             }
         }
     }
-    for(let customProvider of installedRequirejsResourceProvider){
-        let lastDirIndex=partialName.lastIndexOf('/');
-        let lastdir='';
-        if(lastDirIndex>=0){
-            lastdir=partialName.substring(0,lastDirIndex);
-        }
-        try{
-            let children=await customProvider.fs.listdir(customProvider.rootPath+'/'+lastdir);
-            let nameFilter=removeLeadingSlash(partialName.substring(lastdir.length));
-            for(let t1 of children){
-                if(t1.name.startsWith(nameFilter)){
-                    if(t1.type=='file' && t1.name.endsWith('.js')){
-                        let modPath=removeLeadingSlash(
-                            lastdir+'/'+t1.name.substring(0,t1.name.length-3))
-                        candidate.add(modPath);
-                    }else if(t1.type=='dir'){
-                        let modPath=removeLeadingSlash(lastdir+'/'+t1.name);
-                        candidate.add(modPath);
+    try{
+        for(let customProvider of installedRequirejsResourceProvider){
+            let lastDirIndex=partialName.lastIndexOf('/');
+            let lastdir='';
+            if(lastDirIndex>=0){
+                lastdir=partialName.substring(0,lastDirIndex);
+            }
+            try{
+                let children=await customProvider.fs.listdir(customProvider.rootPath+'/'+lastdir);
+                let nameFilter=removeLeadingSlash(partialName.substring(lastdir.length));
+                for(let t1 of children){
+                    if(t1.name.startsWith(nameFilter)){
+                        if(t1.type=='file' && t1.name.endsWith('.js')){
+                            let modPath=removeLeadingSlash(
+                                lastdir+'/'+t1.name.substring(0,t1.name.length-3))
+                            candidate.add(modPath);
+                        }else if(t1.type=='dir'){
+                            let modPath=removeLeadingSlash(lastdir+'/'+t1.name);
+                            candidate.add(modPath);
+                        }
                     }
                 }
-            }
-        }catch(e){};
-    }
-    //If in node environment
-    if(globalThis.process!=undefined&&globalThis.process.versions!=undefined&&globalThis.process.versions.node!=undefined){
-        let fs=await import('fs/promises');
-        let path=await import('path');
-        let moduleDir=getWWWRoot();
+            }catch(e){};
+        }
+    }catch(err){}
+    
+    try{
+    await ensureDefaultFileSystem();
+        let moduleDir=getWWWRoot().replace(/\\/g,'/');
+        if(!moduleDir.startsWith('/')){
+            moduleDir='/'+moduleDir;
+        }
         let lastDirIndex=partialName.lastIndexOf('/');
         let lastdir='';
         if(lastDirIndex>=0){
             lastdir=partialName.substring(0,lastDirIndex);
         }
         try{
-            let children=await fs.readdir(path.join(moduleDir,lastdir),{withFileTypes:true});
+            let children=await defaultFileSystem!.listdir(moduleDir+'/'+lastdir);
             for(let t1 of children){
                 let nameFilter=removeLeadingSlash(partialName.substring(lastdir.length));
                 if(t1.name.startsWith(nameFilter)){
-                    if(!t1.isDirectory() && t1.name.endsWith('.js')){
+                    if(t1.type!=='dir' && t1.name.endsWith('.js')){
                         candidate.add(removeLeadingSlash(
                             lastdir+'/'+t1.name.substring(0,t1.name.length-3)));
-                    }else if(t1.isDirectory()){
+                    }else if(t1.type==='dir'){
                         candidate.add(removeLeadingSlash(
                             lastdir+'/'+t1.name));
                     }
                 }
             }
         }catch(e){};
-    }
+    }catch(err){};
     return Array.from(candidate);
 }
 

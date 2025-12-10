@@ -154,7 +154,7 @@ export class RpcWorker{
                 await this.wt!.start();
                 WebMessage.bind(this.wt!.port!)
                 await this.wt!.runScript(`require(['partic2/pxprpcClient/rpcworker'],function(workerInit){
-                    workerInit.__internal__.loadRpcWorkerInitModule(${JSON.stringify(rpcWorkerInitModule)}).then(resolve,reject);
+                    workerInit.__internal__.loadRpcWorkerInitModule(${JSON.stringify(rpcWorkerInitModule)},'${rpcId}').then(resolve,reject);
                 },reject)`,true);
                 this.conn= await new WebMessage.Connection().connect(this.wt!.workerId,500);
             }
@@ -403,7 +403,7 @@ export async function getConnectionFromUrl(url:string):Promise<Io|null>{
         let worker=await swu.ensureServiceWorkerInstalled();
         WebMessage.bind(worker!.port!)
         await worker!.runScript(`require(['partic2/pxprpcClient/rpcworker'],function(workerInit){
-            workerInit.loadRpcWorkerInitModule(${JSON.stringify(rpcWorkerInitModule)}).then(resolve,reject);
+            workerInit.loadRpcWorkerInitModule(${JSON.stringify(rpcWorkerInitModule)},'${rpcId}').then(resolve,reject);
         },reject)`,true);
         return await new WebMessage.Connection().connect(worker!.workerId,300);
     }else if(url2.protocol=='pxseedjs:'){
@@ -468,7 +468,7 @@ export const ServiceWorker='service worker 1';
 
 
 export async function addBuiltinClient(){
-    if(globalThis.location!=undefined && globalThis.WebSocket !=undefined){
+    if(globalThis.location!=undefined && ['http:','https:'].includes(globalThis.location.protocol) && globalThis.WebSocket !=undefined){
         if(getRegistered(ServerHostRpcName)!=null && getRegistered(ServerHostWorker1RpcName)==null){
             addClient('iooverpxprpc:'+ServerHostRpcName+'/'+
             encodeURIComponent('webworker:'+__name__+'/worker/1'),ServerHostWorker1RpcName)
@@ -503,7 +503,7 @@ export let persistent={
     }
 }
 //Critical Security Risk. this value can be use to communicate cross-origin.
-export let rpcId=(globalThis as any).__workerId??GenerateRandomString();
+export let rpcId=(globalThis as any).__workerId??GenerateRandomString(8);
 
 if('window' in globalThis){
     if(globalThis.window.opener!=null){
