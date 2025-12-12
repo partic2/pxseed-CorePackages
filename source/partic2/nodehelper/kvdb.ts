@@ -50,7 +50,7 @@ export class FsBasedKvDbV1 implements IKeyValueDb{
         await fs.writeFile(this.baseDir+'/config.json',new TextEncoder().encode(JSON.stringify(this.config)))
     }
     async getItem(key: string): Promise<any> {
-        if(!(key in this.config!.fileList)){
+        if(this.config!.fileList[key]==undefined){
             return undefined;
         }
         let {fileName,type}=this.config!.fileList[key];

@@ -9,6 +9,7 @@ export var __name__=requirejs.getLocalRequireModule(require);
 import { addClient, getPersistentRegistered, rpcWorkerInitModule, ServerHostWorker1RpcName } from 'partic2/pxprpcClient/registry';
 if(!rpcWorkerInitModule.includes(__name__)){
     rpcWorkerInitModule.push(__name__);
+    rpcWorkerInitModule.push(path.join(__name__,'..','httponrpc'));
 }
 
 export let subprocessMagic='--subprocessrnd197izpzgbvbhglw0w';
@@ -45,12 +46,13 @@ export let config:PxseedServer2023StartupConfig={
 
 export let rootConfig={...config};
 
-import { GetUrlQueryVariable2, getWWWRoot } from 'partic2/jsutils1/webutils';
+import { GetUrlQueryVariable2, getWWWRoot, path } from 'partic2/jsutils1/webutils';
 import { SimpleFileServer, SimpleHttpServerRouter, WebSocketServerConnection } from 'partic2/tjshelper/httpprot';
 import { Io } from 'pxprpc/base';
 import { buildTjs } from 'partic2/tjshelper/tjsbuilder';
 import { GenerateRandomString, requirejs } from 'partic2/jsutils1/base';
 import { DirAsRootFS, TjsSfs } from 'partic2/CodeRunner/JsEnviron';
+
 
 export async function loadConfig(){
     let tjs=await buildTjs();
@@ -163,7 +165,7 @@ async function serveWsPipe(io:Io,id:string){
 export async function setupHttpServerHandler(){
     let serverworker1=await getPersistentRegistered(ServerHostWorker1RpcName);
     if(serverworker1==null){
-        await addClient('webworker:'+ServerHostWorker1RpcName);
+        serverworker1=await addClient('webworker:'+ServerHostWorker1RpcName);
     }
     defaultRouter.setHandler(config.pxseedBase!+'/pxprpc/0',{websocket:pxprpcHandler});
     defaultRouter.setHandler(config.pxseedBase!+'/ws/pipe',{websocket:wsPipeHandler});
