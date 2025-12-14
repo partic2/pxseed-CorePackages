@@ -62,6 +62,13 @@ export class WindowComponent extends ReactEventTarget<WindowComponentProps,Windo
         super(props,ctx);
         this.setState({activateTime:-1,layout:this.props.initialLayout??{left:0,top:0},errorOccured:null});
     }
+    _triggerResize=()=>{this.forceUpdate();this.dispatchEvent(new Event('resize'))};
+    componentDidMount(): void {
+        window.addEventListener('resize',this._triggerResize);
+    }
+    componentWillUnmount(): void {
+        window.removeEventListener('reisze',this._triggerResize);
+    }
     async makeCenter(){
         await (async()=>{
             let width=0;
@@ -156,7 +163,7 @@ export class WindowComponent extends ReactEventTarget<WindowComponentProps,Windo
     }
     renderTitle(){
         return <div className={[cssBase.flexRow,css.defaultTitleStyle].join(' ')} style={{alignItems:'center'}}>
-                <div style={{flexGrow:'1',cursor:'move',userSelect:'none'}} 
+                <div style={{flexGrow:'1',cursor:'move',userSelect:'none',overflowY:'auto'}} 
                 onMouseDown={this.__onTitleMouseDownHandler} onTouchStart={this.__onTitleTouchDownHandler} >
                 {(this.props.title??'').replace(/ /g,String.fromCharCode(160))}</div>&nbsp;
                 {
@@ -248,7 +255,6 @@ export class WindowComponent extends ReactEventTarget<WindowComponentProps,Windo
         this.props.onComponentDidUpdate?.();
     }
     windowsList:WindowsList|null=null;
-    parentWindow:WindowComponent|null=null;
     render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined; }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChild {
         return <FloatLayerComponent activateTime={this.state.activateTime}>
             <WindowsListContext.Consumer>{(value)=>{this.windowsList=value;return null}}</WindowsListContext.Consumer>
