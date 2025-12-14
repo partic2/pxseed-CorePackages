@@ -79,11 +79,6 @@ exports.main=async (entry)=>{
         nodeIdCompat:true  //remove suffix .js
     });
     let nodeLoader=new NodeScriptLoader();
-    try{
-        await import('os')
-    }catch(e){
-        nodeLoader.useLegacyRequire=true;
-    }
     define.amd.scriptLoaders.push(nodeLoader);
     //XXX: UMD module may incorrectly use AMD "define" in node module loading,
     //So we hook the node loader and delete "define" temporarily when load module in "(npmdeps)/node_modules" directory.

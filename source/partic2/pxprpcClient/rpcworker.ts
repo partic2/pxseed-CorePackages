@@ -3,30 +3,37 @@ import { WebMessage } from "pxprpc/backend";
 import { Client, Io, Server } from "pxprpc/base";
 import { RpcExtendClient1, RpcExtendServer1, RpcExtendServerCallable, defaultFuncMap } from "pxprpc/extend";
 
-//Avoid to static import any module other than '"pxprpc" and "partic2/jsutils1/base"', To avoid incorrect call before workerInitModule imported.
-import { requirejs } from "partic2/jsutils1/base";
-import { lifecycle } from "../jsutils1/webutils";
+//Avoid to static import any module other than '"pxprpc" and "partic2/jsutils1"', To avoid incorrect call before workerInitModule imported.
+import { future, GenerateRandomString, requirejs, sleep } from "partic2/jsutils1/base";
 
 const __name__=requirejs.getLocalRequireModule(require);
 
-declare var __workerId:string;
+//Security Vulnerable?. this value can be use to communicate cross-origin.
+export let rpcId=(globalThis as any).__workerId??GenerateRandomString(8);
 
-WebMessage.bind(globalThis)
-
-let acceptedRpcConnection=new Set<Io>();
-
-new WebMessage.Server((conn)=>{
-    acceptedRpcConnection.add(conn);
-    //mute error
-    new RpcExtendServer1(new Server(conn)).serve().catch(()=>{}).finally(()=>acceptedRpcConnection.delete(conn));
-}).listen(__workerId);
-
-lifecycle.addEventListener('exit',()=>{
-    for(let t1 of acceptedRpcConnection){
-        t1.close();
+//If loaded in window.
+if(globalThis.window?.postMessage!=undefined){
+    if(globalThis.window.opener!=null){
+        WebMessage.bind({
+            postMessage:(data,opt)=>globalThis.window.opener.postMessage(data,{targetOrigin:'*',...opt}),
+            addEventListener:()=>{},
+            removeEventListener:()=>{}
+        })
     }
-})
+    if(globalThis.window.parent!=undefined && globalThis.window.self!=globalThis.window.parent){
+        WebMessage.bind({
+            postMessage:(data,opt)=>globalThis.window.parent.postMessage(data,{targetOrigin:'*',...opt}),
+            addEventListener:()=>{},
+            removeEventListener:()=>{}
+        });
+    }
+    
+    WebMessage.postMessageOptions.targetOrigin='*'   
+}
 
+if(globalThis.postMessage!=undefined && globalThis.addEventListener!=undefined){
+    WebMessage.bind(globalThis)
+}
 
 let bootModules=new Set();
 
@@ -43,9 +50,13 @@ async function savedAsBootModules(){
 //Almost only used by './registry'
 let rpcWorkerInited=false;
 let workerParentRpcId='';
-async function loadRpcWorkerInitModule(workerInitModule:string[],workerParentRpcIdIn?:string){
+async function initRpcWorker(workerInitModule:string[],workerParentRpcIdIn?:string){
     if(!rpcWorkerInited){
         rpcWorkerInited=true;
+        new WebMessage.Server((conn)=>{
+            //mute error
+            new RpcExtendServer1(new Server(conn)).serve().catch(()=>{});
+        }).listen(rpcId);        
         await Promise.allSettled(workerInitModule.map(v=>import(v)));
         let {rpcWorkerInitModule}=await import('./registry');
         rpcWorkerInitModule.push(...workerInitModule);
@@ -59,6 +70,7 @@ async function loadRpcWorkerInitModule(workerInitModule:string[],workerParentRpc
 let workerParentRpcClient:RpcExtendClient1|null=null;
 
 export async function getRpcClientConnectWorkerParent(opt?:{forceReconnect?:boolean}){
+    if(workerParentRpcId==='')return null;
     if(opt?.forceReconnect){
         workerParentRpcClient=null;
     }
@@ -70,7 +82,7 @@ export async function getRpcClientConnectWorkerParent(opt?:{forceReconnect?:bool
 }
 
 export let __internal__={
-    savedAsBootModules,loadRpcWorkerInitModule
+    savedAsBootModules,initRpcWorker
 }
 
 export async function reloadRpcWorker(){

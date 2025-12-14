@@ -27,7 +27,7 @@ export let ensureInit=new future<number>();
 
 export let WsServer={
     ws:new WebSocketServer({noServer:true}),
-    handle:function(req: IncomingMessage, socket: Duplex, head: Buffer){
+    handle:async function(req: IncomingMessage, socket: Duplex, head: Buffer){
         let url=new URL(req.url!,`http://${req.headers.host}`);
         let request=new Request(url,{
             method:req.method,
@@ -40,7 +40,7 @@ export let WsServer={
             })
         });
         let accepted=false;
-        defaultHttpHandler.onwebsocket({
+        await defaultHttpHandler.onwebsocket({
             request,
             accept:async ()=>{
                 accepted=true;

@@ -1,10 +1,18 @@
 
 
 import * as React from 'preact'
-import { ClientInfo, addClient, removeClient, getRegistered, listRegistered, persistent, rpcId } from './registry';
+import { ClientInfo, addClient, removeClient, getRegistered, listRegistered, persistent } from './registry';
 import { ReactRefEx, css, event } from 'partic2/pComponentUi/domui';
 import { prompt,alert} from 'partic2/pComponentUi/window';
 import { ArrayWrap2, assert, GenerateRandomString } from 'partic2/jsutils1/base';
+import { rpcId } from './rpcworker';
+import { DynamicPageCSSManager } from 'partic2/jsutils1/webutils';
+
+let css2={
+    rpcClientCard:GenerateRandomString()
+}
+
+DynamicPageCSSManager.PutCss('.'+css2.rpcClientCard,['word-break:break-all']);
 
 class AddCard extends React.Component<{},{
     url:string,name:string,rpcChain:string[]
@@ -51,7 +59,7 @@ class AddCard extends React.Component<{},{
         this.setState({url:info.url,name:info.name})
     }
     public render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined; }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChild {
-        return <div className={[css.simpleCard,css.flexColumn].join(' ')} style={{minWidth:'360px'}}>
+        return <div className={[css.simpleCard,css.flexColumn].join(' ')}>
             <input type="text" placeholder='name' value={this.state.name} onChange={(ev)=>{this.setState({name:(ev.target as any).value})}} />
             <input type="text" placeholder='url' value={this.state.url} onChange={(ev)=>{this.setState({url:(ev.target as any).value})}} />
             <div className={[css.flexRow].join(' ')} style={{flexWrap:'wrap'}}>
@@ -67,6 +75,7 @@ class AddCard extends React.Component<{},{
         </div>
     }
 }
+
 
 export class RegistryUI extends React.Component<{},{selected:string|null}>{
     rref={div:React.createRef<HTMLDivElement>()}
@@ -149,19 +158,21 @@ export class RegistryUI extends React.Component<{},{selected:string|null}>{
         btns.push({label:'Add',handler:()=>this.doAdd()})
         let allClients=Array.from(listRegistered());
         allClients.sort((a,b)=>(a[0]<b[0])?-1:(a[0]===b[0]?0:1))
-        return <div className={css.simpleCard} ref={this.rref.div}>
-            RPC id for this scope:{rpcId}<br/>
-            PXPRPC Connection:<br/>
+        return <div className={[css.simpleCard,css.flexColumn].join(' ')} ref={this.rref.div}>
+            <h3>PXPRPC Connection:</h3>
             {allClients.map(ent=>{
-                return <div key={ent[0]} className={[css.simpleCard,css.selectable,this.state.selected===ent[0]?css.selected:''].join(' ')}
+                return <div key={ent[0]} className={[css2.rpcClientCard,css.simpleCard,css.selectable,
+                    this.state.selected===ent[0]?css.selected:''].join(' ')}
                     onClick={()=>this.doSelect(ent[0])}>
-                    <div>{ent[0]}</div><div>{ent[1]!.url.toString()}</div>
+                    <div>{ent[0]}</div><hr/><div>{ent[1]!.url.toString()}</div><hr/>
                     <div>{ent[1]!.connected()?'connected':'disconnected'}</div>
                 </div>
             })}
         <div>
             {btns.map(v=><span>&emsp;<a href="javascript:;" onClick={v.handler}>{v.label}</a>&emsp;</span>)}
         </div>
+        <hr/>
+        <div style={{wordBreak:'break-all'}}>RPC id for this scope:{rpcId}</div>
         </div>
     }
 }

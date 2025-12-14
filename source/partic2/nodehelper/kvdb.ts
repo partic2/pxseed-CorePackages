@@ -1,71 +1,114 @@
 
-import * as fs from 'fs/promises'
-import {join} from 'path'
-import { GenerateRandomString ,Base64ToArrayBuffer,ArrayBufferToBase64, requirejs} from 'partic2/jsutils1/base';
-
+import { GenerateRandomString ,Base64ToArrayBuffer,ArrayBufferToBase64, requirejs, logger} from 'partic2/jsutils1/base';
+import {Serializer} from 'pxprpc/base'
 import {CKeyValueDb, getWWWRoot, IKeyValueDb, setKvStoreBackend} from 'partic2/jsutils1/webutils'
-
 
 var __name__=requirejs.getLocalRequireModule(require);
 
+import type {} from '@txikijs/types/src/index'
+import { buildTjs } from 'partic2/tjshelper/tjsbuilder';
 
+let log=logger.getLogger(__name__);
 
-import {toSerializableObject,fromSerializableObject} from 'partic2/CodeRunner/Inspector'
+let serializableObjectMagic='__DUz66NYkWuMdex9k2mvwBbYN__';
 
+function serializableObject(obj:any):Uint8Array{
+    Error.stackTraceLimit=100
+    let extraSer=new Array<Uint8Array>();
+    let json=JSON.stringify(obj,(key,value)=>{
+        if(value instanceof Uint8Array){
+            extraSer.push(value);
+            return {[serializableObjectMagic]:true,t:'Uint8Array',i:extraSer.length-1};
+        }else if(value instanceof ArrayBuffer){
+            extraSer.push(new Uint8Array(value));
+            return {[serializableObjectMagic]:true,t:'ArrayBuffer',i:extraSer.length-1};
+        }else if(value instanceof Int8Array){
+            extraSer.push(new Uint8Array(value.buffer,value.byteOffset,value.byteLength));
+            return {[serializableObjectMagic]:true,t:'Int8Array',i:extraSer.length-1};
+        }
+        return value;
+    })
+    let ser=new Serializer().prepareSerializing(64);
+    ser.putString(json).putVarint(extraSer.length);
+    for(let t1 of extraSer){
+        ser.putBytes(t1);
+    }
+    return ser.build();
+}
 
+function unserializableObject(data:Uint8Array):any{
+    let unser=new Serializer().prepareUnserializing(data);
+    let json=unser.getString();
+    let extraSerCount=unser.getVarint();
+    let extraSer=new Array<Uint8Array>();
+    for(let t1=0;t1<extraSerCount;t1++){
+        extraSer.push(unser.getBytes())
+    }
+    let obj=JSON.parse(json,(key,value)=>{
+        if(value[serializableObjectMagic]===true){
+            if(value.t==='Uint8Array'){
+                return extraSer[value.i];
+            }else if(value.t==='ArrayBuffer'){
+                return extraSer[value.i].buffer;
+            }else if(value.v instanceof Array){
+                return new (globalThis as any)[value.t](...value.v)
+            }else if(value.t==='Int8Array'){
+                return new Int8Array(extraSer[value.i].buffer);
+            }
+        }
+        return value;
+    });
+    return obj;
+}
+
+async function tjsWriteFile(path:string,data:Uint8Array){
+    let tjs1=await buildTjs()
+    let file1=await tjs1!.open(path,'w');
+    try{
+        await file1.write(data);
+    }finally{
+        await file1.close();
+    }
+}
+
+//TODO: concurrent read/write support?
 export class FsBasedKvDbV1 implements IKeyValueDb{
     baseDir:string=''
     config?:{
-        fileList:{[key:string]:{fileName:string,type:'json'|'ArrayBuffer'|'Uint8Array'|'Int8Array'}},
+        version:1,
+        fileList:{[key:string]:{fileName:string}},
     }
+    tjs1:null|typeof tjs=null;
     async init(baseDir:string){
         this.baseDir=baseDir;
+        this.tjs1=await buildTjs();
         try{
-            await fs.access(baseDir+'/config.json',fs.constants.R_OK);
+            let data=await this.tjs1.readFile(baseDir+'/config.json')
+            this.config=JSON.parse(new TextDecoder().decode(data));
+            if(this.config?.version!==1){
+                log.warning('Invalid kvdb file, ignored.',baseDir+'/config.json')
+                this.config={version:1,fileList:{}}
+            }
         }catch(e){
-            await fs.writeFile(baseDir+'/config.json',new TextEncoder().encode('{}'))
+            this.config={version:1,fileList:{}}
         }
-        let data=await fs.readFile(baseDir+'/config.json')
-        this.config={fileList:{},...JSON.parse(new TextDecoder().decode(data))}
+        
     }
     async setItem(key: string, val: any): Promise<void> {
         if(!(key in this.config!.fileList)){
-            this.config!.fileList[key]={fileName:GenerateRandomString(),type:'json'}
+            this.config!.fileList[key]={fileName:GenerateRandomString()}
         }
         let {fileName}=this.config!.fileList[key];
-
-        if(val instanceof ArrayBuffer){
-            this.config!.fileList[key].type='ArrayBuffer';
-            await fs.writeFile(`${this.baseDir}/${fileName}`,new Uint8Array(val));
-        }else if(val instanceof Uint8Array){
-            this.config!.fileList[key].type='Uint8Array';
-            await fs.writeFile(`${this.baseDir}/${fileName}`,val);
-        }else if(val instanceof Int8Array){
-            this.config!.fileList[key].type='Int8Array';
-            await fs.writeFile(`${this.baseDir}/${fileName}`,val); 
-        }else{
-            let data=JSON.stringify(toSerializableObject(val,{maxDepth:0x7fffffff,enumerateMode:'for in',maxKeyCount:0x7fffffff}));
-            await fs.writeFile(`${this.baseDir}/${fileName}`,new TextEncoder().encode(data));
-        }
-        await fs.writeFile(this.baseDir+'/config.json',new TextEncoder().encode(JSON.stringify(this.config)))
+        await tjsWriteFile(`${this.baseDir}/${fileName}`,serializableObject(val))
+        await tjsWriteFile(this.baseDir+'/config.json',new TextEncoder().encode(JSON.stringify(this.config)))
     }
     async getItem(key: string): Promise<any> {
-        if(!(key in this.config!.fileList)){
+        if(this.config!.fileList[key]==undefined){
             return undefined;
         }
-        let {fileName,type}=this.config!.fileList[key];
+        let {fileName}=this.config!.fileList[key];
         try{
-            if(type==='ArrayBuffer'){
-                return (await fs.readFile(`${this.baseDir}/${fileName}`)).buffer;
-            }else if(type==='Uint8Array'){
-                return new Uint8Array((await fs.readFile(`${this.baseDir}/${fileName}`)).buffer);
-            }else if(type==='Int8Array'){
-                return new Int8Array((await fs.readFile(`${this.baseDir}/${fileName}`)).buffer);
-            }else if(type==='json'){
-                let data=await fs.readFile(`${this.baseDir}/${fileName}`)
-                let r=fromSerializableObject(JSON.parse(new TextDecoder().decode(data)),{});
-                return r;
-            }
+            return await unserializableObject(await this.tjs1!.readFile(`${this.baseDir}/${fileName}`))
         }catch(e){
             delete this.config!.fileList[key]
             return undefined
@@ -82,45 +125,56 @@ export class FsBasedKvDbV1 implements IKeyValueDb{
     }
     async delete(key: string): Promise<void> {
         let {fileName}=this.config!.fileList[key];
-        await fs.rm(this.baseDir+'/'+fileName);
+        await this.tjs1!.remove(this.baseDir+'/'+fileName);
         delete this.config!.fileList[key]
-        await fs.writeFile(this.baseDir+'/config.json',new TextEncoder().encode(JSON.stringify(this.config)))
+        await tjsWriteFile(this.baseDir+'/config.json',new TextEncoder().encode(JSON.stringify(this.config)))
     }
     async close(): Promise<void> {
-        await fs.writeFile(this.baseDir+'/config.json',new TextEncoder().encode(JSON.stringify(this.config)))
+        await tjsWriteFile(this.baseDir+'/config.json',new TextEncoder().encode(JSON.stringify(this.config)))
     }
 }
 
+let pathSep=getWWWRoot().includes('\\')?'\\':'/';
 
-import * as path from 'path'
+function pathJoin(...args:string[]){
+    let parts=[] as string[];
+    for(let t1 of args){
+        for(let t2 of t1.split(/[\/\\]/)){
+            if(t2==='..' && parts.length>=1){
+                parts.pop();
+            }else if(t2==='.'){
+                //skip
+            }else{
+                parts.push(t2);
+            }
+        }
+    }
+    return parts.join(pathSep);
+}
 
-let cachePath=path.join(getWWWRoot(),__name__,'..');
+let dbDir=pathJoin(getWWWRoot(),__name__,'..')
 
 export function setupImpl(){
     setKvStoreBackend(async (dbname)=>{
         let dbMap:Record<string,string>={};
         //deprecate base64 to be filesystem independent.
-        let filename=btoa(dbname);
-        await fs.mkdir(path.join(cachePath,'data'),{recursive:true});
+        let filename:string|null=null;
+        let tjs1=await buildTjs();
+        await tjs1.makeDir(pathJoin(dbDir,'data'),{recursive:true});
         try{
-            dbMap=JSON.parse(new TextDecoder().decode(await fs.readFile(path.join(cachePath,'data','meta-dbMap'))));
+            dbMap=JSON.parse(new TextDecoder().decode(await tjs1.readFile(pathJoin(dbDir,'data','meta-dbMap'))));
         }catch(e){};
-        if(dbname in dbMap){
+        if(dbMap[dbname]!=undefined){
             filename=dbMap[dbname];
-        }
-        try{
-            await fs.access(path.join(cachePath,'data',filename));
-            if(!(dbname in dbMap)){
-                dbMap[dbname]=filename;
-            }
-        }catch(e){
+        }else{
             filename=GenerateRandomString();
             dbMap[dbname]=filename;
+            await tjs1.makeDir(pathJoin(dbDir,'data',filename),{recursive:true});
         }
-        await fs.writeFile(path.join(cachePath,'data','meta-dbMap'),JSON.stringify(dbMap));
+        await tjsWriteFile(pathJoin(dbDir,'data','meta-dbMap'),new TextEncoder().encode(JSON.stringify(dbMap)));
         let db=new FsBasedKvDbV1();
-        await fs.mkdir(path.join(cachePath,'data',filename),{recursive:true});
-        await db.init(path.join(cachePath,'data',filename));
+        await tjs1.makeDir(pathJoin(dbDir,'data',filename),{recursive:true});
+        await db.init(pathJoin(dbDir,'data',filename));
         return db;
     });
-}
+};

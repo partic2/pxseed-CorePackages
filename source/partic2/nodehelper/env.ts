@@ -1,10 +1,9 @@
 import { setupImpl as kvdbInit } from "./kvdb";
 import { setupImpl as workerInit } from "./worker";
 import {setup as jseioInit} from './jseio'
-import { GenerateRandomString } from "partic2/jsutils1/base";
-import { getAttachedRemoteRigstryFunction, RpcWorker } from "partic2/pxprpcClient/registry";
 
-export function setupImpl(){
+
+function setupImpl(){
     kvdbInit()
     workerInit()
     jseioInit()
@@ -27,25 +26,17 @@ export function setupImpl(){
                 let fs=await import('fs/promises')
                 jscode=new TextDecoder().decode(await fs.readFile(path));
             }
-            if(target=='_self'){
-                new Function(jscode)();
-            }else{
-                if(target=='_blank' || target==undefined){
-                    target=GenerateRandomString();
-                }
-                let worker=new RpcWorker(target)
-                let workerClient=await worker.ensureClient();
-                let workerFuncs=await getAttachedRemoteRigstryFunction(workerClient);
-                await workerFuncs.jsExec(`new Function(${JSON.stringify(jscode)})();`,null);
-            }
+            new Function(jscode)();
         }) as any
     }
 }
 
-if(globalThis.process?.versions?.node==undefined){
-    console.warn('This module is only used to initialize pxseed environment on Node.js,'+
-        ' and has no effect on other platform.'+
-        'Also avoid to import this module on other platform.')
-}else{
-    setupImpl();
-}
+export let __inited__=(async ()=>{
+    if(globalThis.process?.versions?.node==undefined){
+        console.warn('This module is only used to initialize pxseed environment on Node.js,'+
+            ' and has no effect on other platform.'+
+            'Also avoid to import this module on other platform.')
+    }else{
+        setupImpl();
+    }    
+})()

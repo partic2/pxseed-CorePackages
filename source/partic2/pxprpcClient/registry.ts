@@ -1,9 +1,9 @@
-import { ArrayBufferConcat, ArrayWrap2, GenerateRandomString, future, mutex, requirejs } from "partic2/jsutils1/base";
-import { GetPersistentConfig, SavePersistentConfig,IWorkerThread, CreateWorkerThread, lifecycle, GetUrlQueryVariable } from "partic2/jsutils1/webutils";
+import { ArrayBufferConcat, ArrayWrap2, GenerateRandomString, future, mutex, requirejs, sleep } from "partic2/jsutils1/base";
+import { GetPersistentConfig, SavePersistentConfig,IWorkerThread, CreateWorkerThread, lifecycle, GetUrlQueryVariable, getWWWRoot } from "partic2/jsutils1/webutils";
 import { WebMessage, WebSocketIo } from "pxprpc/backend";
 import { Client, Io, Server } from "pxprpc/base";
 import { RpcExtendClient1, RpcExtendClientCallable, RpcExtendClientObject, RpcExtendServer1, RpcExtendServerCallable, defaultFuncMap } from "pxprpc/extend";
-
+import { rpcId } from "./rpcworker";
 
 
 export var __name__=requirejs.getLocalRequireModule(require);
@@ -154,7 +154,7 @@ export class RpcWorker{
                 await this.wt!.start();
                 WebMessage.bind(this.wt!.port!)
                 await this.wt!.runScript(`require(['partic2/pxprpcClient/rpcworker'],function(workerInit){
-                    workerInit.__internal__.loadRpcWorkerInitModule(${JSON.stringify(rpcWorkerInitModule)},'${rpcId}').then(resolve,reject);
+                    workerInit.__internal__.initRpcWorker(${JSON.stringify(rpcWorkerInitModule)},'${rpcId}').then(resolve,reject);
                 },reject)`,true);
                 this.conn= await new WebMessage.Connection().connect(this.wt!.workerId,500);
             }
@@ -171,6 +171,7 @@ export class RpcWorker{
         return this.client;
     }
 }
+
 
 export class ClientInfo{
     client:RpcExtendClient1|null=null;
@@ -431,7 +432,7 @@ export function listRegistered(){
 
 export async function getPersistentRegistered(name:string){
     await persistent.load();
-    return getRegistered(name);
+    return registered.get(name);
 }
 
 export async function listPersistentRegistered(name:string){
@@ -470,18 +471,18 @@ export const ServiceWorker='service worker 1';
 export async function addBuiltinClient(){
     if(globalThis.location!=undefined && ['http:','https:'].includes(globalThis.location.protocol) && globalThis.WebSocket !=undefined){
         if(getRegistered(ServerHostRpcName)!=null && getRegistered(ServerHostWorker1RpcName)==null){
-            addClient('iooverpxprpc:'+ServerHostRpcName+'/'+
+            await addClient('iooverpxprpc:'+ServerHostRpcName+'/'+
             encodeURIComponent('webworker:'+__name__+'/worker/1'),ServerHostWorker1RpcName)
         }
         if(getRegistered(ServiceWorker)==null){
-            addClient('serviceworker:1',ServiceWorker);
+            await addClient('serviceworker:1',ServiceWorker);
         }
         if(getRegistered(WebWorker1RpcName)==null){
-            addClient('webworker:'+__name__+'/worker/1',WebWorker1RpcName)
+            await addClient('webworker:'+__name__+'/worker/1',WebWorker1RpcName)
         }
     }else{
         if(getRegistered(ServerHostWorker1RpcName)==null){
-            addClient('webworker:'+__name__+'/worker/1',ServerHostWorker1RpcName)
+            await addClient('webworker:'+__name__+'/worker/1',ServerHostWorker1RpcName)
         }
     }
 }
@@ -496,41 +497,19 @@ export let persistent={
         let config=await GetPersistentConfig(__name__);
         if('registered' in config){
             (config.registered as {name:string,url:string}[]).forEach(item=>{
-                addClient(item.url,item.name);
+                let {name,url}=item;
+                name=(name==undefined||name==='')?url.toString():name;
+                let clie=registered.get(name);
+                if(clie==undefined){
+                    //Skip if existed, To avoid connection lost unexpected.
+                    clie=new ClientInfo(name,url);
+                }
+                clie.url=url;
+                registered.set(name,clie);
             })
         }
         await addBuiltinClient();
     }
-}
-//Critical Security Risk. this value can be use to communicate cross-origin.
-export let rpcId=(globalThis as any).__workerId??GenerateRandomString(8);
-
-if('window' in globalThis){
-    if(globalThis.window.opener!=null){
-        WebMessage.bind({
-            postMessage:(data,opt)=>globalThis.window.opener.postMessage(data,{targetOrigin:'*',...opt}),
-            addEventListener:()=>{},
-            removeEventListener:()=>{}
-        })
-    }
-    if(globalThis.window.parent!=undefined && globalThis.window.self!=globalThis.window.parent){
-        WebMessage.bind({
-            postMessage:(data,opt)=>globalThis.window.parent.postMessage(data,{targetOrigin:'*',...opt}),
-            addEventListener:()=>{},
-            removeEventListener:()=>{}
-        });
-    }
-    //Critical Security Risk
-    if(globalThis.document!=undefined){
-        try{
-            new WebMessage.Server((conn)=>{
-                //mute error
-                new RpcExtendServer1(new Server(conn)).serve().catch(()=>{});
-            }).listen(rpcId);
-        }catch(err){};
-    }
-    
-    WebMessage.postMessageOptions.targetOrigin='*'   
 }
 
 //Before typescript support syntax like <typeof import(T)>, we can only tell module type explicitly.

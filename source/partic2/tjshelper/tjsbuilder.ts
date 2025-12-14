@@ -1,8 +1,6 @@
 //build tjs interface on supported platform
 
-import { addClient, getPersistentRegistered, ServerHostWorker1RpcName } from 'partic2/pxprpcClient/registry';
 import type {} from '@txikijs/types/src/index'
-import { WebSocketIo } from 'pxprpc/backend';
 
 let builtTjs:null|typeof tjs=null
 
@@ -19,6 +17,7 @@ export async function buildTjs():Promise<typeof tjs>{
     }
     if(builtTjs==null){
         try{
+            let { getPersistentRegistered, ServerHostWorker1RpcName } = await import('partic2/pxprpcClient/registry');
             let rpc=await getPersistentRegistered(ServerHostWorker1RpcName);
             if(rpc!=null){
                 let {tjsFrom}=await import('./tjsonjserpc');

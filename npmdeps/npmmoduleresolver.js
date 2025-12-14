@@ -1,10 +1,11 @@
 
 
 
+let useLegacyRequire=false;
 
 exports.npmimport=async function(moduleId){
-    useLegacyRequire=false;
-    if(!this.useLegacyRequire){
+    
+    if(!useLegacyRequire){
         try{
             let nodeImportName=moduleId;
             let mod;
@@ -15,6 +16,7 @@ exports.npmimport=async function(moduleId){
                 //mute
             }else{
                 console.warn(e);
+                useLegacyRequire=true;
             }
         }
     }else{
