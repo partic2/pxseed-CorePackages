@@ -22,7 +22,7 @@ export async function getNodeCompatApi(){
 }
 
 
-export async function runCommand(cmd:string,opt?:{cwd?:string}){
+async function runCommand(cmd:string,opt?:{cwd?:string}){
     const {spawn}=await import('child_process');
     let runOpt=opt??{};
     let process=spawn(cmd,{shell:true,stdio:'inherit',...runOpt});
@@ -31,20 +31,20 @@ export async function runCommand(cmd:string,opt?:{cwd?:string}){
     }))
 }
 
-export async function readJson(path:string){
+async function readJson(path:string){
     const {fs}=await getNodeCompatApi();
     const {readFile, writeFile}=fs
     return JSON.parse(new TextDecoder().decode(await readFile(path)));
 }
 
 
-export async function writeJson(path:string,obj:any){
+async function writeJson(path:string,obj:any){
     const {fs}=await getNodeCompatApi();
     const {readFile, writeFile}=fs
     await writeFile(path,new TextEncoder().encode(JSON.stringify(obj,undefined,2)));
 }
 
-export async function runBuild(){
+async function runBuild(){
     const {dirname,join:pathJoin} =await import('path');
     let buildScriptPath=pathJoin(dirname(__dirname),'script','buildAll.js')
     await runCommand('node '+buildScriptPath)
@@ -122,4 +122,19 @@ export async function simpleGlob(include:string[],opt:{cwd:string,includeHidenFi
         }
     }
     return matchResult;
+}
+
+export let console=globalThis.console;
+
+export async function withConsole(c:typeof console,fn:()=>Promise<void>){
+    console=c;
+    try{
+        await fn()
+    }finally{
+        console=globalThis.console;
+    }
+}
+
+export let __internal__={
+    runCommand,readJson,writeJson,runBuild
 }

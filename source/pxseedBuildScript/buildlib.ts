@@ -1,6 +1,6 @@
 
 import { pxseedBuiltinLoader ,sourceDir,outputDir, inited} from './loaders';
-import { getNodeCompatApi, readJson, writeJson } from './util';
+import { getNodeCompatApi, __internal__ as utili,console } from './util';
 
 export {sourceDir,outputDir}
 
@@ -38,15 +38,17 @@ function makeDefaultStatus():PxseedStatus{
     return {...PxseedStatusDefault,lastBuildError:[],currentBuildError:[],subpackages:[]}
 }
 
+
+
 export async function processDirectory(dir:string){
     await inited;
     const {fs,path}=await getNodeCompatApi();
-    console.log(`enter ${dir}`);
+    console.info(`enter ${dir}`);
     let children=await fs.readdir(dir,{withFileTypes:true});
     let hasPxseedConfig=false;
     if(children.find(v=>v.name=='pxseed.config.json')){
         hasPxseedConfig=true;
-        console.log('pxseed.config.json found');
+        console.info('pxseed.config.json found');
     }
     if(!hasPxseedConfig){
         for(let child of children){
@@ -55,10 +57,10 @@ export async function processDirectory(dir:string){
             }
         }
     }else{
-        let pxseedConfig=await readJson(path.join(dir,'pxseed.config.json')) as PxseedConfig;
+        let pxseedConfig=await utili.readJson(path.join(dir,'pxseed.config.json')) as PxseedConfig;
         let pstat:PxseedStatus;
         if(children.find(v=>v.name=='.pxseed.status.json')){
-            pstat=await readJson(path.join(dir,'.pxseed.status.json'));
+            pstat=await utili.readJson(path.join(dir,'.pxseed.status.json'));
             pstat={...makeDefaultStatus(),...pstat};
         }else{
             pstat={...makeDefaultStatus()}
@@ -109,7 +111,7 @@ export async function processDirectory(dir:string){
             console.info(pstat.lastBuildError)
         }
         pstat.currentBuildError=[];
-        await writeJson(path.join(dir,'.pxseed.status.json'),pstat);
+        await utili.writeJson(path.join(dir,'.pxseed.status.json'),pstat);
     }
 }
 

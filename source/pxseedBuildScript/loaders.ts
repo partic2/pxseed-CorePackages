@@ -1,6 +1,6 @@
 
 
-import { simpleGlob, runCommand, getNodeCompatApi } from './util'
+import { simpleGlob, getNodeCompatApi,__internal__ as utilsi,console } from './util'
 import {type PxseedStatus} from './buildlib'
 
 
@@ -139,7 +139,7 @@ export let pxseedBuiltinLoader={
                 console.info('typescript loader: No file modified since last build, skiped.')
                 return;
             }
-            let returnCode=await runCommand(`node ${tscPath} -p ${dir}`)
+            let returnCode=await utilsi.runCommand(`node ${tscPath} -p ${dir}`)
             if(returnCode!==0)status.currentBuildError.push('tsc failed.');
         }
     },

@@ -1,4 +1,4 @@
-import { GenerateRandomString, assert, future, mutex, requirejs, sleep } from "./base";
+import { GenerateRandomString, amdContext, assert, future, mutex, requirejs, sleep } from "./base";
 
 
 export var __name__='partic2/jsutils1/webutils'
@@ -593,13 +593,19 @@ let getResourceManagerImpl=(modNameOrLocalRequire:string|typeof require)=>{
     if(typeof modNameOrLocalRequire==='function'){
         modNameOrLocalRequire=requirejs.getLocalRequireModule(modNameOrLocalRequire)
     }
+    let urlArgs=requirejs.getConfig().urlArgs??'';
     return {
         getUrl(path2:string){
+            let r='';
             if(path2.substring(0,1)==='/'){
-                return path.join(getWWWRoot(),path2.substring(1));
+                r=path.join(getWWWRoot(),path2.substring(1));
             }else{
-                return path.join(getWWWRoot(),(modNameOrLocalRequire as string),'..',path2);
+                r=path.join(getWWWRoot(),(modNameOrLocalRequire as string),'..',path2);
             }
+            if(urlArgs!==''){
+                r=r+'?'+urlArgs;
+            }
+            return r;
         },
         async read(path2:string):Promise<ReadableStream>{
             let resp=await defaultHttpClient.fetch(this.getUrl(path2));
@@ -610,12 +616,16 @@ let getResourceManagerImpl=(modNameOrLocalRequire:string|typeof require)=>{
     }
 }
 
-export function setGetResourceManagerImpl(impl:typeof getResourceManagerImpl){
+export function setResourceManagerImpl(impl:typeof getResourceManagerImpl){
     getResourceManagerImpl=impl;
 }
 
 export function getResourceManager(modNameOrLocalRequire:string|typeof require){
     return getResourceManagerImpl(modNameOrLocalRequire)
+}
+
+export function setDefaultResourceRequestUrlArgs(urlArgs:string){
+    amdContext.require.config({urlArgs})
 }
 
 export function useDeviceWidth(){
@@ -656,7 +666,7 @@ class _LifecycleEventHandler extends EventTarget{
 }
 export let lifecycle=new _LifecycleEventHandler();
 
-if('document' in globalThis){
+if(globalThis.document!=undefined){
     globalThis.document.addEventListener('visibilitychange',(ev)=>{
         if(document.hidden){
             lifecycle.dispatchEvent(new Event('pause'));

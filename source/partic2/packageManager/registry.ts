@@ -2,11 +2,11 @@
 import {PxseedConfig, processDirectory, sourceDir} from 'pxseedBuildScript/buildlib'
 import {defaultHttpClient, getWWWRoot, kvStore, path} from 'partic2/jsutils1/webutils'
 import {ArrayBufferConcat, ArrayWrap2, GenerateRandomString, assert, logger, requirejs} from 'partic2/jsutils1/base'
-import { getNodeCompatApi, readJson, runCommand, writeJson } from 'pxseedBuildScript/util';
+import { getNodeCompatApi, __internal__ as utilsi } from 'pxseedBuildScript/util';
 import { defaultFileSystem, ensureDefaultFileSystem, getSimpleFileSysteNormalizedWWWRoot } from 'partic2/CodeRunner/JsEnviron';
 import { NotebookFileData, runNotebook } from 'partic2/JsNotebook/workerinit';
 import { CodeCellListData } from 'partic2/CodeRunner/Inspector';
-import { ServerHostWorker1RpcName } from '../pxprpcClient/registry';
+import { ServerHostWorker1RpcName } from 'partic2/pxprpcClient/registry';
 
 export let __name__=requirejs.getLocalRequireModule(require);
 
@@ -295,7 +295,7 @@ export async function fillNameDependOnPath(path2?:string){
     path2=path2??sourceDir;
     let children=await fs.readdir(path2,{withFileTypes:true});
     if(children.find(v=>v.name=='pxseed.config.json')!=undefined){
-        let result=await readJson(path.join(path2,'pxseed.config.json'));
+        let result=await utilsi.readJson(path.join(path2,'pxseed.config.json'));
         result.name=path2.substring(sourceDir.length+1).replace(/\\/g,'/');
         await fs.writeFile(path.join(path2,'pxseed.config.json'),new TextEncoder().encode(JSON.stringify(result,undefined,'  ')));
     }else{
@@ -370,7 +370,7 @@ let RepositoriesRegistry={
 
 export async function installLocalPackage(path2:string){
     const {fs,path,wwwroot}=await getNodeCompatApi();
-    let pxseedConfig=await readJson(path.join(path2,"pxseed.config.json"));
+    let pxseedConfig=await utilsi.readJson(path.join(path2,"pxseed.config.json"));
     let pkgname=pxseedConfig.name as string;
     let destDir=await getSourceDirForPackage(pkgname);
     await fs.mkdir(destDir,{recursive:true});
@@ -510,7 +510,7 @@ export async function upgradeGitPackage(localPath:string){
 export async function upgradePackage(pkgname:string){
     const {fs,path,wwwroot}=await getNodeCompatApi();
     let pkgdir=path.join(path.join(wwwroot,'..','source'),...pkgname.split('/'));
-    let pxseedConfig=await readJson(path.join(pkgdir,'pxseed.config.json')) as PxseedConfig;
+    let pxseedConfig=await utilsi.readJson(path.join(pkgdir,'pxseed.config.json')) as PxseedConfig;
     let pmopt=getPMOptFromPcfg(pxseedConfig);
     if(pmopt?.onUpgrade!=undefined){
         await (await import(pmopt.onUpgrade.module))[pmopt.onUpgrade.function](pkgname,pkgdir);
@@ -561,7 +561,7 @@ export async function initGitRepo(dir:string){
         return;
     }
     if(children.find(v=>v.name=='pxseed.config.json')!=undefined){
-        let config=await readJson(path.join(dir,'pxseed.config.json'))
+        let config=await utilsi.readJson(path.join(dir,'pxseed.config.json'))
         let name=config.name;
         let {init,addRemote}=await import('isomorphic-git');;
         await init({...await getGitClientConfig(),dir});
@@ -601,7 +601,7 @@ export async function getPxseedConfigForPackage(pkgname:string):Promise<PxseedCo
     let configFile=path.join(await getSourceDirForPackage(pkgname),'pxseed.config.json');
     try{
         await fs.access(configFile);
-        return await readJson(configFile) as PxseedConfig;
+        return await utilsi.readJson(configFile) as PxseedConfig;
     }catch(e){
         return null;
     }
@@ -611,7 +611,7 @@ async function *listPackagesInternal(dir:string):AsyncGenerator<any>{
     const {fs,path,wwwroot}=await getNodeCompatApi();
     let children=await fs.readdir(dir,{withFileTypes:true});
     if(children.find(t1=>t1.name=='pxseed.config.json')){
-        yield await readJson(path.join(dir,'pxseed.config.json'));
+        yield await utilsi.readJson(path.join(dir,'pxseed.config.json'));
     }else{
         for(let t1 of children){
             if(t1.isDirectory()){
@@ -670,7 +670,7 @@ export async function installPackage(source:string,opt?:Partial<typeof defaultIn
     let sourceDir=path.join(wwwroot,'..','source');
     if(source.indexOf(':')>=0){
         if(source.startsWith('npm:')){
-            let packageJson=await readJson(path.join(path.dirname(sourceDir),'npmdeps','package.json')) as {
+            let packageJson=await utilsi.readJson(path.join(path.dirname(sourceDir),'npmdeps','package.json')) as {
                 dependencies:{[pkg:string]:string}
             };
             //TODO: npm version check
@@ -685,8 +685,7 @@ export async function installPackage(source:string,opt?:Partial<typeof defaultIn
                 if(globalThis.process?.versions?.node==undefined){
                     throw new Error('npm depdendencies are only support on node.js platform')
                 }
-                const {runCommand}=await import('pxseedBuildScript/util')
-                let returnCode=await runCommand(`npm i ${pkgName}`,{cwd:path.join(path.dirname(sourceDir),'npmdeps')})
+                let returnCode=await utilsi.runCommand(`npm i ${pkgName}`,{cwd:path.join(path.dirname(sourceDir),'npmdeps')})
                 if(returnCode!==0)log.error('install npm package failed.');
                 //Should we abort?
             }
@@ -736,7 +735,7 @@ export async function createPackageTemplate1(pxseedConfig:PxseedConfig){
     }
     await fs.mkdir(pkgloc,{recursive:true});
     await fs.mkdir(path.join(pkgloc,'assets'));
-    await writeJson(path.join(pkgloc,'pxseed.config.json'),pxseedConfig);
+    await utilsi.writeJson(path.join(pkgloc,'pxseed.config.json'),pxseedConfig);
     await fs.writeFile(path.join(pkgloc,'.gitignore'),
 `.*
 !.gitignore
