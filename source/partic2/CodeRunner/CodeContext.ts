@@ -210,7 +210,7 @@ export class LocalRunCodeContext implements RunCodeContext{
                 foundDecl.push(...declNames)
                 let declaratorStart=node.declarations[0].start;
                 let declaratorEnd=node.declarations.at(-1)!.end;
-                replacePlan.plan.push({start:node.start,end:declaratorStart,newString:'('});
+                replacePlan.plan.push({start:node.start,end:declaratorStart,newString:';('});
                 replacePlan.plan.push({start:declaratorEnd,end:declaratorEnd,newString:')'})
             },
             FunctionDeclaration(node,state,ancestors){
