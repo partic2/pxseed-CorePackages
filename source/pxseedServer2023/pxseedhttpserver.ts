@@ -206,9 +206,16 @@ export async function setupHttpServerHandler(){
 export let serverCommandRegistry:Record<string,(param:any)=>any>={
     buildPackages:async ()=>{
         let {processDirectory}=await import('pxseedBuildScript/buildlib');
-        let {getNodeCompatApi}=await import('pxseedBuildScript/util');
+        let {getNodeCompatApi,withConsole}=await import('pxseedBuildScript/util');
         let {path,wwwroot}=await getNodeCompatApi();
-        await processDirectory(path.join(wwwroot,'..','source'));
+        let records:any[][]=[];
+        let wrapConsole={...globalThis.console};
+        wrapConsole.debug=(...msg:any[])=>records.push(msg);
+        wrapConsole.info=(...msg:any[])=>records.push(msg);
+        wrapConsole.warn=(...msg:any[])=>records.push(msg);
+        wrapConsole.error=(...msg:any[])=>records.push(msg);
+        await withConsole(wrapConsole,()=>processDirectory(path.join(wwwroot,'..','source')));
+        return records.map(t1=>t1.join(' ')).join('\n');
     },
     rebuildPackages:async ()=>{
         let {processDirectory,cleanBuildStatus}=await import('pxseedBuildScript/buildlib');
@@ -230,7 +237,7 @@ export let serverCommandRegistry:Record<string,(param:any)=>any>={
 
 export function pxseedRunStartupModules(){
     Promise.allSettled(config.initModule!.map(mod=>requirejs.promiseRequire(mod)));
-    import('partic2/packageManager/onServerStartup');
+    if(config.subprocessIndex==undefined)import('partic2/packageManager/onServerStartup');
 }
 
 export async function serverCommand(cmd:string,param:any){
