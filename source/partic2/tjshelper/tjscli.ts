@@ -1,7 +1,7 @@
 
 import './tjsenv'
 
-import type {} from '@txikijs/types/src/index'
+import type {} from 'partic2/tjshelper/txikijs'
 
 import { requirejs } from 'partic2/jsutils1/base';
 import { TjsReaderDataSource, TjsWriterDataSink } from './tjsutil';

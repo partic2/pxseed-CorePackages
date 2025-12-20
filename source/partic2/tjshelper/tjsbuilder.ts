@@ -1,6 +1,6 @@
 //build tjs interface on supported platform
 
-import type {} from '@txikijs/types/src/index'
+import type {} from 'partic2/tjshelper/txikijs'
 
 let builtTjs:null|typeof tjs=null
 

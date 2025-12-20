@@ -1,7 +1,7 @@
 //import this module to Initialize pxseed environment on txiki.js platform.
 
 import { ArrayBufferConcat, DateDiff, future, GetCurrentTime, requirejs} from 'partic2/jsutils1/base';
-import type {} from '@txikijs/types/src/index'
+import type {} from 'partic2/tjshelper/txikijs'
 import { Io } from 'pxprpc/base';
 
 var __name__=requirejs.getLocalRequireModule(require);

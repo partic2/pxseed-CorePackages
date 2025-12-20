@@ -4,7 +4,7 @@ import { RpcExtendClient1, RpcExtendClientObject, TableSerializer } from "pxprpc
 import { defaultInvoker, ensureDefaultInvoker, Invoker } from "partic2/pxprpcBinding/JseHelper__JseIo";
 import {  future,copy } from "partic2/jsutils1/base";
 
-import type {} from '@txikijs/types/src/index'
+import type {} from 'partic2/tjshelper/txikijs'
 import { TjsReaderDataSource, TjsWriterDataSink } from "./tjsutil";
 
 

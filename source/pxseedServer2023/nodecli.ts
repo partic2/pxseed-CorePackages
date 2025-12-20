@@ -1,7 +1,7 @@
 import 'partic2/nodehelper/env'
 import './pxseedhttpserver'
 
-import type {} from '@txikijs/types/src/index'
+import type {} from 'partic2/tjshelper/txikijs'
 
 import { requirejs } from 'partic2/jsutils1/base';
 import { SimpleCli } from 'partic2/CodeRunner/simplecli'

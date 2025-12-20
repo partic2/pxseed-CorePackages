@@ -1,6 +1,6 @@
 
 import { ArrayWrap2, GenerateRandomString, requirejs } from "partic2/jsutils1/base";
-import type {} from '@txikijs/types/src/index'
+import type {} from 'partic2/tjshelper/txikijs'
 
 
 /**

@@ -1,7 +1,7 @@
 
 import { ArrayBufferConcat, ArrayWrap2, GenerateRandomString, GetCurrentTime, IamdeeScriptLoader, assert, future, mutex, requirejs, throwIfAbortError } from "partic2/jsutils1/base";
 import { CKeyValueDb, getWWWRoot, kvStore, path } from "partic2/jsutils1/webutils";
-import type {} from '@txikijs/types/src/index'
+import type {} from 'partic2/tjshelper/txikijs'
 import { ClientInfo } from "partic2/pxprpcClient/registry";
 import type { LocalRunCodeContext } from "./CodeContext";
 import { type CodeCompletionContext } from "./Inspector";

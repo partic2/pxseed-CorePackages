@@ -57,7 +57,7 @@ export class DomComponentGroup extends DomComponent{
 export class DomDivComponent extends DomComponentGroup{
     public constructor(){
         super();
-        this.domElem=document.createElement('div');
+        this.domElem=globalThis.document.createElement('div');
     }
 }
 
@@ -66,8 +66,8 @@ export class DomDivComponent extends DomComponentGroup{
 class CDomRootComponent extends DomComponentGroup{
     public constructor(){
         super();
-        let domroot=document.createElement('div');
-        document.body.appendChild(domroot);
+        let domroot=globalThis.document.createElement('div');
+        globalThis.document.body.appendChild(domroot);
         this.domElem=domroot
         this.mounted=true
     }
@@ -79,14 +79,14 @@ class CDomRootComponent extends DomComponentGroup{
     }
     public async update(){
         if(!this.mounted){
-            await this.appendToNode(document.body);
+            await this.appendToNode(globalThis.document.body);
         }
         await super.update()
     }
     public hiddenDiv?:HTMLDivElement
     public addHiddenElement(e:HTMLElement){
         if(this.hiddenDiv==undefined){
-            this.hiddenDiv=document.createElement('div');
+            this.hiddenDiv=globalThis.document.createElement('div');
             this.hiddenDiv.style.display='none'
             this.getDomElement()!.append(this.hiddenDiv);
         }
@@ -99,7 +99,7 @@ class CDomRootComponent extends DomComponentGroup{
     }
     public async addHiddenComponent(comp:DomComponent){
         if(this.hiddenDiv==undefined){
-            this.hiddenDiv=document.createElement('div');
+            this.hiddenDiv=globalThis.document.createElement('div');
             this.hiddenDiv.style.display='none'
             this.getDomElement()!.append(this.hiddenDiv);
         }
@@ -136,7 +136,19 @@ class DomRootComponentProxy extends Ref2<CDomRootComponent>{
     }
 }
 
-export var DomRootComponent=new DomRootComponentProxy(new CDomRootComponent());
+export var DomRootComponent:DomRootComponentProxy
+
+export let __inited__=(async ()=>{
+    if(globalThis.document!=undefined){
+        DomRootComponent=new DomRootComponentProxy(new CDomRootComponent());
+        //To fix preact BUG
+        if(!('ontouchstart' in HTMLElement)){
+            globalThis.HTMLElement.prototype.ontouchstart=undefined;
+            globalThis.HTMLElement.prototype.ontouchmove=undefined;
+            globalThis.HTMLElement.prototype.ontouchend=undefined;
+        }
+    }
+})()
 
 
 export abstract class ReactEventTarget<P={},S={}> extends React.Component<P,S> implements EventTarget{
@@ -308,7 +320,7 @@ export function ReactRender(vnode:React.ComponentChild,container:Ref2<HTMLElemen
     }else if(container instanceof Ref2){
         ReactRender(vnode,container.get());
     }else if(container=='create'){
-        let div1=document.createElement('div');
+        let div1=globalThis.document.createElement('div');
         React.render(vnode,div1);
         return div1;
     }
@@ -316,15 +328,15 @@ export function ReactRender(vnode:React.ComponentChild,container:Ref2<HTMLElemen
 export async function SetComponentFullScreen(comp:DomComponent):Promise<{onExit:future<boolean>,exit:()=>void}>{
     let ctl={
         onExit:new future<boolean>(),
-        exit:function(){if(!this.onExit.done){document.exitFullscreen()}}
+        exit:function(){if(!this.onExit.done){globalThis.document.exitFullscreen()}}
     }
-    if(!document.body.contains(comp.getDomElement()!)){
+    if(!globalThis.document.body.contains(comp.getDomElement()!)){
         DomRootComponent.get().addHiddenComponent(comp);
     }
     await comp.getDomElement()!.requestFullscreen();
     DomRootComponent.get().hiddenDiv!.style.display='block';
     var fsCb=function(ev:Event){
-        if(document.fullscreenElement!==comp.getDomElement()){
+        if(globalThis.document.fullscreenElement!==comp.getDomElement()){
             comp.getDomElement()!.removeEventListener('fullscreenchange',fsCb);
             ctl.onExit.setResult(true);
             DomRootComponent.get().hiddenDiv!.style.display='none';

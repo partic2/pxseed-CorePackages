@@ -5,7 +5,7 @@ import {CKeyValueDb, getWWWRoot, IKeyValueDb, setKvStoreBackend} from 'partic2/j
 
 var __name__=requirejs.getLocalRequireModule(require);
 
-import type {} from '@txikijs/types/src/index'
+import type {} from 'partic2/tjshelper/txikijs'
 import { buildTjs } from 'partic2/tjshelper/tjsbuilder';
 
 let log=logger.getLogger(__name__);

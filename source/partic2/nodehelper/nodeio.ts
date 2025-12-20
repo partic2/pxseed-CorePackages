@@ -2,7 +2,7 @@ import { Readable,Writable } from "stream";
 import {ArrayBufferConcat, ArrayWrap2, assert, CanceledError, future, requirejs} from 'partic2/jsutils1/base'
 import { Io } from "pxprpc/base";
 import { Server, Socket } from "net";
-import type {} from '@txikijs/types/src/index'
+import type {} from 'partic2/tjshelper/txikijs'
 
 
 export var wrappedStreams=Symbol('wrappedStreams');
