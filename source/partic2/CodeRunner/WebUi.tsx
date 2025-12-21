@@ -22,12 +22,14 @@ export interface CodeCellProps{
     customBtns?:{label:string,cb:()=>Promise<any>}[],
     onRun?:()=>void,
     onClearOutputs?:()=>void,
+    onInputChange?:(target:CodeCell)=>void,
     //How to run code with key shortcut, default value:'Ctl+Ent'. use Ctrl+Enter for new line in 'Enter' mode.
     runCodeKey?:'Ctl+Ent'|'Enter'
     //To be used in code cell list.
     onFocusChange?:(focusin:boolean)=>void,
     onTooltips?:(vnode:React.VNode|null)=>void,
     divStyle?:React.CSSProperties,
+    inputClass?:string[],
     divAttr?:React.HTMLAttributes<HTMLDivElement>
 }
 interface CodeCellStats{
@@ -37,7 +39,7 @@ interface CodeCellStats{
     codeCompleteCandidate:(CodeCompletionItem[])|null,
     tooltip:React.VNode,
     extraTooltips:string|null,
-    focusin:boolean
+    focusin:boolean,
 }
 
 
@@ -105,7 +107,7 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
     protected getRunCodeKey(){
         return this.props.runCodeKey??'Ctl+Ent';
     }
-    protected async onCellKeyDown(ev: React.JSX.TargetedKeyboardEvent<HTMLDivElement>){
+    protected async onCellKeyDown(ev: React.TargetedKeyboardEvent<HTMLDivElement>){
         if(ev.code==='Enter'){
             if(this.getRunCodeKey()==='Ctl+Ent' && ev.ctrlKey){
                 this.onBtnRun();
@@ -114,6 +116,7 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
                 if(ev.ctrlKey){
                     //prevent trigger input('\n').Is there better way?
                     this.rref.codeInput.current?.insertText('\n');
+                    this.props.onInputChange?.(this);
                 }else{
                     let fullText=(await this.rref.codeInput.waitValid()).getPlainText();
                     if(countBracket(fullText)==0){
@@ -153,6 +156,7 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
             this.requestCodeComplete.call();
         }
         this.requestUpdateTooltips.call()
+        this.props.onInputChange?.(this);
     }
     getCellInput(){
         let t1=this.rref.codeInput.current!.getPlainText()
@@ -172,6 +176,7 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
         let delCount=caret-cc.replaceRange[0];
         this.rref.codeInput.current!.deleteText(delCount);
         this.rref.codeInput.current!.insertText(cc.candidate);
+        this.props.onInputChange?.(this);
     }
     protected __focusedCheck=false;
     protected renderCodeComplete(){
@@ -189,7 +194,7 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
             </div>
         }
     }
-    protected async doOnFocusChange(focusin:boolean){
+    protected async doOnFocusChange(focusin:boolean,ev:React.TargetedFocusEvent<HTMLDivElement>){
         if(this.props.onFocusChange!=undefined){
             this.props.onFocusChange(focusin);
         }
@@ -240,18 +245,18 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
                 onFocusIn={(ev)=>{
                     this.props.divAttr?.onFocusIn?.(ev);
                     if(!ev.defaultPrevented){
-                        this.doOnFocusChange(true);
+                        this.doOnFocusChange(true,ev);
                     }
                 }}
                 onFocusOut={(ev)=>{
                     this.props.divAttr?.onFocusOut?.(ev);
                     if(!ev.defaultPrevented){
-                        this.doOnFocusChange(false);
+                        this.doOnFocusChange(false,ev);
                     }
                 }}
             >
             <TextEditor ref={this.rref.codeInput} divAttr={{onKeyDown:(ev)=>this.onCellKeyDown(ev)}}
-            onInput={(target,inputData)=>this.onCellInput(target,inputData)} divClass={[css.inputCell]} />
+            onInput={(target,inputData)=>this.onCellInput(target,inputData)} divClass={[css.inputCell,...(this.props.inputClass??[])]} />
             {this.state.focusin?<div style={{position:'relative',display:'flex',justifyContent:'end'}}>
                 <div style={{position:'absolute',backgroundColor:'white',maxWidth:'50%',wordBreak:'break-all'}}>
                 <div>{this.renderActionButton()}</div>
@@ -260,7 +265,7 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
                 {this.state.extraTooltips?<div dangerouslySetInnerHTML={{__html:this.state.extraTooltips}}></div>:null}
                 {this.renderCodeComplete()}
             </div>}
-            <div style={{overflow:'auto'}} tabindex={0}>
+            <div style={{overflow:'auto'}}>
                 <ObjectViewer object={this.state.cellOutput} name={''} />
             </div>
         </div>
@@ -295,7 +300,7 @@ export class DefaultCodeCellList extends React.Component<
             codeContext:RunCodeContext,
             onRun?:(cellKey:string)=>void,
             onCellListChange?:()=>void,
-            cellProps?:{runCodeKey?:'Ctl+Ent'|'Enter'}
+            cellProps?:{runCodeKey?:'Ctl+Ent'|'Enter',inputClass?:string[],onInputChange?:(target:CodeCell)=>void}
         },{
             list:{ref:ReactRefEx<CodeCell>,key:string}[],
             consoleOutput:{[cellKey:string]:{content:string}},
@@ -305,14 +310,14 @@ export class DefaultCodeCellList extends React.Component<
             cellTooltips:null|{content:React.VNode,left:number,top:number,maxWidth:number,maxHeight:number,cellKey:string},
             padBottomCell:number
         }>{
-    priv__initCellValue:{input:string,output:[any,string|null]}[]|null=null;
+    private __initCellValue:{input:string,output:[any,string|null]}[]|null=null;
     protected lastRunCellKey:string='';
     constructor(prop:any,ctx:any){
         super(prop,ctx);
         this.resetState();
         this.setState({cellTooltips:null,padBottomCell:0});
     }
-    __currentCodeContext:RunCodeContext|null=null;
+    protected __currentCodeContext:RunCodeContext|null=null;
     rref={
         container:new ReactRefEx<HTMLDivElement>()
     }
@@ -368,7 +373,7 @@ export class DefaultCodeCellList extends React.Component<
         this.forceUpdate();
     }
     resetState(){
-        this.priv__initCellValue=null;
+        this.__initCellValue=null;
         this.lastRunCellKey='';
         this.setState({
             list:[{ref:new ReactRefEx<CodeCell>(),key:GenerateRandomString()}],
@@ -458,14 +463,14 @@ export class DefaultCodeCellList extends React.Component<
             </div>
     }
     componentDidUpdate(){
-        if(this.priv__initCellValue!==null && this.state.codeContext!=null){
-            this.priv__initCellValue.forEach((val,index)=>{
+        if(this.__initCellValue!==null && this.state.codeContext!=null){
+            this.__initCellValue.forEach((val,index)=>{
                 this.state.list[index].ref.current!.setCellInput(val.input);
                 val.output[0]=fromSerializableObject(
                     val.output[0],{fetcher:new CodeContextRemoteObjectFetcher(this.state.codeContext!),accessPath:[val.output[1]??'']});
                 this.state.list[index].ref.current!.setCellOutput(...val.output);
             })
-            this.priv__initCellValue=null;
+            this.__initCellValue=null;
         }
     }
     saveTo():string{
@@ -492,7 +497,7 @@ export class DefaultCodeCellList extends React.Component<
                     consoleOutput[this.state.list[index].key]=cellData.consoleOutput[k1];
                 }
             }
-            this.priv__initCellValue=cellData.cellList.map(v=>({input:v.cellInput,output:v.cellOutput}));
+            this.__initCellValue=cellData.cellList.map(v=>({input:v.cellInput,output:v.cellOutput}));
             this.setState({consoleOutput})
             this.forceUpdate();
         }catch(e:any){

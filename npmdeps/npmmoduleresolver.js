@@ -19,7 +19,8 @@ exports.npmimport=async function(moduleId){
                 useLegacyRequire=true;
             }
         }
-    }else{
+    }
+    if(useLegacyRequire){
         //For these version NOT support dynamic import.
         try{
             let nodeImportName=moduleId;

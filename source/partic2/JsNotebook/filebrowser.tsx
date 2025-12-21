@@ -88,6 +88,14 @@ class FileBrowser extends React.Component<{context:WorkspaceContext},FileBrowser
                 newPath='';
                 children=await this.props.context.fs!.listdir(newPath);
             }
+            children.sort((a,b)=>{
+                let a1=(a.type==='dir'?100:200);
+                let b1=(b.type==='dir'?100:200);
+                let c1=a.name.localeCompare(b.name);
+                if(c1>0)c1=1;
+                if(c1<0)c1=-1;
+                return a1-b1+c1;
+            });
             this.state.selectedFiles.clear();
             this.setState({
                 currPath:newPath,
@@ -286,9 +294,17 @@ class FileBrowser extends React.Component<{context:WorkspaceContext},FileBrowser
         this.setState({filterText})
     }
     protected filesContainer=React.createRef();
+    protected renderFavoritesPath(){
+        let favoPath=this.props.context!.startupProfile?.favorites;
+        if(favoPath!=undefined){
+            return favoPath.map(t1=><a href="javascript:;">{t1}</a>);
+        }
+    }
     protected async promptForCurrentPath(){
         let newPathInput=new ReactRefEx<TextEditor>();
-        let dlg=await prompt(<TextEditor divClass={[css.simpleCard]} divStyle={{minWidth:300}} ref={newPathInput}/>,'Jump to');
+        let dlg=await prompt(<div>
+            <TextEditor divClass={[css.simpleCard]} divStyle={{minWidth:300}} ref={newPathInput}/>
+        </div>,'Jump to');
         (await newPathInput.waitValid()).setPlainText(this.state.currPath??'');
         if(await dlg.response.get()==='ok'){
             this.DoFileOpen(await (await newPathInput.waitValid()).getPlainText());

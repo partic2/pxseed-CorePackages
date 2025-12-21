@@ -1,11 +1,12 @@
+
 export function text2html(src:string){
-    let lines=src.split('\n').map(t1=>t1.replace(/[<>&"\u0020]/g,function(c){
-        return {'<':'&lt;','>':'&gt;','&':'&amp','"':'&quot;','\u0020':'&nbsp;'}[c]??''
+    let lines=src.split(/\r?\n/).map(t1=>t1.replace(/[<>&"]/g,function(c){
+        return {'<':'&lt;','>':'&gt;','&':'&amp','"':'&quot;'}[c]??''
     }));
     return lines.map(t1=>'<div>'+((t1==='')?'<br/>':t1)+'</div>').join('');
 }
 export function docNode2text(node:Node){
-    let walker=document.createTreeWalker(node,NodeFilter.SHOW_ELEMENT|NodeFilter.SHOW_TEXT);
+    let walker=globalThis.document.createTreeWalker(node,NodeFilter.SHOW_ELEMENT|NodeFilter.SHOW_TEXT);
     let textParts=[] as {node:Node|'phony',text:string}[]
     while(walker.nextNode()){
         if(walker.currentNode instanceof HTMLDivElement || walker.currentNode instanceof HTMLParagraphElement){
@@ -25,18 +26,22 @@ export function docNode2text(node:Node){
             }
         }else if(walker.currentNode instanceof Text){
             let textData='';
-            if(textData==' '){
-                 textData='';
+            let parentElem=walker.currentNode.parentElement;
+            if(parentElem!=undefined && getComputedStyle(parentElem).whiteSpace.startsWith('pre')){
+                textData+=walker.currentNode.data
             }else{
                 //trim charCode(32) and THEN replace charCode(160)
                 textData+=walker.currentNode.data.replace(/\n|(^ +)|( +$)/g,'').replace(/\u00a0/g,' ');
-            }
+            }           
             if(textData!=''){
                 let prev=walker.currentNode.previousSibling;
                 if(prev!=null){
                     if(prev instanceof HTMLDivElement || prev instanceof HTMLParagraphElement){
                         textParts.push({node:'phony',text:'\n'});
                     }
+                }
+                if(textData=='\n'){
+                    
                 }
             }
             textParts.push({node:walker.currentNode,

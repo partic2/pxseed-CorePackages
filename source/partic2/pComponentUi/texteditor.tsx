@@ -8,25 +8,25 @@ export interface TextEditorProps{
     onFocus?:(target:TextEditor)=>void,onBlur?:(target:TextEditor)=>void
     onInput?:(target:TextEditor,inputData:{char:string|null,text:string|null,type:string})=>void, 
     divClass?:string[]
-    divStyle?:React.JSX.CSSProperties,
-    divAttr?:React.JSX.DOMAttributes<HTMLDivElement>
+    divStyle?:React.CSSProperties,
+    divAttr?:React.DOMAttributes<HTMLDivElement>
 }
 export class TextEditor extends ReactEventTarget<TextEditorProps,{}>{
     rref={div1:new ReactRefEx<HTMLDivElement>()};
-    protected undoHistory:string[]=[];
+    protected undoHistory:{text:string,caret:number}[]=[];
     protected undoHistoryCurrent=-1;
     pushHistory(){
         let currText=this.getPlainText();
-        if(currText==this.undoHistory.at(this.undoHistoryCurrent))return;
+        if(currText==this.undoHistory.at(this.undoHistoryCurrent)?.text)return;
         if(this.undoHistoryCurrent>=this.undoHistory.length-1){
-            this.undoHistory.push(currText);
+            this.undoHistory.push({text:currText,caret:this.getTextCaretOffset()});
             if(this.undoHistory.length>10){
                 this.undoHistory.unshift();
             }
             this.undoHistoryCurrent=this.undoHistory.length-1;
         }else{
             this.undoHistoryCurrent++;
-            this.undoHistory[this.undoHistoryCurrent]=currText;
+            this.undoHistory[this.undoHistoryCurrent]={text:currText,caret:this.getTextCaretOffset()};
         }
     }
     textUndo(){
@@ -35,22 +35,25 @@ export class TextEditor extends ReactEventTarget<TextEditorProps,{}>{
         }
         this.pushHistory();
         this.undoHistoryCurrent--;
-        let last=this.undoHistory[this.undoHistoryCurrent];
+        let last=this.undoHistory.at(this.undoHistoryCurrent)!;
         this.undoHistoryCurrent--;
-        this.setPlainText(last);
-        this.setTextCaretOffset('end');
+        this.setPlainText(last.text);
+        this.setTextCaretOffset(last.caret);
     }
     textRedo(){
         let currText=this.getPlainText();
         for(;this.undoHistoryCurrent+1<this.undoHistory.length;this.undoHistoryCurrent++){
             let last=this.undoHistory[this.undoHistoryCurrent+1];
-            if(currText!=last){
-                this.setPlainText(last);
+            if(currText!=last.text){
+                this.setPlainText(last.text);
+                this.setTextCaretOffset(last.caret);
                 break;
             }
         }
     }
-    protected onInputHandler(ev: React.JSX.TargetedEvent<HTMLDivElement,InputEvent>){
+    protected onInputHandler(ev: React.TargetedEvent<HTMLDivElement,InputEvent>){
+        this.props.divAttr?.onInput?.(ev);
+        if(ev.defaultPrevented)return;
         let ch=ev.data;
         if(ev.inputType=='insertParagraph'||(ev.inputType=='insertText' && ch==null)){
             ch='\n';
@@ -60,10 +63,14 @@ export class TextEditor extends ReactEventTarget<TextEditorProps,{}>{
         }
         this.props.onInput?.(this,{char:ch,text:ev.dataTransfer?.getData('text/plain')??null,type:ev.inputType});
     }
-    protected onPasteHandler(text:string){
+    protected onPasteHandler(ev:React.TargetedEvent<HTMLDivElement,ClipboardEvent>){
+        this.props.divAttr?.onPaste?.(ev);
+        if(ev.defaultPrevented)return;
+        let text=ev.clipboardData!.getData('text/plain')
         this.pushHistory();
         this.insertText(text);
-        this.rref.div1.current!.addEventListener('click',()=>{},)
+        this.props.onInput?.(this,{char:null,text:text,type:'paste'});
+        ev.preventDefault();
     }
     protected onKeyDownHandler(ev:React.JSX.TargetedKeyboardEvent<HTMLDivElement>){
         if(this.props.divAttr?.onKeyDown!=undefined){
@@ -82,14 +89,15 @@ export class TextEditor extends ReactEventTarget<TextEditorProps,{}>{
         }
     }
     render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined; }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChild {
-        return <div contentEditable={true} ref={this.rref.div1} onInput={(ev)=>this.onInputHandler(ev as any)}
-        style={{wordBreak:'break-all',overflowWrap:'word-break',position:'relative',...this.props.divStyle}}
+        return <div contentEditable={true} ref={this.rref.div1} 
+        style={{wordBreak:'break-all',overflowWrap:'word-break',whiteSpace:'pre-wrap',position:'relative',...this.props.divStyle}}
         className={(this.props.divClass??[]).join(' ')}
-        onPaste={(ev)=>{this.onPasteHandler(ev.clipboardData!.getData('text/plain'));ev.preventDefault()}}
         {...this.props.divAttr}
+        onPaste={(ev)=>{this.onPasteHandler(ev);}}
+        onInput={(ev)=>this.onInputHandler(ev as any)}
         onBlur={(ev)=>this.onBlurHandler(ev)} onFocus={(ev)=>this.onFocusHandler(ev)}
         onKeyDown={(ev)=>this.onKeyDownHandler(ev)}
-        > </div>
+        ></div>
     }
     insertText(text:string){
         let {anchor,focus}=this.getTextCaretSelectedRange();
@@ -198,8 +206,10 @@ export class TextEditor extends ReactEventTarget<TextEditorProps,{}>{
         let textParts=docNode2text(this.rref.div1.current!);
         if(sel==null)return;
         if(typeof offset === 'number'){
-            let pos=textParts.nodeFromTextOffset(offset)
-            sel.setPosition(pos.node,pos.offset)
+            let pos=textParts.nodeFromTextOffset(offset);
+            if(pos.node!=null){
+                sel.setPosition(pos.node,pos.offset)
+            }
         }else if(offset=='start'){
             let rng1=new Range()
             rng1.selectNodeContents(this.rref.div1.current!);

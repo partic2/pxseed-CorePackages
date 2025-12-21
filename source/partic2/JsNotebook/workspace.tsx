@@ -34,7 +34,8 @@ export class WorkspaceContext{
     //startupProfile is store to save and recover the workspace status.
     startupProfile:{
         currPath:string,
-        openedFiles:string[]
+        openedFiles:string[],
+        favorites?:string[]
     }|null=null;
     saveStartupProfile=async ()=>{}
 

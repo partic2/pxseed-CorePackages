@@ -1,10 +1,10 @@
 
 import { CodeContextEvent, LocalRunCodeContext, RunCodeContext } from 'partic2/CodeRunner/CodeContext';
-import { CodeCellList } from 'partic2/CodeRunner/WebUi';
+import { CodeCell, CodeCellList } from 'partic2/CodeRunner/WebUi';
 import { GenerateRandomString, GetCurrentTime, IamdeeScriptLoader, WaitUntil, assert, future, logger, requirejs, sleep } from 'partic2/jsutils1/base';
 import * as React from 'preact'
 
-import {ClientInfo, createIoPipe, getAttachedRemoteRigstryFunction, getPersistentRegistered, getRegistered, listRegistered, persistent, ServerHostWorker1RpcName} from 'partic2/pxprpcClient/registry'
+import {ClientInfo, createIoPipe, getAttachedRemoteRigstryFunction, getPersistentRegistered, getRegistered, importRemoteModule, listRegistered, persistent, ServerHostWorker1RpcName} from 'partic2/pxprpcClient/registry'
 import { FileTypeHandlerBase } from './fileviewer';
 
 import { connectToRemoteCodeContext, __name__ as RemoteCodeContextName } from 'partic2/CodeRunner/RemoteCodeContext';
@@ -13,15 +13,23 @@ import {JsonForm, ReactInputValueCollection} from 'partic2/pComponentUi/input'
 import { RegistryUI } from 'partic2/pxprpcClient/ui';
 import { RemoteRunCodeContext } from 'partic2/CodeRunner/RemoteCodeContext';
 import { WindowComponent,alert, appendFloatWindow, prompt, removeFloatWindow } from 'partic2/pComponentUi/window';import { WorkspaceContext } from './workspace';
-import { utf8conv } from 'partic2/CodeRunner/jsutils2';
+import { DebounceCall, utf8conv } from 'partic2/CodeRunner/jsutils2';
 import { RpcExtendClient1, RpcExtendServer1 } from 'pxprpc/extend';
 import { Client,Server } from 'pxprpc/base';
 import { NotebookFileData,__internal__ as workeriniti } from './workerinit';
 import { PredefinedCodeContextViewerContext } from 'partic2/CodeRunner/Component1';
 import { openNewWindow } from 'partic2/pComponentUi/workspace';
-import { CodeCellListData } from 'partic2/CodeRunner/Inspector';
+
+import { getResourceManager, useCssFile } from 'partic2/jsutils1/webutils';
 
 export let __name__='partic2/JsNotebook/notebook'
+
+let webworkercall:typeof import('./webworkercall');
+
+export let __inited__=(async function (){
+    webworkercall=await importRemoteModule(await (await getPersistentRegistered('webworker 1'))!.ensureConnected(),
+        'partic2/JsNotebook/webworkercall');
+})()
 
 class RpcChooser extends React.Component<{onChoose:(rpc:ClientInfo|'local window')=>void},{}>{
     rref={
@@ -85,6 +93,7 @@ class NotebookViewer extends React.Component<{context:WorkspaceContext,path:stri
 }>{
     rref={
         ccl:new ReactRefEx<CodeCellList>(),
+        container:new ReactRefEx<HTMLDivElement>()
     };
     async openRpcChooser(){
         let r=await openRpcChooser();
@@ -151,7 +160,19 @@ class NotebookViewer extends React.Component<{context:WorkspaceContext,path:stri
         f1.load(data);
         await this.useRpc((await f1.getRpcClient())!,{startupScript:f1.startupScript});
         if(f1.cells!=undefined){
-            (await this.rref.ccl.waitValid()).loadFrom(f1.cells);
+            let ccl=await this.rref.ccl.waitValid();
+            await ccl.loadFrom(f1.cells);
+            for(let t2 of ccl.state.list){
+                let codeInput=t2.ref.current?.rref.codeInput.current;
+                if(codeInput==undefined)continue;
+                let code=codeInput.getPlainText();
+                let caret=codeInput.getTextCaretOffset();
+                await __inited__;
+                let hlcode=await webworkercall.prismHighlightJS(code);
+                if(/[^\n]\n$/.test(hlcode))hlcode+='\n';
+                codeInput.setHtml(hlcode);
+                codeInput.setTextCaretOffset(caret);
+            }
         }
     }
     onKeyDown(ev: React.TargetedKeyboardEvent<HTMLElement>){
@@ -190,17 +211,41 @@ class NotebookViewer extends React.Component<{context:WorkspaceContext,path:stri
     protected getRpcStringRepresent(){
         return this.state.rpc?.name??'<No name>';
     }
+    protected codeCellHighlightQueue=new Set<CodeCell>();
+    protected DoCodeCellsHightlight=new DebounceCall(async ()=>{
+        let copy=Array.from(this.codeCellHighlightQueue);
+        this.codeCellHighlightQueue.clear();
+        for(let codeCell of copy){
+            let input1=await codeCell.rref.codeInput.waitValid();
+            let code=input1.getPlainText();
+            let caret=input1.getTextCaretOffset();
+            if(code.length>10000)continue;
+            await __inited__;
+            let hlcode=await webworkercall.prismHighlightJS(code);
+            if(!this.codeCellHighlightQueue.has(codeCell)){
+                if(/[^\n]\n$/.test(hlcode))hlcode+='\n';
+                input1.setHtml(hlcode);
+                input1.setTextCaretOffset(caret);
+            }
+        }
+    },200);
+    protected async onCellInputChange(codeCell:CodeCell){
+        this.codeCellHighlightQueue.add(codeCell);
+        this.DoCodeCellsHightlight.call();
+    }
     render() {
         return <PredefinedCodeContextViewerContext.Consumer>{
             value=>{
-                return <div style={{width:'100%',overflow:'auto'}} onKeyDown={(ev)=>this.onKeyDown(ev)}>
+                return <div style={{width:'100%',overflow:'auto'}} onKeyDown={(ev)=>this.onKeyDown(ev)} ref={this.rref.container}>
                 <div>
                 <a href="javascript:;" onClick={()=>this.openRpcChooser()}>RPC:{this.getRpcStringRepresent()}</a>
                 <span>&nbsp;&nbsp;</span>
                 <a onClick={()=>this.doSave()} href="javascript:;">Save</a>
                 </div>
                 {(this.state.codeContext!=undefined)?
-                    <CodeCellList codeContext={this.state.codeContext!} ref={this.rref.ccl}/>:
+                    <CodeCellList codeContext={this.state.codeContext!} ref={this.rref.ccl} cellProps={{
+                        onInputChange:(target)=>this.onCellInputChange(target)
+                    }}/>:
                     'No CodeContext'
                 }
                 </div>
@@ -210,6 +255,8 @@ class NotebookViewer extends React.Component<{context:WorkspaceContext,path:stri
     }
 }
 
+let resource=getResourceManager(__name__);
+useCssFile(resource.getUrl('prism/theme-one-light.css'))
 
 class RunCodeReplView extends React.Component<{
     codeContext:RunCodeContext,onCellRun?:(cellKey:string)=>void,containerStyle?:React.JSX.CSSProperties,
@@ -261,6 +308,26 @@ class RunCodeReplView extends React.Component<{
         }
         
     }
+    protected codeCellHighlightQueue=new Set<CodeCell>();
+    protected DoCodeCellsHightlight=new DebounceCall(async ()=>{
+        let copy=Array.from(this.codeCellHighlightQueue);
+        this.codeCellHighlightQueue.clear();
+        for(let codeCell of copy){
+            let input1=await codeCell.rref.codeInput.waitValid();
+            let code=input1.getPlainText();
+            if(code.length>10000)continue;
+            let caret=input1.getTextCaretOffset();
+            await __inited__;
+            let hlcode=await webworkercall.prismHighlightJS(code);
+            if(/[^\n]\n$/.test(hlcode))hlcode+='\n';
+            input1.setHtml(hlcode);
+            input1.setTextCaretOffset(caret);
+        }
+    },200);
+    protected async onCellInputChange(codeCell:CodeCell){
+        this.codeCellHighlightQueue.add(codeCell);
+        this.DoCodeCellsHightlight.call();
+    }
     inited=false;
     async beforeRender(){
         if(!this.inited){
@@ -273,7 +340,10 @@ class RunCodeReplView extends React.Component<{
         return <div ref={this.rref.container} style={{
             overflowY:'auto',border:'0px',padding:'0px',margin:'0px',width:'100%',height:'100%',...this.props.containerStyle}} 
         onMouseDown={()=>this.autoScrollToBottom=false} onTouchStart={()=>this.autoScrollToBottom=false} onWheel={()=>this.autoScrollToBottom=false}>
-            <CodeCellList codeContext={this.props.codeContext} onRun={(key)=>this.onCellRun(key)} ref={this.rref.list} cellProps={{runCodeKey:'Enter'}}/>
+            <CodeCellList codeContext={this.props.codeContext} onRun={(key)=>this.onCellRun(key)} ref={this.rref.list} cellProps={{
+                runCodeKey:'Enter',
+                onInputChange:(target)=>this.onCellInputChange(target)
+                }}/>
         </div>
     }
 }

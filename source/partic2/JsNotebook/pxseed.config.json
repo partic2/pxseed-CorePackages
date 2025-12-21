@@ -1,6 +1,9 @@
 {
   "loaders": [
     {
+      "name":"copyFiles",
+      "include":["prism/*.js","prism/*.css"]
+    },{
       "name": "typescript"
     }
   ],
