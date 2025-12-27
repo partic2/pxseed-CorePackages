@@ -593,7 +593,6 @@ let getResourceManagerImpl=(modNameOrLocalRequire:string|typeof require)=>{
     if(typeof modNameOrLocalRequire==='function'){
         modNameOrLocalRequire=requirejs.getLocalRequireModule(modNameOrLocalRequire)
     }
-    let urlArgs=requirejs.getConfig().urlArgs??'';
     return {
         getUrl(path2:string){
             let r='';
@@ -602,8 +601,11 @@ let getResourceManagerImpl=(modNameOrLocalRequire:string|typeof require)=>{
             }else{
                 r=path.join(getWWWRoot(),(modNameOrLocalRequire as string),'..',path2);
             }
-            if(urlArgs!==''){
-                r=r+'?'+urlArgs;
+            if(r.startsWith('http')){
+                let urlArgs=requirejs.getConfig().urlArgs??'';
+                if(urlArgs!==''){
+                    r=r+'?'+urlArgs;
+                }
             }
             return r;
         },
@@ -622,10 +624,6 @@ export function setResourceManagerImpl(impl:typeof getResourceManagerImpl){
 
 export function getResourceManager(modNameOrLocalRequire:string|typeof require){
     return getResourceManagerImpl(modNameOrLocalRequire)
-}
-
-export function setDefaultResourceRequestUrlArgs(urlArgs:string){
-    amdContext.require.config({urlArgs})
 }
 
 export function useDeviceWidth(){

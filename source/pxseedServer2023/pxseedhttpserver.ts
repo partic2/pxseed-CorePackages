@@ -189,7 +189,7 @@ export async function setupHttpServerHandler(){
         return null;
     }
     fileServer.cacheControl=async (filePath)=>{
-        if(filePath==='/index.html'||filePath==='/pxseedInit.js'){
+        if(filePath.endsWith('.js')||filePath==='/index.html'){
             return 'no-cache'
         }else{
             return {maxAge:86400}
@@ -200,6 +200,48 @@ export async function setupHttpServerHandler(){
         fileServer=new SimpleFileServer(new DirAsRootFS(tjsfs,path.join(wwwroot,'..','source')));
         fileServer.pathStartAt=(config.pxseedBase+'/source').length;
         defaultRouter.setHandler(config.pxseedBase+'/source',{fetch:fileServer.onfetch});
+    }
+}
+
+async function copyFilesNewer(destDir:string,srcDir:string,maxDepth?:number,log?:typeof console){
+    log?.info(`Check directory "${srcDir}"`)
+    let {getNodeCompatApi}=await import('pxseedBuildScript/util');
+    if(maxDepth==undefined){
+        maxDepth=20;
+    }
+    if(maxDepth==0){
+        return;
+    }
+    const {fs,path}=await getNodeCompatApi()
+    await fs.mkdir(destDir,{recursive:true});
+    let children=await fs.readdir(srcDir,{withFileTypes:true});
+    try{
+        await fs.access(destDir)
+    }catch(e){
+        await fs.mkdir(destDir,{recursive:true});
+    }
+    for(let t1 of children){
+        if(t1.isDirectory()){
+            await copyFilesNewer(path.join(destDir,t1.name),path.join(srcDir,t1.name),maxDepth-1);
+        }else{
+            let dest=path.join(destDir,t1.name);
+            let src=path.join(srcDir,t1.name);
+            let needCopy=false;
+            try{
+                let dfile=await fs.stat(dest);
+                let sfile2=await fs.stat(src);
+                if(dfile.mtimeMs<sfile2.mtimeMs){
+                    needCopy=true;
+                }
+            }catch(e){
+                needCopy=true;
+            }
+            if(needCopy){
+                log?.info(`update file "${dest}";`)
+                await fs.mkdir(path.dirname(dest),{recursive:true});
+                await fs.copyFile(src,dest);
+            }
+        }
     }
 }
 
@@ -214,6 +256,7 @@ export let serverCommandRegistry:Record<string,(param:any)=>any>={
         wrapConsole.info=(...msg:any[])=>records.push(msg);
         wrapConsole.warn=(...msg:any[])=>records.push(msg);
         wrapConsole.error=(...msg:any[])=>records.push(msg);
+        await copyFilesNewer(wwwroot,path.join(wwwroot,'..','copysource'),16,wrapConsole);
         await withConsole(wrapConsole,()=>processDirectory(path.join(wwwroot,'..','source')));
         return records.map(t1=>t1.join(' ')).join('\n');
     },
