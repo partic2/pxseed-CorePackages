@@ -359,7 +359,7 @@ export async function alert(message:string,title?:string){
     let windowRef=new ReactRefEx<WindowComponent>();
     let floatWindow1=<WindowComponent key={GenerateRandomString()} ref={windowRef}
     title={title??i18n.caution} onClose={()=>result.setResult(null)}>
-    <div style={{minWidth:Math.min((rootWindowsList.current?.container.current?.offsetWidth)??0-10,300)}}>
+    <div style={{minWidth:Math.min((rootWindowsList.current?.container.current?.offsetWidth)??0-10,300),whiteSpace:'pre-wrap'}}>
         {message}
         <div className={cssBase.flexRow}>
             <input type='button' style={{flexGrow:'1'}} onClick={()=>result.setResult(null)} value={i18n.ok}/>
@@ -378,7 +378,7 @@ export async function confirm(message:string,title?:string){
     let windowRef=new ReactRefEx<WindowComponent>();
     let floatWindow1=<WindowComponent key={GenerateRandomString()} ref={windowRef}
         title={title??i18n.caution} onClose={()=>result.setResult('cancel')}>
-        <div style={{minWidth:Math.min((rootWindowsList.current?.container.current?.offsetWidth)??0-10,300)}}>
+        <div style={{minWidth:Math.min((rootWindowsList.current?.container.current?.offsetWidth)??0-10,300),whiteSpace:'pre-wrap'}}>
             {message}
             <div className={cssBase.flexRow}>
                 <input type='button' style={{flexGrow:'1'}} onClick={()=>result.setResult('ok')} value={i18n.ok}/>

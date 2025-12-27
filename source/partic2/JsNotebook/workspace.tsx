@@ -1,7 +1,7 @@
 import { ReactRefEx } from 'partic2/pComponentUi/domui';
 import * as React from 'preact';
 import {  __internal__ as filebrowseri } from './filebrowser';
-import { openNewWindow } from 'partic2/pComponentUi/workspace';
+import { NewWindowHandle, openNewWindow } from 'partic2/pComponentUi/workspace';
 import { ClientInfo, createIoPipe, easyCallRemoteJsonFunction, getPersistentRegistered, ServerHostWorker1RpcName } from 'partic2/pxprpcClient/registry';
 import { __internal__ as notebooki } from './notebook';
 import { FileTypeHandlerBase } from './fileviewer';
@@ -88,19 +88,38 @@ export class WorkspaceContext{
             },500);
         this.saveStartupProfile=async ()=>{await saveStartupProfile.call()}
     }
-    openNewWindow:typeof openNewWindow=async function(vnode,options){
-        return openNewWindow(vnode,options);
-    }
+    
     fileBrowser=filebrowseri.FileBrowser
     title='JS Notebook'
+    rootFileBrowser={
+        windowHandler:undefined as NewWindowHandle|undefined,
+        rref:new ReactRefEx<InstanceType<typeof this.fileBrowser>>()
+    }
+    openedFileWindow=new Map<string,{windowHandler:NewWindowHandle}>();
+    async openNewWindowForFile(args:{title:string,vnode:React.VNode,filePath:string,layoutHint?:string}){
+        let found=this.openedFileWindow.get(args.filePath);
+        if(found!=undefined){
+            await found.windowHandler.activate();
+            return found;
+        }else{
+            let wh=await openNewWindow(args.vnode,{parentWindow:this.rootFileBrowser.windowHandler,title:args.title,layoutHint:args.layoutHint});
+            (async ()=>{
+                this.openedFileWindow.set(args.filePath,{windowHandler:wh});
+                this.startupProfile!.openedFiles=Array.from(this.openedFileWindow.keys())
+                await this.saveStartupProfile();
+                await wh.waitClose();
+                this.openedFileWindow.delete(args.filePath);
+                this.startupProfile!.openedFiles=Array.from(this.openedFileWindow.keys())
+                await this.saveStartupProfile();
+            })();
+            return {windowHandler:wh}
+        }
+    }
     async start(){
         await this.ensureInited();
         let FileBrowser=this.fileBrowser
-        let rref={
-            fb:new ReactRefEx<InstanceType<typeof FileBrowser>>()
-        }
-        this.openNewWindow(<FileBrowser context={this} ref={rref.fb}/>,{title:this.title+' File Browser',layoutHint:__name__+'.FileBrowser'})
-        let fb=await rref.fb.waitValid();
+        this.rootFileBrowser.windowHandler=await openNewWindow(<FileBrowser context={this} ref={this.rootFileBrowser.rref}/>,{title:this.title+' File Browser',layoutHint:__name__+'.FileBrowser'})
+        let fb=await this.rootFileBrowser.rref.waitValid();
         
         if(this.startupProfile==null){
             await this.useRemoteFileAsStartupProfileStore(path.join(this.wwwroot!,__name__,'serverProfile.json'))

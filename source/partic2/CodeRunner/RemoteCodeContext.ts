@@ -142,11 +142,13 @@ export class RemoteRunCodeContext implements RunCodeContext{
         let t1=this._remoteContext;
         this._remoteContext=null;
         if(t1!=null){
-            this.remoteCall!.call(JSON.stringify({fn:'callProp1',
-                param:['runCode',[`event.dispatchEvent(new Event('remote-disconnected'))`]]
-            }),this._remoteContext)
+            (async ()=>{
+                await this.remoteCall!.call(JSON.stringify({fn:'callProp1',
+                    param:['runCode',[`event.dispatchEvent(new Event('remote-disconnected'))`]]
+                }),t1).catch();
+                await t1.free()
+            })()
         }
-        t1?.free()
     };
 }
 

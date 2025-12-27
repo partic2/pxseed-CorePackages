@@ -54,7 +54,7 @@ export class NotebookFileData{
         let r=JSON.parse(utf8conv(data));
         if(r.rpc!=undefined)this.rpc=r.rpc;
         this.startupScript=r.startupScript??'';
-        this.cells=r.cells??'';
+        this.cells=r.cells??new CodeCellListData().saveTo();
     }
     getCellsData(){
         let cld=new CodeCellListData();
@@ -84,19 +84,19 @@ export async function createRunCodeContextConnectorForNotebookFile(notebookFileP
     
     if(!runningRunCodeContextForNotebookFile.has(notebookFilePath)){
         let connector=await createConnectorWithNewRunCodeContext();
-        runningRunCodeContextForNotebookFile.set(notebookFilePath,connector.value);
-        connector.value.event.addEventListener('close',()=>{
-            runningRunCodeContextForNotebookFile.delete(notebookFilePath)
-        });
         if(connector.value instanceof LocalRunCodeContext){
             await initNotebookCodeEnv(connector.value.localScope,{codePath:notebookFilePath});
         }
         await ensureDefaultFileSystem();
         let nbd=new NotebookFileData();
         let fileData=await defaultFileSystem!.readAll(notebookFilePath);
-        if(fileData!=null){
-            nbd.load(fileData);
+        if(fileData!=null && fileData.length>0){
+            try{nbd.load(fileData);}catch(err){};
         }
+        runningRunCodeContextForNotebookFile.set(notebookFilePath,connector.value);
+        connector.value.event.addEventListener('close',()=>{
+            runningRunCodeContextForNotebookFile.delete(notebookFilePath)
+        });
         if(nbd.startupScript!==''){
             await connector.value.runCode(nbd.startupScript);
         }

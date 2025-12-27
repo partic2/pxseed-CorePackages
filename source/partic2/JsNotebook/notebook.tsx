@@ -80,10 +80,12 @@ class IJSNBFileHandler extends FileTypeHandlerBase{
     title: string='javascript notebook';
     extension=['.ijsnb'];
     async open(path: string) {
-        return await this.context!.openNewWindow(<NotebookViewer context={this.context!} path={path}/>,{
+        await this.context!.openNewWindowForFile({
+            vnode:<NotebookViewer context={this.context!} path={path}/>,
             title:'Notebook:'+path.substring(path.lastIndexOf('/')+1),
-            layoutHint:__name__+'.IJSNBFileHandler'
-        })
+            layoutHint:__name__+'.IJSNBFileHandler',
+            filePath:path
+        });
     }
 }
 
@@ -136,7 +138,7 @@ class NotebookViewer extends React.Component<{context:WorkspaceContext,path:stri
             await code.runCode(`jsnotebook.setCodeCellsDataOnRemoteJsNotebook=(...argv)=>_ENV.event.dispatchEvent(new CodeContextEvent('${__name__}.NotebookViewer',{data:{call:'setCodeCellsDataOnRemoteJsNotebook',argv}}))`);
             
         }catch(e:any){
-            await alert(e.toString(),'Error');
+            await alert([e.toString(),e.stack,(e.remoteStack??'')].join('\n'),'Error');
         }
     }
     componentDidMount(): void {
@@ -154,8 +156,6 @@ class NotebookViewer extends React.Component<{context:WorkspaceContext,path:stri
         if(data.length==0){
             data=utf8conv('{}');
         }
-        let t2=data.indexOf(0);
-        if(t2>=0)data=data.slice(0,t2);
         let f1=new NotebookFileData();
         f1.load(data);
         await this.useRpc((await f1.getRpcClient())!,{startupScript:f1.startupScript});
@@ -163,15 +163,17 @@ class NotebookViewer extends React.Component<{context:WorkspaceContext,path:stri
             let ccl=await this.rref.ccl.waitValid();
             await ccl.loadFrom(f1.cells);
             for(let t2 of ccl.state.list){
-                let codeInput=t2.ref.current?.rref.codeInput.current;
-                if(codeInput==undefined)continue;
-                let code=codeInput.getPlainText();
-                let caret=codeInput.getTextCaretOffset();
-                await __inited__;
-                let hlcode=await webworkercall.prismHighlightJS(code);
-                if(/[^\n]\n$/.test(hlcode))hlcode+='\n';
-                codeInput.setHtml(hlcode);
-                codeInput.setTextCaretOffset(caret);
+                try{
+                    let codeInput=t2.ref.current?.rref.codeInput.current;
+                    if(codeInput==undefined)continue;
+                    let code=codeInput.getPlainText();
+                    let caret=codeInput.getTextCaretOffset();
+                    await __inited__;
+                    let hlcode=await webworkercall.prismHighlightJS(code);
+                    if(/[^\n]\n$/.test(hlcode))hlcode+='\n';
+                    codeInput.setHtml(hlcode);
+                    codeInput.setTextCaretOffset(caret);
+                }catch(err){};
             }
         }
     }
