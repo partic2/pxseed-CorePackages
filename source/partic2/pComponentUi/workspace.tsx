@@ -121,6 +121,11 @@ export let openNewWindow=async function(contentVNode:React.VNode,options?:OpenNe
     }
     let onWindowLayooutChange:(()=>void)|null=null;
     let windowVNode=<WindowComponent ref={windowRef} onClose={async ()=>{
+        for(let t1 of NewWindowHandleLists.value){
+            if(t1.parentWindow===handle){
+                t1.close();
+            }
+        }
         closeFuture.setResult(true);
         removeFloatWindow(windowVNode);
         let at=NewWindowHandleLists.value.indexOf(handle);

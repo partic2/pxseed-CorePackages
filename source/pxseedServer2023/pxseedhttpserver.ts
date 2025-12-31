@@ -1,12 +1,22 @@
 
 
-import { RpcExtendServer1, RpcExtendServerCallable, defaultFuncMap } from 'pxprpc/extend';
-import {Server as PxprpcBaseServer} from 'pxprpc/base'
+import { RpcExtendClient1, RpcExtendServer1, RpcExtendServerCallable, defaultFuncMap } from 'pxprpc/extend';
+import {Client, Server as PxprpcBaseServer, Server} from 'pxprpc/base'
 
 
 export var __name__=requirejs.getLocalRequireModule(require);
 
-import { addClient, getPersistentRegistered, rpcWorkerInitModule, ServerHostWorker1RpcName } from 'partic2/pxprpcClient/registry';
+import { addClient, createIoPipe, getPersistentRegistered, getRegistered, rpcWorkerInitModule, ServerHostRpcName, ServerHostWorker1RpcName } from 'partic2/pxprpcClient/registry';
+
+import { GetUrlQueryVariable2, getWWWRoot, path } from 'partic2/jsutils1/webutils';
+import { SimpleFileServer, SimpleHttpServerRouter, WebSocketServerConnection } from 'partic2/tjshelper/httpprot';
+import { Io } from 'pxprpc/base';
+import { buildTjs } from 'partic2/tjshelper/tjsbuilder';
+import { GenerateRandomString, requirejs } from 'partic2/jsutils1/base';
+import { DirAsRootFS, TjsSfs } from 'partic2/CodeRunner/JsEnviron';
+import { getRpcClientConnectWorkerParent } from 'partic2/pxprpcClient/rpcworker';
+
+
 if(!rpcWorkerInitModule.includes(__name__)){
     rpcWorkerInitModule.push(__name__);
     rpcWorkerInitModule.push(path.join(__name__,'..','httponrpc'));
@@ -46,12 +56,6 @@ export let config:PxseedServer2023StartupConfig={
 
 export let rootConfig={...config};
 
-import { GetUrlQueryVariable2, getWWWRoot, path } from 'partic2/jsutils1/webutils';
-import { SimpleFileServer, SimpleHttpServerRouter, WebSocketServerConnection } from 'partic2/tjshelper/httpprot';
-import { Io } from 'pxprpc/base';
-import { buildTjs } from 'partic2/tjshelper/tjsbuilder';
-import { GenerateRandomString, requirejs } from 'partic2/jsutils1/base';
-import { DirAsRootFS, TjsSfs } from 'partic2/CodeRunner/JsEnviron';
 
 
 export async function loadConfig(){
@@ -289,6 +293,19 @@ export async function serverCommand(cmd:string,param:any){
     }
     throw new Error(`No handler for command ${cmd}`)
 }
+
+//For ServerHost access on Server side
+export async function getConnectionForServerHost(){
+    if((globalThis as any).__workerId==undefined){
+        let [c2s,s2c]=createIoPipe();
+        new RpcExtendServer1(new Server(s2c)).serve().catch(()=>{});
+        return c2s;
+    }else{
+        return await getRpcClientConnectWorkerParent()
+    }
+}
+
+addClient('pxseedjs:'+__name__+'.getConnectionForServerHost',ServerHostRpcName).catch(()=>{});
 
 export async function initNotebookCodeEnv(_ENV:any){
     Object.assign(_ENV,serverCommandRegistry);

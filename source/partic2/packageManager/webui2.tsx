@@ -9,6 +9,7 @@ import {JsonForm} from 'partic2/pComponentUi/input'
 import {alert, appendFloatWindow, confirm, prompt, css as windowCss, WindowComponent} from 'partic2/pComponentUi/window'
 var registryModuleName='partic2/packageManager/registry';
 import {TaskLocalRef,Singleton} from 'partic2/CodeRunner/jsutils2'
+import {RemotePxseedJsIoServer} from 'partic2/pxprpcClient/bus'
 
 export var __name__=requirejs.getLocalRequireModule(require);
 //remote code context
@@ -60,6 +61,9 @@ let remoteModule={
 
 import {getIconUrl} from 'partic2/pxseedMedia1/index1'
 import { ReactDragController } from 'partic2/pComponentUi/transform'
+import { RpcExtendServer1 } from 'pxprpc/extend'
+import { Server } from 'pxprpc/base'
+import { rpcId } from '../pxprpcClient/rpcworker'
 
 let resourceManager=getResourceManager(__name__);
 
@@ -67,7 +71,7 @@ class WindowListIcon extends React.Component<{},{
     hideList:boolean,
     listWidth:number,
     listHeight:number,
-    windows:{title:string,visible:boolean}[]
+    windows:{title:string,visible:boolean,index:number}[]
 }>{
     drag=new ReactDragController();
     constructor(props:any,ctx:any){
@@ -84,10 +88,11 @@ class WindowListIcon extends React.Component<{},{
     }
     mounted=false;
     onWindowListChange=async ()=>{
-        let windows=new Array<{title:string,visible:boolean}>();
-        for(let t1 of NewWindowHandleLists.value){
+        let windows=new Array<{title:string,visible:boolean,index:number}>();
+        for(let t2=0;t2<NewWindowHandleLists.value.length;t2++){
+            let t1=NewWindowHandleLists.value[t2];
             if(t1.parentWindow==undefined){
-                windows.push({title:t1.title??'Untitle',visible:!await t1.isHidden()})
+                windows.push({title:t1.title??'Untitle',visible:!await t1.isHidden(),index:t2})
             }
         }
         this.setState({windows})
@@ -112,13 +117,13 @@ class WindowListIcon extends React.Component<{},{
         ref={this.drag.draggedRef({left:window.innerWidth-this.state.listWidth-10,top:window.innerHeight-this.state.listHeight-40})}>
         <div style={{width:this.state.listWidth+'px',height:this.state.listHeight+'px',display:'flex',flexDirection:'column-reverse'}}>{
             this.state.hideList?null:<div>{
-                this.state.windows.map((t1,t2)=><div className={[css.flexRow,css.simpleCard].join(' ')} style={{pointerEvents:'auto'}}>
-                    <div style={{display:'flex',flexGrow:'1',wordBreak:'break-all'}} onClick={()=>NewWindowHandleLists.value[t2].activate()}>{t1.title}</div>
+                this.state.windows.map((t1)=><div className={[css.flexRow,css.simpleCard].join(' ')} style={{pointerEvents:'auto'}}>
+                    <div style={{display:'flex',flexGrow:'1',wordBreak:'break-all'}} onClick={()=>NewWindowHandleLists.value[t1.index].activate()}>{t1.title}</div>
                     <img draggable={false} src={t1.visible?getIconUrl('eye.svg'):getIconUrl('eye-off.svg')} onClick={()=>{
                         if(t1.visible){
-                            NewWindowHandleLists.value[t2].hide();
+                            NewWindowHandleLists.value[t1.index].hide();
                         }else{
-                            NewWindowHandleLists.value[t2].activate();
+                            NewWindowHandleLists.value[t1.index].activate();
                         }
                     }}/>
                 </div>)
@@ -475,5 +480,8 @@ export let __inited__=(async ()=>{
     if(GetJsEntry()==__name__){
         document.body.style.overflow='hidden';
         renderPackagePanel()
+        RemotePxseedJsIoServer.serve(`/pxprpc/pxseed_webui/${__name__.replace(/\//g,'.')}/${rpcId.get()}`,{
+            onConnect:(io)=>new RpcExtendServer1(new Server(io))
+        });
     }
 })();

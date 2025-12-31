@@ -2,8 +2,8 @@ import { ArrayBufferConcat, ArrayWrap2, GenerateRandomString, future, mutex, req
 import { GetPersistentConfig, SavePersistentConfig,IWorkerThread, CreateWorkerThread, lifecycle, GetUrlQueryVariable, getWWWRoot } from "partic2/jsutils1/webutils";
 import { WebMessage, WebSocketIo } from "pxprpc/backend";
 import { Client, Io, Server } from "pxprpc/base";
-import { RpcExtendClient1, RpcExtendClientCallable, RpcExtendClientObject, RpcExtendServer1, RpcExtendServerCallable, defaultFuncMap } from "pxprpc/extend";
-import { rpcId } from "./rpcworker";
+import { RpcExtendClient1, RpcExtendClientCallable, RpcExtendClientObject, RpcExtendServer1, RpcExtendServerCallable, TableSerializer, defaultFuncMap } from "pxprpc/extend";
+import { getRpcClientConnectWorkerParent, rpcId } from "./rpcworker";
 
 
 export var __name__=requirejs.getLocalRequireModule(require);
@@ -43,50 +43,6 @@ defaultFuncMap[__name__+'.getConnectionFromUrl']=new RpcExtendServerCallable(asy
     return await getConnectionFromUrl(url)
 }).typedecl('s->o');
 
-export class IoPipeServer{
-    static serving:Record<string,IoPipeServer>={}
-    pendingAccept=new ArrayWrap2<Io>();
-    closed=false;
-    constructor(public name:string){
-        this.pendingAccept.queueSizeLimit=5;
-        if(IoPipeServer.serving[name]!=undefined){
-            IoPipeServer.serving[name].close();
-        }
-        IoPipeServer.serving[name]=this;
-    }
-    close(){
-        this.pendingAccept.cancelWaiting();
-        this.closed=true;
-        this.pendingAccept.arr().length=0;
-        delete IoPipeServer.serving[this.name];
-    }
-    async accept(){
-        if(this.closed)throw new Error('closed.');
-        return await this.pendingAccept.queueBlockShift();
-    }
-    async connect(){
-        if(this.closed)throw new Error('closed.');
-        let [a,b]=createIoPipe();
-        await this.pendingAccept.queueBlockPush(b);
-        return a;
-    }
-    static async connect(name:string){
-        if(this.serving[name]!=undefined){
-            return this.serving[name].connect();
-        }else{
-            return null;
-        }
-    }
-}
-
-defaultFuncMap[__name__+'.newIoPipeServer']=new RpcExtendServerCallable(async (name:string)=>new IoPipeServer(name)).typedecl('s->o');
-defaultFuncMap[__name__+'.IoPipeServerAccept']=new RpcExtendServerCallable(async (server:IoPipeServer)=>{
-    return await server.accept();
-}).typedecl('o->o');
-defaultFuncMap[__name__+'.IoPipeServerConnect']=new RpcExtendServerCallable(async (name:string)=>{
-    return await IoPipeServer.connect(name);
-}).typedecl('s->o');
-
 
 export type OnlyAsyncFunctionProps<Mod>={
     [P in (keyof Mod & string)]:Mod[P] extends (...args:any[])=>Promise<any>?Mod[P]:never
@@ -106,9 +62,6 @@ export interface RemoteRegistryFunction{
     jsExec(code:string,obj:RpcExtendClientObject|null):Promise<RpcExtendClientObject|null>;
     bufferData(obj:RpcExtendClientObject):Promise<Uint8Array>;
     anyToString(obj:RpcExtendClientObject):Promise<string>;
-    newIoPipeServer(name:string):Promise<RpcExtendClientObject>;
-    IoPipeServerAccept(server:RpcExtendClientObject):Promise<Io>;
-    IoPipeServerConnect(name:string):Promise<Io>;
 }
 
 export let internalProps = Symbol(__name__+'.internalProps');
@@ -154,7 +107,7 @@ export class RpcWorker{
                 await this.wt!.start();
                 WebMessage.bind(this.wt!.port!)
                 await this.wt!.runScript(`require(['partic2/pxprpcClient/rpcworker'],function(workerInit){
-                    workerInit.__internal__.initRpcWorker(${JSON.stringify(rpcWorkerInitModule)},'${rpcId}').then(resolve,reject);
+                    workerInit.__internal__.initRpcWorker(${JSON.stringify(rpcWorkerInitModule)},'${rpcId.get()}').then(resolve,reject);
                 },reject)`,true);
                 this.conn= await new WebMessage.Connection().connect(this.wt!.workerId,500);
             }
@@ -329,15 +282,6 @@ class RemoteRegistryFunctionImpl implements RemoteRegistryFunction{
     async anyToString(obj:RpcExtendClientObject):Promise<string>{
         return this.funcs[6]!.call(obj);
     }
-    async newIoPipeServer(name: string): Promise<RpcExtendClientObject> {
-        return this.funcs[10]!.call(name);
-    }
-    async IoPipeServerAccept(server: RpcExtendClientObject): Promise<Io> {
-        return new IoOverPxprpc(await this.funcs[11]!.call(server));
-    }
-    async IoPipeServerConnect(name: string): Promise<Io> {
-        return new IoOverPxprpc(await this.funcs[12]!.call(name));
-    }
     async ensureInit(){
         if(this.funcs.length==0){
             this.funcs=[
@@ -351,9 +295,6 @@ class RemoteRegistryFunctionImpl implements RemoteRegistryFunction{
                 await getRpcFunctionOn(this.client1!,__name__+'.callJsonFunction','sss->s'),
                 await getRpcFunctionOn(this.client1!,__name__+'.unloadModule','s->'),
                 await getRpcFunctionOn(this.client1!,__name__+'.runJsonResultCode','s->s'),
-                await getRpcFunctionOn(this.client1!,__name__+'.newIoPipeServer','s->o'), //[10]
-                await getRpcFunctionOn(this.client1!,__name__+'.IoPipeServerAccept','o->o'),
-                await getRpcFunctionOn(this.client1!,__name__+'.IoPipeServerConnect','s->o'),
             ]
         }
     }
@@ -367,16 +308,30 @@ export async function getAttachedRemoteRigstryFunction(client1:RpcExtendClient1)
     return t1;
 }
 
+export let __internal__={
+    isPxseedWorker:false
+}
+
 export async function getConnectionFromUrl(url:string):Promise<Io|null>{
     let url2=new URL(url);
     if(url2.protocol=='pxpwebmessage:'){
-        let conn=new WebMessage.Connection()
-        await conn.connect(url2.pathname,300);
-        return conn;
+        if(__internal__.isPxseedWorker){
+            
+        }else{
+            let conn=new WebMessage.Connection();
+            await conn.connect(url2.pathname,300);
+            return conn;
+        }
     }else if(url2.protocol=='webworker:'){
-        let workerId=url2.pathname;
-        let rpcWorker=new RpcWorker(workerId);
-        return await rpcWorker.ensureConnection();
+        if(__internal__.isPxseedWorker){
+            let fn=await getAttachedRemoteRigstryFunction((await getRpcClientConnectWorkerParent())!);
+            let remoteIo=await fn.getConnectionFromUrl(url);
+            return new IoOverPxprpc(remoteIo);
+        }else{
+            let workerId=url2.pathname;
+            let rpcWorker=new RpcWorker(workerId);
+            return await rpcWorker.ensureConnection();
+        }
     }else if(['ws:','wss:'].indexOf(url2.protocol)>=0){
         return await new WebSocketIo().connect(url);
     }else if(url2.protocol=='iooverpxprpc:'){
@@ -404,16 +359,22 @@ export async function getConnectionFromUrl(url:string):Promise<Io|null>{
         let worker=await swu.ensureServiceWorkerInstalled();
         WebMessage.bind(worker!.port!)
         await worker!.runScript(`require(['partic2/pxprpcClient/rpcworker'],function(workerInit){
-            workerInit.loadRpcWorkerInitModule(${JSON.stringify(rpcWorkerInitModule)},'${rpcId}').then(resolve,reject);
+            workerInit.__internal__.initRpcWorker(${JSON.stringify(rpcWorkerInitModule)}).then(resolve,reject);
         },reject)`,true);
         return await new WebMessage.Connection().connect(worker!.workerId,300);
     }else if(url2.protocol=='pxseedjs:'){
         //For user custom connection factory.
         //potential security issue?
-        let functionDelim=url2.pathname.lastIndexOf('.');
-        let moduleName=url2.pathname.substring(0,functionDelim);
-        let functionName=url2.pathname.substring(functionDelim+1);
-        return (await import(moduleName))[functionName](url2.toString());
+        if(__internal__.isPxseedWorker){
+            let fn=await getAttachedRemoteRigstryFunction((await getRpcClientConnectWorkerParent())!);
+            let remoteIo=await fn.getConnectionFromUrl(url);
+            return new IoOverPxprpc(remoteIo);
+        }else{
+            let functionDelim=url2.pathname.lastIndexOf('.');
+            let moduleName=url2.pathname.substring(0,functionDelim);
+            let functionName=url2.pathname.substring(functionDelim+1);
+            return (await import(moduleName))[functionName](url2.toString());
+        }
     }
     return null;
 }
@@ -462,14 +423,19 @@ export async function removeClient(name:string){
     await persistent.save();
 }
 
+//"ServerHost" usually refer to the server hosting pxseed web, and shared by all js worker in one pxeed application.
 export const ServerHostRpcName='server host';
+
+//"ServerHostWorker1" refer to the worker spawn by ServerHost to handle the most remote requests.
 export const ServerHostWorker1RpcName='server host worker 1';
+
 export const WebWorker1RpcName='webworker 1'
 export const ServiceWorker='service worker 1';
 
 
-export async function addBuiltinClient(){
-    if(globalThis.location!=undefined && ['http:','https:'].includes(globalThis.location.protocol) && globalThis.WebSocket !=undefined){
+async function addPxseedJsBuiltinClient(){
+    if(globalThis.location!=undefined && ['http:','https:'].includes(globalThis.location.protocol) 
+        && (globalThis as any).__pxseedInit!=undefined){
         if(getRegistered(ServerHostRpcName)!=null && getRegistered(ServerHostWorker1RpcName)==null){
             await addClient('iooverpxprpc:'+ServerHostRpcName+'/'+
             encodeURIComponent('webworker:'+__name__+'/worker/1'),ServerHostWorker1RpcName)
@@ -495,7 +461,7 @@ export let persistent={
     },
     load:async function load() {
         let config=await GetPersistentConfig(__name__);
-        if('registered' in config){
+        if(config.registered != undefined){
             (config.registered as {name:string,url:string}[]).forEach(item=>{
                 let {name,url}=item;
                 name=(name==undefined||name==='')?url.toString():name;
@@ -508,7 +474,7 @@ export let persistent={
                 registered.set(name,clie);
             })
         }
-        await addBuiltinClient();
+        await addPxseedJsBuiltinClient();
     }
 }
 

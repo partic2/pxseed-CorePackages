@@ -172,7 +172,7 @@ export class RegistryUI extends React.Component<{},{selected:string|null}>{
             {btns.map(v=><span>&emsp;<a href="javascript:;" onClick={v.handler}>{v.label}</a>&emsp;</span>)}
         </div>
         <hr/>
-        <div style={{wordBreak:'break-all'}}>RPC id for this scope:{rpcId}</div>
+        <div style={{wordBreak:'break-all'}}>RPC id for this scope:{rpcId.get()}</div>
         </div>
     }
 }

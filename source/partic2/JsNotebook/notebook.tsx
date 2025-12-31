@@ -132,7 +132,7 @@ class NotebookViewer extends React.Component<{context:WorkspaceContext,path:stri
             }
             await code.runCode(`Object.assign(jsnotebook,${JSON.stringify({startupScript:opt?.startupScript??''})});`);
             await code.runCode(`jsnotebook.doSave=(...argv)=>_ENV.event.dispatchEvent(new CodeContextEvent('${__name__}.NotebookViewer',{data:{call:'doSave',argv}}))`);
-            await code.runCode(`jsnotebook.openNewWindowPreactComponent=(...argv)=>_ENV.event.dispatchEvent(new CodeContextEvent('${__name__}.NotebookViewer',{data:{call:'openNewWindowPreactComponent',argv}}))`);
+            await code.runCode(`jsnotebook.callFunctionInNotebookWebui=(...argv)=>_ENV.event.dispatchEvent(new CodeContextEvent('${__name__}.NotebookViewer',{data:{call:'callFunctionInNotebookWebui',argv}}))`);
             await code.runCode(`jsnotebook.openRpcChooser=(...argv)=>_ENV.event.dispatchEvent(new CodeContextEvent('${__name__}.NotebookViewer',{data:{call:'openRpcChooser',argv}}))`);
             await code.runCode(`jsnotebook.updateNotebookCodeCellsData=(...argv)=>_ENV.event.dispatchEvent(new CodeContextEvent('${__name__}.NotebookViewer',{data:{call:'updateNotebookCodeCellsData',argv}}))`);
             await code.runCode(`jsnotebook.setCodeCellsDataOnRemoteJsNotebook=(...argv)=>_ENV.event.dispatchEvent(new CodeContextEvent('${__name__}.NotebookViewer',{data:{call:'setCodeCellsDataOnRemoteJsNotebook',argv}}))`);
@@ -157,7 +157,7 @@ class NotebookViewer extends React.Component<{context:WorkspaceContext,path:stri
             data=utf8conv('{}');
         }
         let f1=new NotebookFileData();
-        f1.load(data);
+        try{f1.load(data);}catch(err){};
         await this.useRpc((await f1.getRpcClient())!,{startupScript:f1.startupScript});
         if(f1.cells!=undefined){
             let ccl=await this.rref.ccl.waitValid();
@@ -193,14 +193,9 @@ class NotebookViewer extends React.Component<{context:WorkspaceContext,path:stri
         }
         await this.props.context.fs!.writeAll(this.props.path,utf8conv(JSON.stringify(saved)));
     }
-    async doSetting(){
-
-    }
-    async openNewWindowPreactComponent(module:string,className:string,options?:{title:string}){
-        let PreactComp=(await requirejs.promiseRequire<any>(module))[className];
-        openNewWindow(<PreactComp/>,{
-            ...options
-        })
+    async callFunctionInNotebookWebui(module:string,fnName:string,args:any[]){
+        let fn=(await requirejs.promiseRequire<any>(module))[fnName];
+        fn(...args);
     }
     async updateNotebookCodeCellsData(cellsData:string){
         let ccl=await this.rref.ccl.waitValid();
