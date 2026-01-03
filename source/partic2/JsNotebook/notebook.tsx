@@ -163,18 +163,9 @@ class NotebookViewer extends React.Component<{context:WorkspaceContext,path:stri
             let ccl=await this.rref.ccl.waitValid();
             await ccl.loadFrom(f1.cells);
             for(let t2 of ccl.state.list){
-                try{
-                    let codeInput=t2.ref.current?.rref.codeInput.current;
-                    if(codeInput==undefined)continue;
-                    let code=codeInput.getPlainText();
-                    let caret=codeInput.getTextCaretOffset();
-                    await __inited__;
-                    let hlcode=await webworkercall.prismHighlightJS(code);
-                    if(/[^\n]\n$/.test(hlcode))hlcode+='\n';
-                    codeInput.setHtml(hlcode);
-                    codeInput.setTextCaretOffset(caret);
-                }catch(err){};
+                if(t2.ref.current!=undefined)this.codeCellHighlightQueue.add(t2.ref.current);
             }
+            this.DoCodeCellsHightlight.call();
         }
     }
     onKeyDown(ev: React.TargetedKeyboardEvent<HTMLElement>){
@@ -220,7 +211,14 @@ class NotebookViewer extends React.Component<{context:WorkspaceContext,path:stri
             await __inited__;
             let hlcode=await webworkercall.prismHighlightJS(code);
             if(!this.codeCellHighlightQueue.has(codeCell)){
-                if(/[^\n]\n$/.test(hlcode))hlcode+='\n';
+                let lf=hlcode.match(/\n+$/);
+                if(lf!=null){
+                    hlcode=hlcode.substring(0,hlcode.length-lf[0].length);
+                    for(let t1=0;t1<lf[0].length;t1++){
+                        hlcode+='<div><br/></div>';
+                    }
+                }
+                //if(/[^\n]\n$/.test(hlcode))hlcode+='\n';
                 input1.setHtml(hlcode);
                 input1.setTextCaretOffset(caret);
             }

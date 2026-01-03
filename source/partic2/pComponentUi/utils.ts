@@ -8,22 +8,21 @@ export function text2html(src:string){
 export function docNode2text(node:Node){
     let walker=globalThis.document.createTreeWalker(node,NodeFilter.SHOW_ELEMENT|NodeFilter.SHOW_TEXT);
     let textParts=[] as {node:Node|'phony',text:string}[]
+    
+    const isBlockElement=(e:Node)=>{
+        if(e instanceof Element){
+            return !getComputedStyle(e).display.includes('inline');
+        }
+        return false;
+    }
     while(walker.nextNode()){
-        if(walker.currentNode instanceof HTMLDivElement || walker.currentNode instanceof HTMLParagraphElement){
-            if(walker.currentNode.previousSibling==null){
-                textParts.push({node:walker.currentNode,text:''});
-            }else if(walker.currentNode.previousSibling instanceof HTMLBRElement){
-                textParts.push({node:walker.currentNode,text:''});
-            }else{
-                textParts.push({node:'phony',text:'\n'});
-                textParts.push({node:walker.currentNode,text:''});
-            }
-        }else if(walker.currentNode instanceof HTMLBRElement){
-            if(walker.currentNode.previousSibling!=null){
-                textParts.push({node:walker.currentNode,text:'\n'});
-            }else{
-                textParts.push({node:walker.currentNode,text:''});
-            }
+        if(walker.currentNode.previousSibling!=null && (
+                isBlockElement(walker.currentNode.previousSibling) ||
+                isBlockElement(walker.currentNode))){
+            textParts.push({node:'phony',text:'\n'});
+        }
+        if(walker.currentNode instanceof HTMLBRElement && walker.currentNode.nextSibling!=null && !isBlockElement(walker.currentNode.nextSibling)){
+            textParts.push({node:walker.currentNode,text:'\n'});
         }else if(walker.currentNode instanceof Text){
             let textData='';
             let parentElem=walker.currentNode.parentElement;
@@ -32,20 +31,14 @@ export function docNode2text(node:Node){
             }else{
                 //trim charCode(32) and THEN replace charCode(160)
                 textData+=walker.currentNode.data.replace(/\n|(^ +)|( +$)/g,'').replace(/\u00a0/g,' ');
-            }           
-            if(textData!=''){
-                let prev=walker.currentNode.previousSibling;
-                if(prev!=null){
-                    if(prev instanceof HTMLDivElement || prev instanceof HTMLParagraphElement){
-                        textParts.push({node:'phony',text:'\n'});
-                    }
-                }
-                if(textData=='\n'){
-                    
-                }
+            }
+            if(walker.currentNode.nextSibling==null && textData.at(-1)=='\n'){
+                textData=textData.substring(0,textData.length-1);
             }
             textParts.push({node:walker.currentNode,
                 text:textData});
+        }else{
+            textParts.push({node:walker.currentNode,text:''});
         }
     }
     return {textParts,node,
