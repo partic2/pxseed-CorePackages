@@ -1,7 +1,8 @@
 import { defaultFuncMap, RpcExtendClient1, RpcExtendClientObject, RpcExtendServerCallable, TableSerializer } from "pxprpc/extend";
 import { ArrayWrap2, Ref2, requirejs } from "partic2/jsutils1/base";
-import { createIoPipe, getAttachedRemoteRigstryFunction, getPersistentRegistered, getRpcFunctionOn, IoOverPxprpc, ServerHostRpcName } from "./registry";
+import { createIoPipe, getAttachedRemoteRigstryFunction, getPersistentRegistered, IoOverPxprpc, ServerHostRpcName } from "./registry";
 import { Io } from "pxprpc/base";
+import { getRpcFunctionOn } from 'partic2/pxprpcBinding/utils';
 
 let __name__=requirejs.getLocalRequireModule(require);
 
@@ -59,7 +60,7 @@ export let RemotePxseedJsIoServer={
         if(client1==undefined){
             client1=await (await getPersistentRegistered(BusHostServer.get()))!.ensureConnected();
         }
-        (await (await getAttachedRemoteRigstryFunction(client1)).loadModule(__name__)).free();
+        await (await getAttachedRemoteRigstryFunction(client1)).loadModule(__name__)
         let fn=await getRpcFunctionOn(client1,__name__+'.PxseedJsIoServerConnect','s->o');
         return new IoOverPxprpc(await fn!.call(name));
     },
@@ -70,7 +71,7 @@ export let RemotePxseedJsIoServer={
         if(client1==undefined){
             client1=await (await getPersistentRegistered(BusHostServer.get()))!.ensureConnected();
         }
-        (await (await getAttachedRemoteRigstryFunction(client1)).loadModule(__name__)).free();
+        await (await getAttachedRemoteRigstryFunction(client1)).loadModule(__name__)
         let fn=await getRpcFunctionOn(client1,__name__+'.newPxseedJsIoServer','s->o');
         let remoteServer=await fn!.call(name) as RpcExtendClientObject;
         fn=await getRpcFunctionOn(client1,__name__+'.PxseedJsIoServerAccept','o->o');
@@ -88,7 +89,7 @@ export let RemotePxseedJsIoServer={
         if(client1==undefined){
             client1=await (await getPersistentRegistered(BusHostServer.get()))!.ensureConnected();
         }
-        (await (await getAttachedRemoteRigstryFunction(client1)).loadModule(__name__)).free();
+        await (await getAttachedRemoteRigstryFunction(client1)).loadModule(__name__)
         let fn=await getRpcFunctionOn(client1,__name__+'.PxseedJsIoServerPrefixQuery','s->b');
         return new TableSerializer().load(await fn!.call(prefix) as Uint8Array).toArray() as string[];
     }

@@ -1,5 +1,5 @@
 
-import { ArrayWrap2, GenerateRandomString, requirejs } from "partic2/jsutils1/base";
+import { ArrayWrap2, future, GenerateRandomString, requirejs } from "partic2/jsutils1/base";
 import type {} from 'partic2/tjshelper/txikijs'
 
 
@@ -337,6 +337,10 @@ async function rm(path: string): Promise<void>{
 
 class Process {
     nodeProcess?:child_process.ChildProcessWithoutNullStreams
+    processResult=new future<{
+                    exit_status:number,
+                    term_signal:null|string
+                }>();
     constructor(public args: string | string[], public options?: ProcessOptions){
         if(typeof args==='string'){
             args=[args];
@@ -344,7 +348,15 @@ class Process {
         this.nodeProcess=child_process.spawn(args[0],args.slice(1),{
             stdio:'pipe'
         });
-
+        this.nodeProcess.on('error',(err)=>{
+            this.processResult.setException(err);
+        });
+        this.nodeProcess.on('exit',(code,term_signal)=>{
+            this.processResult.setResult({
+                exit_status:code??-1,
+                term_signal:term_signal
+            })
+        })
         if(this.options!=undefined){
             if((this.options.stdin??'ignore')==='pipe'){
                 this.stdin={
@@ -369,17 +381,10 @@ class Process {
         this.pid=this.nodeProcess.pid??-1
     }
     kill(): void{
-        throw new Error('Not implemented');
+        this.nodeProcess!.kill();
     }
     async wait(): Promise<ProcessStatus>{
-        return new Promise((resolve,reject)=>{
-            this.nodeProcess!.on('exit',(code)=>{
-                resolve({
-                    exit_status:code??-1,
-                    term_signal:null
-                });
-            })
-        });
+        return this.processResult.get();
     }
     pid: number=-1;
     stdin?: Writer;
@@ -679,7 +684,7 @@ interface DirHandle extends AsyncIterableIterator<DirEnt> {
 
 interface ProcessStatus {
     exit_status: number;
-    term_signal: null;
+    term_signal: null|string;
 }
 
 

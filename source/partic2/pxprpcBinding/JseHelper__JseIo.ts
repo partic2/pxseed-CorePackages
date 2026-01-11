@@ -1,5 +1,5 @@
 import {RpcExtendClient1,RpcExtendClientCallable,RpcExtendClientObject} from 'pxprpc/extend'
-import { getRpcFunctionOn } from 'partic2/pxprpcClient/registry';
+import { getRpcFunctionOn } from './utils';
 import { getRpc4RuntimeBridgeJava0 } from './rpcregistry';
 
 

@@ -717,7 +717,7 @@ declare global {
         * @param args Command line arguments for the new process.
         * @param options Extra options.
         */
-        function spawn(args: string | string[], options?: ProcessOptions): Process;
+        function spawn(args: string | string[], options?: ProcessOptions): Promise<Process>|Process;
         
         /**
         * Replace the current process image with a new process image.

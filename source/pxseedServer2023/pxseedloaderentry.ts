@@ -3,7 +3,8 @@ import { RpcExtendClient1, RpcExtendServer1, TableSerializer } from 'pxprpc/exte
 import 'partic2/tjshelper/tjsenv'
 import {PxprpcRtbIo} from 'partic2/tjshelper/tjsenv'
 import { Client,Server as PxprpcBaseServer } from 'pxprpc/base';
-import { getRpcFunctionOn, rpcWorkerInitModule } from 'partic2/pxprpcClient/registry';
+import { rpcWorkerInitModule } from 'partic2/pxprpcClient/registry';
+import { getRpcFunctionOn } from 'partic2/pxprpcBinding/utils';
 import {inited as jseiorpcserverinited} from 'partic2/tjshelper/jseiorpcserver'
 import { HttpServer, SimpleFileServer, SimpleHttpServerRouter, WebSocketServerConnection } from 'partic2/tjshelper/httpprot'
 import { buildTjs } from 'partic2/tjshelper/tjsbuilder';

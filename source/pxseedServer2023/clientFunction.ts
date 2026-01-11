@@ -3,8 +3,7 @@ import { RpcExtendClient1, RpcExtendClientCallable, RpcExtendClientObject } from
 import type { PxseedServer2023StartupConfig } from "./pxseedhttpserver";
 import { Client, Io, Serializer } from "pxprpc/base";
 import { WebSocketIo } from "pxprpc/backend";
-import { IoOverPxprpc, ServerHostRpcName, getPersistentRegistered, getRegistered, getRpcFunctionOn, importRemoteModule } from 'partic2/pxprpcClient/registry'
-import { GetUrlQueryVariable2 } from "partic2/jsutils1/webutils";
+import { importRemoteModule } from 'partic2/pxprpcClient/registry'
 
 
 export class PxseedServer2023Function{

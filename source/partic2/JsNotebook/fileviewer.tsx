@@ -5,6 +5,8 @@ import { SimpleFileSystem } from 'partic2/CodeRunner/JsEnviron';
 import { TextEditor } from 'partic2/pComponentUi/texteditor';
 import { WorkspaceContext } from './workspace';
 import { utf8conv } from 'partic2/CodeRunner/jsutils2';
+import { ClientInfo, getPersistentRegistered, ServerHostRpcName, ServerHostWorker1RpcName } from 'partic2/pxprpcClient/registry';
+import { openNewWindow } from 'partic2/pComponentUi/workspace';
 
 
 
@@ -94,6 +96,32 @@ class ImageFileHandler extends FileTypeHandlerBase{
             filePath:path
         });
     }
+}
+
+class ProcessStdioViewer extends React.Component<{id:string,rpc:ClientInfo},{text:Array<{type:'stderr'|'stdout'|'stdin',data:string}>}>{
+    rref={
+        input:new ReactRefEx<TextEditor>()
+    }
+    onInputKeyDown(ev:React.TargetedKeyboardEvent<HTMLDivElement>){
+        console.info('key press',ev.key);
+    }
+    render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined; }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChildren {
+        return <div style={{backgroundColor:'white',whiteSpace:'pre-wrap',minWidth:'250px'}}>
+            <div>{this.state.text.map((t1)=>{
+                let style:React.CSSProperties={}
+                if(t1.type=='stderr')style.color='red';
+                if(t1.type=='stdin')style.color='green';
+                if(t1.type=='stdout')style.color='black';
+                return <span style={style}>{t1.data}</span>
+            })}</div>
+            <div><TextEditor ref={this.rref.input} divAttr={{onKeyDown:(ev)=>this.onInputKeyDown(ev)}}/></div>
+        </div>
+    }
+}
+
+export async function openViewerForStdioSource(id:string,nbctx?:{rpc?:ClientInfo}){
+    let rpc=nbctx?.rpc??(await getPersistentRegistered(ServerHostWorker1RpcName))!;
+    openNewWindow(<ProcessStdioViewer id={id} rpc={rpc}/>)
 }
 
 export let __internal__={

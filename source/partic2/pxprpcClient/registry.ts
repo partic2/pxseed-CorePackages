@@ -4,30 +4,20 @@ import { WebMessage, WebSocketIo } from "pxprpc/backend";
 import { Client, Io, Server } from "pxprpc/base";
 import { RpcExtendClient1, RpcExtendClientCallable, RpcExtendClientObject, RpcExtendServer1, RpcExtendServerCallable, TableSerializer, defaultFuncMap } from "pxprpc/extend";
 import { getRpcClientConnectWorkerParent, rpcId } from "./rpcworker";
-
+import {getRpcFunctionOn,getRpcLocalVariable,setRpcLocalVariable} from 'partic2/pxprpcBinding/utils'
 
 export var __name__=requirejs.getLocalRequireModule(require);
 
+export const RpcSerializeMagicMark='__DUz66NYkWuMdex9k2mvwBbYN__'
+
 export let rpcWorkerInitModule:string[]=[];
 
-defaultFuncMap[__name__+'.loadModule']=new RpcExtendServerCallable(async (name:string)=>{
-    return {
-        type:'module',
-        value:await requirejs.promiseRequire(name)
-    }
-}).typedecl('s->o');
+defaultFuncMap[__name__+'.loadModule']=new RpcExtendServerCallable(async (name:string)=>{await import(name)}).typedecl('s->');
 defaultFuncMap[__name__+'.unloadModule']=new RpcExtendServerCallable(async (name:string)=>requirejs.undef(name)).typedecl('s->');
-defaultFuncMap[__name__+'.callJsonFunction']=new RpcExtendServerCallable(async (moduleName:string,functionName:string,paramsJson:string)=>{
-    try{
-        let param=JSON.parse(paramsJson);
-        return JSON.stringify([(await (await requirejs.promiseRequire<any>(moduleName))[functionName](...param))??null]);
-    }catch(err:any){
-        return JSON.stringify([null,{
-                message:err.message,
-                stack:err.stack
-            }]);
-    }
-}).typedecl('sss->s');
+defaultFuncMap[__name__+'.getDefined']=new RpcExtendServerCallable(async ()=>requirejs.getDefined()).typedecl('s->o');
+defaultFuncMap[__name__+'.getConnectionFromUrl']=new RpcExtendServerCallable(async (url:string)=>{
+    return await getConnectionFromUrl(url)
+}).typedecl('s->o');
 defaultFuncMap[__name__+'.runJsonResultCode']=new RpcExtendServerCallable(async (code)=>{
     try{
         return JSON.stringify([await (new Function(code))()??null]);
@@ -38,10 +28,82 @@ defaultFuncMap[__name__+'.runJsonResultCode']=new RpcExtendServerCallable(async 
             }]);
     }
 }).typedecl('s->s');
-defaultFuncMap[__name__+'.getDefined']=new RpcExtendServerCallable(async ()=>requirejs.getDefined()).typedecl('s->o');
-defaultFuncMap[__name__+'.getConnectionFromUrl']=new RpcExtendServerCallable(async (url:string)=>{
-    return await getConnectionFromUrl(url)
-}).typedecl('s->o');
+
+interface RpcRemoteObjectPool{
+    set(id:string,obj:{[RpcSerializeMagicMark]:any}):void;
+    get(id:string):{[RpcSerializeMagicMark]:any}|undefined;
+    delete(id:string):void;
+    keys():Iterable<string>;
+    close():void
+}
+class RemoteObjectPoolDefaultImpl extends Map<string,{[RpcSerializeMagicMark]:any}> implements RpcRemoteObjectPool{
+    delete(key: string): boolean {
+        let t1=this.get(key) as any;
+        if(t1!=null && typeof t1.close==='function'){
+            t1.close();
+        }
+        return super.delete(key);
+    }
+    close(): void {
+        for(let t1 of this.keys()){
+            this.delete(t1);
+        }
+    }
+}
+defaultFuncMap[__name__+'.freeObjectInRemoteObjectPool']=new RpcExtendServerCallable(async (objectPool:RpcRemoteObjectPool,id:string)=>{
+    objectPool.delete(id);
+}).typedecl('os->');
+defaultFuncMap[__name__+'.allocateRemoteObjectPool']=new RpcExtendServerCallable(async ()=>{
+    return new RemoteObjectPoolDefaultImpl();
+}).typedecl('->o');
+
+
+defaultFuncMap[__name__+'.callJsonFunction']=new RpcExtendServerCallable(async (
+    moduleNameOrThisObject:string,
+    functionName:string,
+    paramsJson:string,
+    objectPool:RpcRemoteObjectPool
+)=>{
+    try{
+        let thisObject:any={};
+        if(moduleNameOrThisObject.startsWith('m:')){
+            thisObject=await import(moduleNameOrThisObject.substring(2));
+        }else if(moduleNameOrThisObject.startsWith('o:')){
+            thisObject=objectPool.get(moduleNameOrThisObject.substring(2));
+        }
+        let param=JSON.parse(paramsJson,(key,value)=>{
+            if(typeof value==='object' && value!==null && value[RpcSerializeMagicMark]!=undefined){
+                let markProp=value[RpcSerializeMagicMark]
+                if(markProp.t==='RpcRemoteObject'){
+                    return objectPool.get(markProp.id);
+                }
+            }else{
+                return value
+            }
+        });
+        
+        return JSON.stringify([(await thisObject[functionName](...param))??null],(key,value)=>{
+            if(typeof value==='object' && value!==null && value[RpcSerializeMagicMark]!=undefined){
+                let markProp=value[RpcSerializeMagicMark];
+                if(markProp.id===undefined){
+                    markProp.id=GenerateRandomString(8)
+                }
+                if(objectPool!=null){
+                    objectPool.set(markProp.id,value)
+                }
+                return {[RpcSerializeMagicMark]:{t:'RpcRemoteObject',...markProp}}
+            }else{
+                return value;
+            }
+        });
+    }catch(err:any){
+        return JSON.stringify([null,{
+                message:err.message,
+                stack:err.stack
+            }]);
+    }
+}).typedecl('ssso->s');
+
 
 
 export type OnlyAsyncFunctionProps<Mod>={
@@ -50,9 +112,7 @@ export type OnlyAsyncFunctionProps<Mod>={
 
 
 export interface RemoteRegistryFunction{
-    loadModule(name:string):Promise<RpcExtendClientObject>;
-    //call function that param and result both can be serialized as JSON
-    callJsonFunction(moduleName:string,functionName:string,params:any):Promise<any>;
+    loadModule(name:string):Promise<void>;
     //call code that result can be serialized as JSON
     runJsonResultCode(code:string):Promise<any>;
     unloadModule(name:string):Promise<void>;
@@ -62,23 +122,10 @@ export interface RemoteRegistryFunction{
     jsExec(code:string,obj:RpcExtendClientObject|null):Promise<RpcExtendClientObject|null>;
     bufferData(obj:RpcExtendClientObject):Promise<Uint8Array>;
     anyToString(obj:RpcExtendClientObject):Promise<string>;
-}
-
-export let internalProps = Symbol(__name__+'.internalProps');
-
-export async function getRpcFunctionOn(client:RpcExtendClient1,funcName:string,typ:string):Promise<RpcExtendClientCallable|null>{
-    let attachedFunc:Record<string,RpcExtendClientCallable|null>={};
-    if(internalProps in client){
-        attachedFunc=(client as any)[internalProps];
-    }else{
-        (client as any)[internalProps]=attachedFunc;
-    }
-    if(!(funcName in attachedFunc)){
-        let fn=await client.getFunc(funcName);
-        if(fn!=null)fn.typedecl(typ);
-        attachedFunc[funcName]=fn;
-    }
-    return attachedFunc[funcName];
+    allocateRemoteObjectPool():Promise<RpcExtendClientObject>;
+    freeObjectInRemoteObjectPool(object:{[RpcSerializeMagicMark]:any},objectPool?:RpcExtendClientObject):Promise<void>;
+    //call function that param and result both can be serialized as JSON OR has [RpcSerializeMagicMark] property (To use object stored in objectPool).
+    callJsonFunction(moduleNameOrThisObject:string|{[RpcSerializeMagicMark]:any},functionName:string,params:any,objectPool?:RpcExtendClientObject):Promise<any>;
 }
 
 
@@ -140,7 +187,7 @@ export class ClientInfo{
     }
     async jsServerLoadModule(name:string){
         let fn=await getAttachedRemoteRigstryFunction(this.client!);
-        (await fn.loadModule(name)).free();
+        await fn.loadModule(name)
     }
     protected connecting=new mutex();
     async ensureConnected():Promise<RpcExtendClient1>{
@@ -238,12 +285,24 @@ class RemoteRegistryFunctionImpl implements RemoteRegistryFunction{
     
     funcs:(RpcExtendClientCallable|null)[]=[]
     client1?:RpcExtendClient1;
+    defaultObjectPool?:RpcExtendClientObject;
 
-    async loadModule(name: string): Promise<RpcExtendClientObject> {
+    async loadModule(name: string): Promise<void> {
         return this.funcs[0]!.call(name);
     }
-    async callJsonFunction(module: string, functionName: string, params:any[] ): Promise<any> {
-        let [result,error]=JSON.parse(await this.funcs[7]!.call(module,functionName,JSON.stringify(params)));
+    async callJsonFunction(moduleNameOrThisObject:string|{[RpcSerializeMagicMark]:any},functionName:string,params:any,objectPool?:RpcExtendClientObject):Promise<any> {
+        if(typeof moduleNameOrThisObject==='object' && moduleNameOrThisObject[RpcSerializeMagicMark]!=undefined){
+            moduleNameOrThisObject='o:'+moduleNameOrThisObject[RpcSerializeMagicMark].id
+        }else{
+            moduleNameOrThisObject='m:'+moduleNameOrThisObject;
+        }
+        if(objectPool==undefined){
+            if(this.defaultObjectPool==undefined){
+                this.defaultObjectPool=await this.allocateRemoteObjectPool();
+            }
+            objectPool=this.defaultObjectPool;
+        }
+        let [result,error]=JSON.parse(await this.funcs[7]!.call(moduleNameOrThisObject,functionName,JSON.stringify(params),objectPool))
         if(error!=null){
             let remoteError=new RemoteCallFunctionError(error.message);
             remoteError.remoteStack=error.stack;
@@ -282,30 +341,46 @@ class RemoteRegistryFunctionImpl implements RemoteRegistryFunction{
     async anyToString(obj:RpcExtendClientObject):Promise<string>{
         return this.funcs[6]!.call(obj);
     }
+    async allocateRemoteObjectPool():Promise<RpcExtendClientObject>{
+        return await this.funcs[10]!.call();
+    }
+    async freeObjectInRemoteObjectPool(object:{[RpcSerializeMagicMark]:any},objectPool?:RpcExtendClientObject):Promise<void>{
+        objectPool=objectPool??this.defaultObjectPool;
+        if(objectPool!=undefined){
+            await this.funcs[11]!.call(objectPool??this.defaultObjectPool,object[RpcSerializeMagicMark].id);
+        }
+    }
     async ensureInit(){
         if(this.funcs.length==0){
             this.funcs=[
-                await getRpcFunctionOn(this.client1!,__name__+'.loadModule','s->o'),
+                await getRpcFunctionOn(this.client1!,__name__+'.loadModule','s->'),
                 await getRpcFunctionOn(this.client1!,__name__+'.getConnectionFromUrl','s->o'),
                 await getRpcFunctionOn(this.client1!,'pxprpc_pp.io_send','ob->'),
                 await getRpcFunctionOn(this.client1!,'pxprpc_pp.io_receive','o->b'),
                 await getRpcFunctionOn(this.client1!,'builtin.jsExec','so->o'),
                 await getRpcFunctionOn(this.client1!,'builtin.bufferData','o->b'), //[5]
                 await getRpcFunctionOn(this.client1!,'builtin.anyToString','o->s'),
-                await getRpcFunctionOn(this.client1!,__name__+'.callJsonFunction','sss->s'),
+                await getRpcFunctionOn(this.client1!,__name__+'.callJsonFunction','ssso->s'),
                 await getRpcFunctionOn(this.client1!,__name__+'.unloadModule','s->'),
                 await getRpcFunctionOn(this.client1!,__name__+'.runJsonResultCode','s->s'),
+                await getRpcFunctionOn(this.client1!,__name__+'.allocateRemoteObjectPool','->o'), //[10]
+                await getRpcFunctionOn(this.client1!,__name__+'.freeObjectInRemoteObjectPool','os->')
             ]
         }
     }
     
 }
 
+const attachedRemoteRigstryFunctionName=__name__+'.RemoteRegistryFunction'
 export async function getAttachedRemoteRigstryFunction(client1:RpcExtendClient1):Promise<RemoteRegistryFunction>{
-    let t1=new RemoteRegistryFunctionImpl();
-    t1.client1=client1;
-    await t1.ensureInit();
-    return t1;
+    let f=getRpcLocalVariable(client1,attachedRemoteRigstryFunctionName)
+    if(f==undefined){
+        f=new RemoteRegistryFunctionImpl();
+        f.client1=client1;
+        await f.ensureInit();
+        setRpcLocalVariable(client1,attachedRemoteRigstryFunctionName,f);
+    }
+    return f;
 }
 
 export let __internal__={
@@ -478,6 +553,37 @@ export let persistent={
     }
 }
 
+let remoteObjectPoolFree=globalThis.FinalizationRegistry?new FinalizationRegistry<[id:string,funcs:RemoteRegistryFunction]>((v)=>{
+    v[1].freeObjectInRemoteObjectPool({[RpcSerializeMagicMark]:{id:v[0],t:'RpcRemoteObject'}})
+}):null;
+
+function replaceRpcSerializeMarkOnClientSide(obj:any,funcs:RemoteRegistryFunction){
+    if(typeof obj==='object' && obj!==null){
+        if(obj[RpcSerializeMagicMark]!=undefined){
+            let p=new Proxy(obj,{
+                get(target,p){
+                    //Avoid triggle by Promise.resolve
+                    if(p==='then')return undefined;
+                    if(p===RpcSerializeMagicMark)return target[p];
+                    if(p==='close')return async ()=>funcs.freeObjectInRemoteObjectPool(target)
+                    return async (...params:any[])=>{
+                        return replaceRpcSerializeMarkOnClientSide(await funcs.callJsonFunction(target,p as string,params),funcs);
+                    }
+                }
+            });
+            remoteObjectPoolFree?.register(p,[obj[RpcSerializeMagicMark].id,funcs])
+            return p;
+        }else{
+            for(let t1 in obj){
+                obj[t1]=replaceRpcSerializeMarkOnClientSide(obj[t1],funcs);
+            }
+            return obj;
+        }
+    }else{
+        return obj;
+    }
+}
+
 //Before typescript support syntax like <typeof import(T)>, we can only tell module type explicitly.
 //Only support plain JSON parameter and return value.
 export async function importRemoteModule(rpc:RpcExtendClient1,moduleName:string):Promise<any>{
@@ -488,15 +594,16 @@ export async function importRemoteModule(rpc:RpcExtendClient1,moduleName:string)
             //Avoid triggle by Promise.resolve
             if(p==='then')return undefined;
             return async (...params:any[])=>{
-                return await funcs.callJsonFunction(moduleName,p as string,params);
+                return replaceRpcSerializeMarkOnClientSide(await funcs.callJsonFunction(moduleName,p as string,params),funcs);
             }
         }
     });
     return proxyModule as any;
 }
 
-export async function easyCallRemoteJsonFunction(rpc:RpcExtendClient1,moduleName:string,funcName:string,args:[]):Promise<any>{
+export async function easyCallRemoteJsonFunction(rpc:RpcExtendClient1,moduleName:string,funcName:string,args:any[]):Promise<any>{
     let funcs:RemoteRegistryFunction|null=null;
     funcs=await getAttachedRemoteRigstryFunction(rpc);
-    return funcs.callJsonFunction(moduleName,funcName,args);
+    let r=replaceRpcSerializeMarkOnClientSide(await funcs.callJsonFunction(moduleName,funcName,args),funcs);
+    return r;
 }

@@ -3,7 +3,7 @@ import { defaultFuncMap, RpcExtendClient1, RpcExtendClientCallable, RpcExtendCli
 
 import {defaultHttpHandler} from './pxseedhttpserver'
 import { utf8conv } from "partic2/CodeRunner/jsutils2";
-import { getRpcFunctionOn } from "partic2/pxprpcClient/registry";
+import { getRpcFunctionOn } from "partic2/pxprpcBinding/utils";
 import { WebSocketServerConnection } from "partic2/tjshelper/httpprot";
 
 let __name__=requirejs.getLocalRequireModule(require);

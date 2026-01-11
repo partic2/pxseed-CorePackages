@@ -17,7 +17,6 @@ import { DebounceCall, utf8conv } from 'partic2/CodeRunner/jsutils2';
 import { RpcExtendClient1, RpcExtendServer1 } from 'pxprpc/extend';
 import { Client,Server } from 'pxprpc/base';
 import { NotebookFileData,__internal__ as workeriniti } from './workerinit';
-import { PredefinedCodeContextViewerContext } from 'partic2/CodeRunner/Component1';
 import { openNewWindow } from 'partic2/pComponentUi/workspace';
 
 import { getResourceManager, useCssFile } from 'partic2/jsutils1/webutils';
@@ -186,7 +185,7 @@ class NotebookViewer extends React.Component<{context:WorkspaceContext,path:stri
     }
     async callFunctionInNotebookWebui(module:string,fnName:string,args:any[]){
         let fn=(await requirejs.promiseRequire<any>(module))[fnName];
-        fn(...args);
+        fn(...args,{rpc:this.state.rpc,codeCellList:this.rref.ccl,codeContext:this.state.codeContext});
     }
     async updateNotebookCodeCellsData(cellsData:string){
         let ccl=await this.rref.ccl.waitValid();
@@ -229,24 +228,19 @@ class NotebookViewer extends React.Component<{context:WorkspaceContext,path:stri
         this.DoCodeCellsHightlight.call();
     }
     render() {
-        return <PredefinedCodeContextViewerContext.Consumer>{
-            value=>{
-                return <div style={{width:'100%',overflow:'auto'}} onKeyDown={(ev)=>this.onKeyDown(ev)} ref={this.rref.container}>
-                <div>
-                <a href="javascript:;" onClick={()=>this.openRpcChooser()}>RPC:{this.getRpcStringRepresent()}</a>
-                <span>&nbsp;&nbsp;</span>
-                <a onClick={()=>this.doSave()} href="javascript:;">Save</a>
-                </div>
-                {(this.state.codeContext!=undefined)?
-                    <CodeCellList codeContext={this.state.codeContext!} ref={this.rref.ccl} cellProps={{
-                        onInputChange:(target)=>this.onCellInputChange(target)
-                    }}/>:
-                    'No CodeContext'
-                }
-                </div>
+        return <div style={{width:'100%',overflow:'auto'}} onKeyDown={(ev)=>this.onKeyDown(ev)} ref={this.rref.container}>
+            <div>
+            <a href="javascript:;" onClick={()=>this.openRpcChooser()}>RPC:{this.getRpcStringRepresent()}</a>
+            <span>&nbsp;&nbsp;</span>
+            <a onClick={()=>this.doSave()} href="javascript:;">Save</a>
+            </div>
+            {(this.state.codeContext!=undefined)?
+                <CodeCellList codeContext={this.state.codeContext!} ref={this.rref.ccl} cellProps={{
+                    onInputChange:(target)=>this.onCellInputChange(target)
+                }}/>:
+                'No CodeContext'
             }
-        }
-        </PredefinedCodeContextViewerContext.Consumer>
+        </div>
     }
 }
 
@@ -342,6 +336,7 @@ class RunCodeReplView extends React.Component<{
         </div>
     }
 }
+
 
 export let __internal__={
     IJSNBFileHandler,RunCodeReplView,NotebookViewer,RpcChooser,openRpcChooser

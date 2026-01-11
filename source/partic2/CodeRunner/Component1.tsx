@@ -1,17 +1,17 @@
 import * as React from 'preact'
-import { MiscObject, UnidentifiedArray, UnidentifiedObject } from './Inspector';
+import { MiscObject, UnidentifiedObject } from './Inspector';
 import { assert, GenerateRandomString, requirejs, ToDataUrl } from 'partic2/jsutils1/base';
 import { text2html } from 'partic2/pComponentUi/utils';
 import { DynamicPageCSSManager } from 'partic2/jsutils1/webutils';
 import {u8hexconv} from './jsutils2'
-import { LocalRunCodeContext, RunCodeContext } from './CodeContext';
+import { RunCodeContext } from './CodeContext';
 
 
 let __name__=requirejs.getLocalRequireModule(require)
 
 export const CustomViewerFactoryProp='__Zag7QaCUiZb1ABgM__'
 
-export type ObjectViewerProps={name:string,object:any}
+export type ObjectViewerProps={name:string,object:any,codeContext?:RunCodeContext,variableName?:string}
 
 export let css1={
     propName:GenerateRandomString()
@@ -20,22 +20,13 @@ export let css1={
 
 
 
-export let ObjectViewer:{new (prop:any,ctx:any):React.Component<{name:string,object:any}>};
-export let HtmlViewer:{new (prop:any,ctx:any):React.Component<{name:string,object:any}>};
-export let PredefinedCodeContextViewer:{new (prop:any,ctx:any):React.Component<{name:string,object:any}>};
-export let ImageViewer:{new (prop:any,ctx:any):React.Component<{name:string,object:any}>}
-export let PredefinedCodeContextViewerContext=React.createContext({codeContext:new LocalRunCodeContext()})
-
+export let ObjectViewer:{new (prop:any,ctx:any):React.Component<ObjectViewerProps>};
+export let HtmlViewer:{new (prop:any,ctx:any):React.Component<ObjectViewerProps>};
+export let ImageViewer:{new (prop:any,ctx:any):React.Component<ObjectViewerProps>}
 
 export function createViewableHtml(source:{html?:string,js?:string}){
     return {
         [CustomViewerFactoryProp]:__name__+'.HtmlViewer',
-        ...source
-    }
-}
-export function createPredefinedCodeContextViewer(source:{js?:string}){
-    return {
-        [CustomViewerFactoryProp]:__name__+'.PredefinedCodeContextViewer',
         ...source
     }
 }
@@ -273,26 +264,6 @@ export let __inited__=(async ()=>{
             }
         }
         HtmlViewer=HtmlViewerImpl
-        class PredefinedCodeContextViewerImpl extends React.Component<{name:string,object:{js?:string}}>{
-            divRef=new ReactRefEx<HTMLDivElement>();
-            constructor(props:any,ctx:any){
-                super(props,ctx);
-            }
-            render(props?: React.RenderableProps<ObjectViewerProps, any> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChildren {
-                return <PredefinedCodeContextViewerContext.Consumer>{value=>{
-                    if(this.props.object.js!=undefined){
-                        value.codeContext.localScope.component=this;
-                        value.codeContext.runCode(this.props.object.js);
-                        this.props.object.js=undefined;
-                    }
-                    return <div>
-                        <div className={css1.propName}>{this.props.name}:</div>
-                        <div ref={this.divRef}></div>
-                    </div>
-                }}</PredefinedCodeContextViewerContext.Consumer>
-            }
-        }
-        PredefinedCodeContextViewer=PredefinedCodeContextViewerImpl
         class ImageViewerImpl extends React.Component<{name:string,object:{url?:string}}>{
             render(props?: React.RenderableProps<ObjectViewerProps, any> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChildren {
                 if(this.props.object.url!=undefined){

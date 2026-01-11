@@ -5,12 +5,10 @@ import * as acorn from 'acorn'
 import { requirejs } from 'partic2/jsutils1/base';
 import * as jsutils1 from 'partic2/jsutils1/base'
 
-import { inspectCodeContextVariable, toSerializableObject, fromSerializableObject, CodeContextRemoteObjectFetcher, 
-    RemoteReference, defaultCompletionHandlers, CodeCompletionItem, getRemoteReference} from './Inspector';
-import { Io } from 'pxprpc/base';
-import { createIoPipe } from 'partic2/pxprpcClient/registry';
+import { toSerializableObject, fromSerializableObject, 
+    defaultCompletionHandlers, CodeCompletionItem} from './Inspector';
 import { addAsyncHook, JsSourceReplacePlan, setupAsyncHook } from './pxseedLoader';
-import { CFuncCallProbe, ensureFunctionProbe, OnConsoleData, TaskLocalRef } from './jsutils2';
+import { OnConsoleData, TaskLocalRef } from './jsutils2';
 
 
 acorn.defaultOptions.allowAwaitOutsideFunction=true;
@@ -46,7 +44,8 @@ export interface RunCodeContext{
     //resultVariable=resultVariable??'_'
     //'runCode' will process source before execute, depend on the implemention.
     // Only string result will be stored into 'stringResult', otherwise null will be stored.
-    runCode(source:string,resultVariable?:string):Promise<{stringResult:string|null,err:{message:string,stack?:string}|null}>;
+    // If error occured, The "resultVariable" will store the catched object. and err=catched.toString()
+    runCode(source:string,resultVariable?:string):Promise<{stringResult:string|null,err:string|null}>;
 
     //jsExec run code in globalThis scope, and different from runCode, never process source before execute.
     //'code' has signature like '__jsExecSample' below. Promise will be resolved. Only string result will be returned, otherwise '' will be returned.
@@ -280,6 +279,7 @@ export class LocalRunCodeContext implements RunCodeContext{
         let that=this;
         let processContext={_ENV:this.localScope,source}
         await jsutils1.Task.fork(function*(){
+            TaskLocalEnv.set(that.localScope);
             for(let processor of that.localScope.__priv_processSource){
                 let isAsync=processor(processContext);
                 if(isAsync!=undefined && 'then' in isAsync){
@@ -294,9 +294,9 @@ export class LocalRunCodeContext implements RunCodeContext{
             this.localScope[resultVariable]=result;
             let stringResult=(typeof(result)==='string')?result:null;
             return {stringResult,err:null}
-        }catch(e){
-            let {message,stack}=e as Error;
-            return {stringResult:null,err:{message,stack}}
+        }catch(e:any){
+            this.localScope[resultVariable]=e;
+            return {stringResult:null,err:e.toString()}
         }
     }
     async runCodeInScope(source:string){
@@ -305,7 +305,6 @@ export class LocalRunCodeContext implements RunCodeContext{
         'return (async ()=>{'+source+'\n})();}');
         
         let that=this;
-        //TODO: Custom await scheduler and stack tracer, to avoid Task context missing after "await"
         let r=jsutils1.Task.fork(function*(){
             TaskLocalEnv.set(that.localScope);
             return (yield code(that.localScopeProxy)) as any;

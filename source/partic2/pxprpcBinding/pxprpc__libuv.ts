@@ -1,5 +1,5 @@
 import { RpcExtendClient1, RpcExtendClientCallable, RpcExtendClientObject } from 'pxprpc/extend'
-import { getRpcFunctionOn } from 'partic2/pxprpcClient/registry';
+import { getRpcFunctionOn } from './utils';
 import { Serializer } from 'pxprpc/base';
 import { getRpc4RuntimeBridge0 } from './rpcregistry';
 export class Invoker {

@@ -1,4 +1,4 @@
-import { ArrayBufferConcat, ArrayWrap2, GenerateRandomString, Ref2, Task, assert, future, requirejs, throwIfAbortError ,TaskLocalRef, mutex, sleep } from "partic2/jsutils1/base";
+import { ArrayBufferConcat, ArrayWrap2, GenerateRandomString, Ref2, Task, assert, future, requirejs, throwIfAbortError ,TaskLocalRef, mutex, sleep, GetCurrentTime } from "partic2/jsutils1/base";
 import { getPersistentRegistered, importRemoteModule } from "partic2/pxprpcClient/registry";
 
 
@@ -138,6 +138,27 @@ export class ExtendStreamReader implements ReadableStreamDefaultReader<Uint8Arra
         }
         throw new Error('stream closed')
     }
+	async readForNBytes(count:number){
+		let b=new Uint8Array(count);
+		let pos=new Ref2<number>(0);
+		for(let t1=0;t1<0x7fffff;t1++){
+			await this.readInto(b,pos);
+			if(pos.get()==b.byteLength)break;
+		}
+		return b;
+	}
+	async readAll(){
+		let chunks=new Array<Uint8Array>();
+		for(let t1=0;t1<0x7fffff;t1++){
+			let chunk=await this.read();
+			if(!chunk.done){
+				chunks.push(chunk.value);
+			}else{
+				break;
+			}
+		}
+		return new Uint8Array(ArrayBufferConcat(chunks));
+	}
 }
 
 

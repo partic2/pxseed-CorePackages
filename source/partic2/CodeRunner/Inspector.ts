@@ -72,10 +72,6 @@ export function toSerializableObject(v:any,opt:Partial<typeof DefaultSerializing
             return {[serializingEscapeMark]:'ArrayBuffer',
                 value:ArrayBufferToBase64(v)
             }
-        }else if(getRemoteReference in v){
-            return {[serializingEscapeMark]:'RemoteReference',accessPath:v[getRemoteReference]().accessPath}
-        }else if(v instanceof Error){
-            return {constructor:'Error',message:v.message,stack:v.stack,...(v as any)};
         }else{
             let r={} as Record<string,any>;
             let keys=listProps(v);
@@ -92,22 +88,32 @@ export function toSerializableObject(v:any,opt:Partial<typeof DefaultSerializing
                         };
                     }
                 }
+                if(v.constructor!=undefined){
+                    r.constructor=v.constructor.name;
+                }
+                //Error.stack Error.message
+                if(v.message!=undefined){
+                    r.message=v.message;
+                }
+                if(v.stack!=undefined){
+                    r.stack=v.stack;
+                }
                 return r;
             }
         }
     }
 }
 
-interface RemoteObjectFetcher{
+export interface RemoteCodeContextInspector{
     fetch(accessPath:(string|number)[],opt:Partial<
         typeof DefaultSerializingOption
     >):Promise<any>;
+    invoke(accessPath:(string|number)[],args:any[]):Promise<any>
 }
 
-
-
-export class CodeContextRemoteObjectFetcher implements RemoteObjectFetcher{
+export class CodeContextRemoteObjectFetcher implements RemoteCodeContextInspector{
     constructor(public codeContext:RunCodeContext){}
+    
     async fetch(accessPath: (string|number)[], opt: Partial<
         typeof DefaultSerializingOption
     >){
@@ -118,6 +124,24 @@ export class CodeContextRemoteObjectFetcher implements RemoteObjectFetcher{
                     codeContext.localScope${accessChain},
                     ${JSON.stringify(opt)}
                 ))`);
+        return fromSerializableObject(JSON.parse(resp),{fetcher:this,accessPath});
+    }
+    async invoke(accessPath: (string | number)[], args: any[]): Promise<any> {
+        let accessChain=accessPath.map(v=>typeof(v)==='string'?`['${v}']`:`[${v}]`).join('')
+        let resp=await this.codeContext!.jsExec(`
+            return JSON.stringify(
+                lib.toSerializableObject(
+                    codeContext.localScope${accessChain}(...lib.fromSerializableObject(${JSON.stringify(toSerializableObject(args,{
+                        maxDepth:0x7ffffffff,
+                        maxKeyCount:0x7fffffff,
+                        enumerateMode:'for in'
+                    }))},{})),
+                    ${JSON.stringify({
+                        maxDepth:0x7fffffff,
+                        maxKeyCount:0x7fffffff,
+                        enumerateMode:'for in'
+                    })}
+                ))`);
         return JSON.parse(resp);
     }
 }
@@ -126,15 +150,13 @@ export class CodeContextRemoteObjectFetcher implements RemoteObjectFetcher{
 export class UnidentifiedObject{
     //keyCount=-1 for non array iteratable.
     keyCount:number=0;
-    fetcher?:RemoteObjectFetcher;
+    fetcher?:RemoteCodeContextInspector;
     accessPath:(number|string)[]=[];
     constructor(){
     }
     async identify(opt:Partial<typeof DefaultSerializingOption>){
         opt={...DefaultSerializingOption,...opt};
-        let resp:any;
-        resp=await this.fetcher?.fetch(this.accessPath,{...opt})
-        return fromSerializableObject(resp,{fetcher:this.fetcher,accessPath:this.accessPath});
+        return await this.fetcher?.fetch(this.accessPath,{...opt})
     }
     toJSON(key?:string){
         return {
@@ -149,20 +171,13 @@ export class UnidentifiedArray extends UnidentifiedObject{
         return objectJson;
     }
 }
-//Usually used in client to make dereference on server side, by 'fromSerializableObject'.
-export const getRemoteReference=Symbol(__name__+'.getRemoteReference')
-export class RemoteReference{
-    constructor(public accessPath:(number|string)[]){};
-    [getRemoteReference](){
-        return this;
-    }
-}
+
 
 export class MiscObject{
     //"serializingError" represent the error throw during serializing, Not the real JS Error object.
     type:'serializingError'|'function'|''='';
     accessPath:(number|string)[]=[];
-    fetcher?:RemoteObjectFetcher;
+    fetcher?:RemoteCodeContextInspector;
     errorMessage?:string;
     functionName?:string;
     toJSON(key?:string){
@@ -175,7 +190,7 @@ export class MiscObject{
     }
 }
 export function fromSerializableObject(v:any,opt:{
-    fetcher?:RemoteObjectFetcher,
+    fetcher?:RemoteCodeContextInspector,
     accessPath?:(string|number)[],
     referenceGlobal?:any    // For 'RemoteReference' instance.
 }):any{
@@ -242,18 +257,6 @@ export function fromSerializableObject(v:any,opt:{
                 case 'ArrayBuffer':{
                     return Base64ToArrayBuffer(v.value);
                 };
-                case 'RemoteReference':{
-                    let t1=opt.referenceGlobal;
-                    if(t1==undefined){
-                        return new RemoteReference(v.accessPath);
-                    }else{
-                        for(let k1 of v.accessPath as (string|number)[]){
-                            if(t1==undefined)break;
-                            t1=t1[k1];
-                        }
-                        return t1;
-                    }
-                };
                 case 'bigint':{
                     return BigInt(v.value)
                 }
@@ -272,7 +275,7 @@ export function fromSerializableObject(v:any,opt:{
     }
 }
 
-export async function inspectCodeContextVariable(fetcher:RemoteObjectFetcher,
+export async function inspectCodeContextVariable(fetcher:RemoteCodeContextInspector,
     accessPath:(string|number)[],opt?:Partial<typeof DefaultSerializingOption>):Promise<any>{
     opt={...DefaultSerializingOption,...opt};
     let t1=new UnidentifiedObject();

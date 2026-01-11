@@ -1,12 +1,14 @@
-import { defaultFileSystem, ensureDefaultFileSystem, initNotebookCodeEnv, installRequireProvider } from "partic2/CodeRunner/JsEnviron";
-import { future } from "partic2/jsutils1/base";
+import { defaultFileSystem, ensureDefaultFileSystem, installRequireProvider, SimpleFileSystem } from "partic2/CodeRunner/JsEnviron";
+import { assert, future, GenerateRandomString, requirejs, Task } from "partic2/jsutils1/base";
 import { ClientInfo, createIoPipe, getPersistentRegistered, rpcWorkerInitModule } from "partic2/pxprpcClient/registry";
 import { LocalRunCodeContext, RunCodeContext } from "partic2/CodeRunner/CodeContext";
-import { createConnectorWithNewRunCodeContext } from "partic2/CodeRunner/RemoteCodeContext";
+import { createConnectorWithNewRunCodeContext, RunCodeContextConnector } from "partic2/CodeRunner/RemoteCodeContext";
 import { utf8conv } from "partic2/CodeRunner/jsutils2";
 import { RpcExtendClient1, RpcExtendServer1 } from "pxprpc/extend";
 import { Client, Server } from "pxprpc/base";
-import { CodeCellListData } from "../CodeRunner/Inspector";
+import { CodeCellListData, CodeCompletionContext } from "partic2/CodeRunner/Inspector";
+import type {} from 'partic2/tjshelper/txikijs'
+import { TjsUtilsProcess } from "./tjseasyapi";
 
 export var __name__='partic2/JsNotebook/workerinit'
 
@@ -77,7 +79,74 @@ export class NotebookFileData{
     }
 }
 
+
 export let runningRunCodeContextForNotebookFile=new Map<string,RunCodeContext>();
+
+//treat both slash and back slash as sep
+function dirname2(path:string){
+    for(let t1=path.length-1;t1>=0;t1--){
+        let ch=path.charAt(t1);
+        if('\\/'.includes(ch)){
+            return path.substring(0,t1);
+        }
+    }
+    return '';
+}
+//Used in workerinit.createRunCodeContextConnectorForNotebookFile
+export async function initNotebookCodeEnv(_ENV:any,opt?:{codePath?:string}){
+    await ensureDefaultFileSystem();
+    let fs:any={
+        simple: defaultFileSystem!,
+        codePath: opt?.codePath,
+        loadScript:async function(path:string){
+            assert(this.simple!=undefined);
+            if(path.startsWith('.')){
+                assert(this.codePath!=undefined )
+                path=dirname2(this.codePath)+path.substring(1);
+            }
+            let jsbin=await this.simple.readAll(path);
+            if(jsbin==null){
+                throw new Error('File not existed');
+            }
+            let js=new TextDecoder().decode(jsbin);
+            let cc=_ENV.__priv_codeContext as LocalRunCodeContext;
+            let savedCodePath=this.codePath;
+            this.codePath=path;
+            await cc.runCode(js);
+            this.codePath=savedCodePath;
+        }
+    };
+    _ENV.fs=fs;
+    _ENV.import2env=async (moduleName:string)=>{
+        let mod=await import(moduleName);
+        for(let [k1,v1] of Object.entries(mod)){
+            _ENV[k1]=v1;
+        }
+    }
+    let {CustomFunctionParameterCompletionSymbol,importNameCompletion,makeFunctionCompletionWithFilePathArg0}=(await import('partic2/CodeRunner/Inspector'));
+    _ENV.import2env[CustomFunctionParameterCompletionSymbol]=async (context:CodeCompletionContext)=>{
+        let param=context.code.substring(context.funcParamStart!,context.caret);
+        let importName2=param.match(/\(\s*(['"])([^'"]+)$/);
+        if(importName2!=null){
+            let replaceRange:[number,number]=[context.funcParamStart!+param.lastIndexOf(importName2[1])+1,0];
+            replaceRange[1]=replaceRange[0]+importName2[2].length;
+            let importName=importName2[2];
+            let t1=await importNameCompletion(importName);
+            context.completionItems.push(...t1.map(v=>({type:'literal',candidate:v,replaceRange})))
+        }
+    }
+    let {path}=await import('partic2/jsutils1/webutils');
+    _ENV.fs.loadScript[CustomFunctionParameterCompletionSymbol]=makeFunctionCompletionWithFilePathArg0(path.dirname(_ENV.fs.codePath??''));
+    if(_ENV.fs.simple!=undefined){
+        _ENV.fs.simple.readAll[CustomFunctionParameterCompletionSymbol]=makeFunctionCompletionWithFilePathArg0(undefined);
+        _ENV.fs.simple.writeAll[CustomFunctionParameterCompletionSymbol]=makeFunctionCompletionWithFilePathArg0(undefined);
+        _ENV.fs.simple.listdir[CustomFunctionParameterCompletionSymbol]=makeFunctionCompletionWithFilePathArg0(undefined);
+        _ENV.fs.simple.filetype[CustomFunctionParameterCompletionSymbol]=makeFunctionCompletionWithFilePathArg0(undefined);
+        _ENV.fs.simple.delete2[CustomFunctionParameterCompletionSymbol]=makeFunctionCompletionWithFilePathArg0(undefined);
+    }
+    _ENV.globalThis=globalThis;
+}
+
 
 export async function createRunCodeContextConnectorForNotebookFile(notebookFilePath:string){
     await __inited__;
@@ -101,7 +170,7 @@ export async function createRunCodeContextConnectorForNotebookFile(notebookFileP
             await connector.value.runCode(nbd.startupScript);
         }
     }
-    return {value:runningRunCodeContextForNotebookFile.get(notebookFilePath)!};
+    return new RunCodeContextConnector(runningRunCodeContextForNotebookFile.get(notebookFilePath)!);
 }
 
 export async function runNotebook(notebookFilePath:string,cellsIndex:number[]|'all cells'){

@@ -1,9 +1,8 @@
-import { RpcExtendClient1 } from "pxprpc/extend";
+import { RpcExtendClient1, RpcExtendClientCallable } from "pxprpc/extend";
 
 import { Client, Io } from "pxprpc/base";
 import { WebSocketIo } from "pxprpc/backend";
 import { assert, throwIfAbortError } from "partic2/jsutils1/base";
-import { getConnectionFromUrl, getPersistentRegistered, ServerHostRpcName, ServerHostWorker1RpcName } from "partic2/pxprpcClient/registry";
 import { buildTjs } from "partic2/tjshelper/tjsbuilder";
 import { PxprpcIoFromTjsStream, TjsReaderDataSource } from "partic2/tjshelper/tjsutil";
 
@@ -46,3 +45,4 @@ export async function getRpc4RuntimeBridgeJava0(){
     }
     return pxseedLoaderRuntimeBridgeJava0Client!;
 }
+

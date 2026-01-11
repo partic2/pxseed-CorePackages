@@ -1,5 +1,5 @@
 
-import { GenerateRandomString, GetCurrentTime, assert, sleep } from 'partic2/jsutils1/base';
+import { GenerateRandomString, GetCurrentTime, assert, requirejs, sleep } from 'partic2/jsutils1/base';
 import { FloatLayerComponent, ReactRefEx, css as css1 } from 'partic2/pComponentUi/domui';
 import { CodeContextEvent, ConsoleDataEventData, RunCodeContext } from './CodeContext';
 import * as React from 'preact'
@@ -11,6 +11,7 @@ import { text2html } from 'partic2/pComponentUi/utils';
 import { FlattenArraySync,DebounceCall } from './jsutils2';
 import {appendFloatWindow,removeFloatWindow, WindowComponent, WindowsList, WindowsListContext} from 'partic2/pComponentUi/window'
 
+let __name__=requirejs.getLocalRequireModule(require);
 
 export var css={
     inputCell:GenerateRandomString(),
@@ -40,6 +41,7 @@ interface CodeCellStats{
     tooltip:React.VNode,
     extraTooltips:string|null,
     focusin:boolean,
+    errorCatched:string|null
 }
 
 
@@ -64,7 +66,7 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
     }
     constructor(props:any,ctx:any){
         super(props,ctx);
-        this.setState({codeCompleteCandidate:null,focusin:false,extraTooltips:null});
+        this.setState({codeCompleteCandidate:null,focusin:false,extraTooltips:null,errorCatched:null});
     }
     async runCode(){
         this.props.onTooltips?.(null);
@@ -72,13 +74,13 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
         try{
             this.setState({cellOutput:'Running...'});
             let resultVariable=this.state.resultVariable??('__result_'+GenerateRandomString());
-            let runStatus=await this.props.codeContext.runCode(this.getCellInput(),resultVariable);
-            if(runStatus.err===null){
-                let cellOutput=await inspectCodeContextVariable(new CodeContextRemoteObjectFetcher(this.props.codeContext),[resultVariable],{maxDepth:1});
+            let runStatus=await this.codeContext!.runCode(this.getCellInput(),resultVariable);
+            if(runStatus.err===null && runStatus.stringResult!=null){
+                let cellOutput=runStatus.stringResult;
                 this.setState({cellOutput,resultVariable});
             }else{
-                let err=runStatus.err;
-                this.setState({cellOutput:err,resultVariable:null});
+                let cellOutput=await inspectCodeContextVariable(new CodeContextRemoteObjectFetcher(this.codeContext!),[resultVariable],{maxDepth:1});
+                this.setState({cellOutput,resultVariable,errorCatched:runStatus.err});
             }
         }catch(e){
             let err=e as Error
@@ -88,7 +90,7 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
     }
     protected requestCodeComplete=new DebounceCall(async ()=>{
         this.setState({
-            codeCompleteCandidate:await this.props.codeContext.codeComplete(
+            codeCompleteCandidate:await this.codeContext!.codeComplete(
                 this.getCellInput(),
                 this.rref.codeInput.current!.getTextCaretOffset())
         },()=>{
@@ -217,7 +219,7 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
     protected async onBtnClearOutputs(){
         if(this.state.resultVariable!=null){
             try{
-                await this.props.codeContext.jsExec(
+                await this.codeContext!.jsExec(
                     `delete codeContext.localScope['${this.state.resultVariable}']`)
             }catch(e){};
         }
@@ -236,10 +238,22 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
         result=result.map(v=>[<span>&nbsp;&nbsp;</span>,v,<span>&nbsp;&nbsp;</span>])
         return result
     }
-    protected prepareRender(){
+    codeContext?:RunCodeContext
+    codeContextCallMethodEvent=async (ev:CodeContextEvent)=>{
+        let {module,functionName,argv}=ev.data;
+        (await import(module))[functionName](...argv,{codeCell:this,codeContext:this.codeContext})
+    }
+    protected beforeRender(){
+        if(this.codeContext!=this.props.codeContext){
+            if(this.codeContext!=undefined){
+                this.codeContext.event.removeEventListener(`${__name__}.CodeCell.callWebuiFunction`,this.codeContextCallMethodEvent);
+            }
+            this.codeContext=this.props.codeContext;
+            this.codeContext.event.addEventListener(`${__name__}.CodeCell.callWebuiFunction`,this.codeContextCallMethodEvent);
+        }
     }
     render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined; }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChild {
-        this.prepareRender();
+        this.beforeRender();
         return <div style={{display:'flex',flexDirection:'column',position:'relative',...this.props.divStyle}} ref={this.rref.container} 
                 {...this.props.divAttr}
                 onFocusIn={(ev)=>{
@@ -265,8 +279,9 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
                 {this.state.extraTooltips?<div dangerouslySetInnerHTML={{__html:this.state.extraTooltips}}></div>:null}
                 {this.renderCodeComplete()}
             </div>}
+            <div>{this.state.errorCatched!=null?'THROW:':null}</div>
             <div style={{overflow:'auto'}}>
-                <ObjectViewer object={this.state.cellOutput} name={''} />
+                <ObjectViewer object={this.state.cellOutput} name={''} codeContext={this.codeContext!} variableName={this.state.resultVariable??undefined} />
             </div>
         </div>
     }
@@ -287,7 +302,7 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
     async close(){
         if(this.state.resultVariable!=null){
             try{
-                await this.props.codeContext.jsExec(
+                await this.codeContext!.jsExec(
                     `delete codeContext.localScope['${this.state.resultVariable}']`)
             }catch(e){};
         }
@@ -326,8 +341,8 @@ export class DefaultCodeCellList extends React.Component<
             if(this.state.codeContext!=null){
                 this.state.codeContext.event.removeEventListener('console.data',this.onConsoleData as any);
             }
-            this.props.codeContext.event.addEventListener('console.data',this.onConsoleData as any);
-            this.setState({codeContext:this.props.codeContext});
+            this.props.codeContext!.event.addEventListener('console.data',this.onConsoleData as any);
+            this.setState({codeContext:this.props.codeContext!});
         }
     }
     async newCell(afterCellKey:string){
