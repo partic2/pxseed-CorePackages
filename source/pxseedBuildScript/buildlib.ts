@@ -53,18 +53,21 @@ export async function processDirectory(dir:string){
     if(!hasPxseedConfig){
         for(let child of children){
             if(child.isDirectory()){
-                await processDirectory(path.join(dir,child.name));
+                try{
+                    await processDirectory(path.join(dir,child.name));
+                }catch(err:any){
+                    console.warn('recursive pxseed process failed.'+err.toString()+'\n'+err.stack)
+                };
             }
         }
     }else{
         let pxseedConfig=await utili.readJson(path.join(dir,'pxseed.config.json')) as PxseedConfig;
-        let pstat:PxseedStatus;
-        if(children.find(v=>v.name=='.pxseed.status.json')){
-            pstat=await utili.readJson(path.join(dir,'.pxseed.status.json'));
-            pstat={...makeDefaultStatus(),...pstat};
-        }else{
-            pstat={...makeDefaultStatus()}
-        }
+        let pstat:PxseedStatus={...makeDefaultStatus()};
+        try{
+            if(children.find(v=>v.name=='.pxseed.status.json')){
+                Object.assign(pstat,await utili.readJson(path.join(dir,'.pxseed.status.json')))
+            }
+        }catch(err){}
         let loaders=pxseedConfig.loaders;
         for(let loaderConfig of loaders){
             try{

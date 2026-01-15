@@ -58,7 +58,8 @@ interface FileBrowserState{
     childrenFile:{name:string,type:string}[],
     selectedFiles:Set<string>,
     filterText:string,
-    textInput1:string
+    textInput1:string,
+    currPathHistory:string[]
 };
 
 class FileBrowser extends React.Component<{context:WorkspaceContext},FileBrowserState>{
@@ -66,7 +67,7 @@ class FileBrowser extends React.Component<{context:WorkspaceContext},FileBrowser
         super(props,context)
         this.setState({childrenFile:[],
             selectedFiles:new Set(),
-            filterText:'',currPath:''
+            filterText:'',currPath:'',currPathHistory:[]
         });
     }
     public getParentPath(){
@@ -77,7 +78,7 @@ class FileBrowser extends React.Component<{context:WorkspaceContext},FileBrowser
             return this.state.currPath!.substring(0,delim);
         }
     }
-    async DoFileOpen(path:string){
+    async DoFileOpen(path:string,opt?:{noHistory?:boolean}){
         let filetype=await this.props.context.fs!.filetype(path);
         if(filetype=='dir'){
             let newPath=path;
@@ -97,6 +98,14 @@ class FileBrowser extends React.Component<{context:WorkspaceContext},FileBrowser
                 return a1-b1+c1;
             });
             this.state.selectedFiles.clear();
+            if(opt?.noHistory!==true){
+                if(this.state.currPathHistory.at(-1)!=this.state.currPath && this.state.currPath!=undefined){
+                    this.state.currPathHistory.push(this.state.currPath);
+                    if(this.state.currPathHistory.length>30){
+                        this.state.currPathHistory.splice(0,this.state.currPathHistory.length-30);
+                    }
+                }
+            }
             this.setState({
                 currPath:newPath,
                 childrenFile:children
@@ -265,9 +274,16 @@ class FileBrowser extends React.Component<{context:WorkspaceContext},FileBrowser
         }
         dlg.close();
     }
+    async DoGoBack(){
+        let lastPath=this.state.currPathHistory.pop();
+        if(lastPath!=undefined){
+            this.DoFileOpen(lastPath,{noHistory:true});
+        }
+    }
     filterRef=React.createRef<HTMLInputElement>();
     public renderAction(){
         return <div>
+            <a href="javascript:;" onClick={()=>this.DoGoBack()}>GoBack</a>&emsp;
             <a href="javascript:;" onClick={()=>this.DoNew()}>New</a>&emsp;
             <a href="javascript:;" onClick={()=>this.DoRenameTo()}>Rename</a>&emsp;
             <a href="javascript:;" onClick={()=>this.DoDelete()}>Delete</a>&emsp;
@@ -292,18 +308,24 @@ class FileBrowser extends React.Component<{context:WorkspaceContext},FileBrowser
         let newPathInput=new ReactRefEx<TextEditor>();
         let dlg=await prompt(<div>
             <TextEditor divClass={[css.simpleCard]} divStyle={{minWidth:300}} ref={newPathInput}/>
+            <a href="javascript:;" onClick={async ()=>{
+                let input1=await newPathInput.waitValid();
+                input1.setPlainText(this.props.context.wwwroot??'/')
+            }}><div>Goto WWWRoot</div></a>
         </div>,'Jump to');
         (await newPathInput.waitValid()).setPlainText(this.state.currPath??'');
         if(await dlg.response.get()==='ok'){
-            this.DoFileOpen(await (await newPathInput.waitValid()).getPlainText());
+            this.DoFileOpen((await newPathInput.waitValid()).getPlainText());
         }
         dlg.close();
     }
     public render(){
         return (<div className={css.flexColumn} style={{height:'100%'}}>
-            <div style={{wordBreak:'break-all'}} className={[css.simpleCard].join(' ')}>
-                <a href="javascript:;" onClick={()=>this.promptForCurrentPath()}>{this.state.currPath}</a>
-            </div>
+            <a href="javascript:;" onClick={()=>this.promptForCurrentPath()}>
+                <div style={{wordBreak:'break-all'}} className={[css.simpleCard].join(' ')}>
+                    {(this.state.currPath==undefined || this.state.currPath.length==0)?'/':this.state.currPath}
+                </div>
+            </a>
             {this.renderAction()}
             <input type='text' placeholder='filter' onInput={(ev)=>this.onFilterChange((ev.target as HTMLInputElement).value)}></input>
             <div style={{flexGrow:1,flexShrink:1}} ref={this.filesContainer}>
