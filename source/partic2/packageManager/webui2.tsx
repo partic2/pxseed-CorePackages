@@ -5,7 +5,7 @@ import { RemoteRunCodeContext } from 'partic2/CodeRunner/RemoteCodeContext'
 import {getPersistentRegistered, importRemoteModule,persistent,ServerHostRpcName,ServerHostWorker1RpcName, WebWorker1RpcName} from 'partic2/pxprpcClient/registry'
 import { GenerateRandomString, GetBlobArrayBufferContent, Task, assert, future, requirejs } from 'partic2/jsutils1/base'
 import { BuildUrlFromJsEntryModule, GetJsEntry, GetPersistentConfig, getResourceManager, path, RequestDownload, selectFile, useDeviceWidth } from 'partic2/jsutils1/webutils'
-import {JsonForm} from 'partic2/pComponentUi/input'
+import {promptWithForm, SimpleReactForm1} from 'partic2/pComponentUi/input'
 import {alert, appendFloatWindow, confirm, prompt, css as windowCss, WindowComponent} from 'partic2/pComponentUi/window'
 var registryModuleName='partic2/packageManager/registry';
 import {TaskLocalRef,Singleton} from 'partic2/CodeRunner/jsutils2'
@@ -17,7 +17,7 @@ export var __name__=requirejs.getLocalRequireModule(require);
 import type * as registryModType from 'partic2/packageManager/registry'
 import type { PxseedConfig } from 'pxseedBuildScript/buildlib'
 import {openWorkspaceWindowFor, openWorkspaceWithProfile} from 'partic2/JsNotebook/workspace'
-import { TextEditor } from 'partic2/pComponentUi/texteditor'
+import { PlainTextEditorInput, TextEditor } from 'partic2/pComponentUi/texteditor'
 import { NewWindowHandle, NewWindowHandleLists, openNewWindow, setBaseWindowView, WorkspaceWindowContext  } from 'partic2/pComponentUi/workspace'
 
 
@@ -34,7 +34,8 @@ let i18n={
     uninstall:'uninstall',
     error:'error',
     upgradeCorePackages:'upgrade pxseed core',
-    packageManager:"package manager"
+    packageManager:"package manager",
+    done:'done'
 }
 
 if(navigator.language.split('-').includes('zh')){
@@ -50,6 +51,7 @@ if(navigator.language.split('-').includes('zh')){
     i18n.error='错误'
     i18n.upgradeCorePackages='升级PXSEED核心库'
     i18n.packageManager='包管理'
+    i18n.done='完成'
 }
 
 let remoteModule={
@@ -186,7 +188,6 @@ class PackagePanel extends React.Component<{},{
     errorMessage:string
 }>{
     rref={
-        createPackageForm:new ReactRefEx<JsonForm>(),
         installPackageName:new ReactRefEx<TextEditor>(),
         listFilter:new ReactRefEx<TextEditor>()
     }
@@ -299,85 +300,95 @@ class PackagePanel extends React.Component<{},{
         }
     }
     async showCreatePackage(){
-        openNewWindow(<JsonForm ref={this.rref.createPackageForm} divStyle={{minWidth:Math.min(window.innerWidth-8,400)}}
-        type={{
-            type:'object',
-            fields:[
-                ['name',{type:'string'}],
-                ['loaders',{type:'string'}],
-                ['webuiEntry',{type:'string'}],
-                ['dependencies',{type:'string'}],
-                ['repositories',{type:'array',element:{
-                    type:'object',fields:[
-                        ['scope',{type:'string'}],
-                        ['url template',{type:'string'}],
-                    ]
-                }}],
-                ['btn1',{type:'button',subbtn:['create','fill repositories'],
-                    onClick:(parent,subbtn)=>this.createPackageBtn(parent,subbtn)}]
-            ]
-        }}/>,{title:i18n.createPackage,parentWindow:this.lastWindow});        
-        (await this.rref.createPackageForm.waitValid())!.value={
-            name:'partic2/createPkgDemo',
-            loaders:`[
-{"name": "copyFiles","include": ["assets/**/*"]},
-{"name": "typescript"}
-]`,
-            webuiEntry:'./index',
-            dependencies:'',
-            repositories:[{
-                scope:'partic2',
-                'url template':'https://github.com/partic2/pxseed-${subname}'
-            }]
-        }
-    }
-    async createPackageBtn(pkgInfoIn:any,subbtn?:string){
-        let registry=await remoteModule.registry.get();
-        if(subbtn==='create'){
-            let opt={} as registryModType.PackageManagerOption;
-            let webuiEntry=pkgInfoIn.webuiEntry as string;
-            if(webuiEntry.startsWith('./')){
-                webuiEntry=pkgInfoIn.name+webuiEntry.substring(1);
-            }
-            opt.webui={
-                entry:webuiEntry,
-                label:pkgInfoIn.name
-            }
-            opt.dependencies=(pkgInfoIn.dependencies as string).split(',').filter(v=>v!='');
-            opt.repositories={};
-            pkgInfoIn.repositories.forEach((v:any)=>{
-                opt.repositories![v.scope]=[...(opt.repositories?.[v.scope]??[]),v['url template']]
-            });
-            let r1:PxseedConfig={
-                name:pkgInfoIn.name,
-                loaders:JSON.parse(pkgInfoIn.loaders),
-                options:{
-                    'partic2/packageManager/registry':opt
+        try{
+            let basicInfo=await promptWithForm(<SimpleReactForm1>{(form1)=>{
+                return <div>
+                    <div>name:</div>
+                    <div><input style={{width:'100%',boxSizing:'border-box'}} ref={form1.getRefForInput('name')} type='text'/></div>
+                    <div>loaders:</div>
+                    <PlainTextEditorInput ref={form1.getRefForInput('loaders')} divStyle={{border:'solid 1px black'}}/>
+                    <div>description:</div>
+                    <PlainTextEditorInput ref={form1.getRefForInput('description')} divStyle={{border:'solid 1px black'}}/>
+                    <div>dependencies:</div>
+                    <PlainTextEditorInput ref={form1.getRefForInput('dependencies')} divStyle={{border:'solid 1px black'}}/>
+                    <SimpleReactForm1 ref={form1.getRefForInput('webui')}>{form1=><div>
+                        <div>webui relative config:</div>
+                        <div>entry:</div>
+                        <div><input style={{width:'100%',boxSizing:'border-box'}} ref={form1.getRefForInput('entry')} type='text'/></div>
+                        <div>label:</div>
+                        <div><input style={{width:'100%',boxSizing:'border-box'}} ref={form1.getRefForInput('label')} type='text'/></div>
+                        <div>icon:</div>
+                        <div><input style={{width:'100%',boxSizing:'border-box'}} ref={form1.getRefForInput('icon')} type='text'/></div>
+                    </div>}</SimpleReactForm1>
+                </div>
+            }}</SimpleReactForm1>,{title:i18n.createPackage,initialValue:{
+                name:'partic2/createPkgDemo',
+                loaders:JSON.stringify([
+                    {"name": "copyFiles","include": ["assets/**/*"]},
+                    {"name": "typescript"}
+                ],undefined,4),
+                webui:{
+                    entry:'./webui',
+                    label:'',
+                    icon:''
                 }
+            }})
+            if(basicInfo==null){
+                return;
             }
-            this.setState({errorMessage:'creating...'});
+            basicInfo.loaders=JSON.parse(basicInfo.loaders);
+            let registry=await remoteModule.registry.get();
+            let scopeName=basicInfo.name.split('/')[0];
+            let urlTpl=await registry.getUrlTemplateFromScopeName!(scopeName);
+            basicInfo.repositories=JSON.stringify({
+                [scopeName]:urlTpl??['https://github.com/'+scopeName+'/pxseed-${subname}']
+            },undefined,4);
+            basicInfo=await promptWithForm(<SimpleReactForm1>{(form1)=>{
+                return <div>
+                    <div>repositories:</div>
+                    <PlainTextEditorInput ref={form1.getRefForInput('repositories')} divStyle={{border:'solid 1px black'}}/>
+                </div>
+            }}</SimpleReactForm1>,{title:i18n.createPackage,initialValue:basicInfo})
+            if(basicInfo==null){
+                return;
+            }
             try{
-                await registry.createPackageTemplate1!(r1);
-                this.setState({errorMessage:'done'});
+                basicInfo.options={};
+                let opt={} as registryModType.PackageManagerOption;
+                let inPath=basicInfo.webui.entry as string;
+                if(inPath!=''){
+                    if(inPath.startsWith('./')){
+                        inPath=basicInfo.name+inPath.substring(1);
+                    }
+                    opt.webui={entry:inPath,label:basicInfo.name};
+                    inPath=basicInfo.webui.icon as string;
+                    if(inPath!=''){
+                        if(inPath.startsWith('./')){
+                            inPath=basicInfo.name+inPath.substring(1);
+                        }
+                        opt.webui.icon=inPath;
+                    }
+                    if(basicInfo.webui.label!=''){
+                        opt.webui.label=basicInfo.webui.label;
+                    }
+                }
+                delete basicInfo.webui
+                opt.dependencies=(basicInfo.dependencies as string).split(',').filter(v=>v!='');
+                delete basicInfo.dependencies
+                opt.repositories=JSON.parse(basicInfo.repositories);
+                delete basicInfo.repositories
+                basicInfo.options['partic2/packageManager/registry']=opt;
+                await registry.createPackageTemplate1!(basicInfo);
+                await alert(i18n.done,'CAUTION');
             }catch(e:any){
                 this.setState({errorMessage:e.toString()});
             }
-        }else if(subbtn==='fill repositories'){
-            try{
-                let scopeName=pkgInfoIn.name.split('/')[0];
-                let urlTpl=await registry.getUrlTemplateFromScopeName!(scopeName);
-                if(urlTpl!=undefined){
-                    pkgInfoIn.repositories=urlTpl.map(v=>({
-                        scope:scopeName,
-                        ['url template']:v
-                    }));
-                }
-                this.rref.createPackageForm.current!.value=pkgInfoIn;
-            }catch(e:any){
-                await alert(e.toString());
-            }
+        }catch(err:any){
+            await alert(err.message+'\n'+err.stack,'ERROR');
         }
+        await this.refreshList();
     }
+    
     async uninstall(){
         let dlg=await prompt(<div className={css.flexRow} style={{alignItems:'center'}}>
             {i18n.packageName}:<TextEditor ref={this.rref.installPackageName} 
@@ -390,6 +401,7 @@ class PackagePanel extends React.Component<{},{
             return
         }
         let pkgName=(await this.rref.installPackageName.waitValid()).getPlainText();
+        dlg.close();
         if(await confirm(`Uninstall package ${pkgName}?`)=='ok'){
             let registry=await remoteModule.registry.get();
             this.setState({errorMessage:'uninstalling...'})
@@ -429,6 +441,8 @@ import2env('partic2/packageManager/registry');`,
     }
     async upgradeCorePackages(){
         try{
+            let resp=await confirm(i18n.upgradeCorePackages+'?');
+            if(resp=='cancel')return;
             this.setState({errorMessage:'upgrading package...'});
             let registry=await remoteModule.registry.get();
             await registry.UpgradeCorePackages();

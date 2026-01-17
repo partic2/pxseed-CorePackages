@@ -1,8 +1,7 @@
 {
   "loaders": [
     {
-      "name": "typescript",
-      "transpileOnly":true
+      "name": "typescript"
     },{
       "name":"rollup",
       "entryModules":["buffer","isomorphic-git"]

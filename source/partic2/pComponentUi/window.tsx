@@ -1,9 +1,9 @@
 
 import * as React from 'preact'
 import { css as cssBase, DomDivComponent, DomRootComponent, FloatLayerComponent, ReactEventTarget, ReactRefEx, ReactRender, RefChangeEvent } from './domui';
-import { ArrayWrap2, assert, future, GenerateRandomString, GetCurrentTime } from 'partic2/jsutils1/base';
+import { future, GenerateRandomString, GetCurrentTime } from 'partic2/jsutils1/base';
 import { DynamicPageCSSManager } from 'partic2/jsutils1/webutils';
-import { PointTrace, TransformHelper } from './transform';
+import { PointTrace } from './transform';
 
 
 
@@ -70,36 +70,34 @@ export class WindowComponent extends ReactEventTarget<WindowComponentProps,Windo
         window.removeEventListener('reisze',this._triggerResize);
     }
     async makeCenter(){
-        await (async()=>{
-            let width=0;
-            let height=0;
-            let stableCount=0;
-            for(let t1=0;t1<100;t1++){
-                await new Promise(resolve=>requestAnimationFrame(resolve));
-                let newWidth=this.rref.container.current?.scrollWidth??0;
-                let newHeight=this.rref.container.current?.scrollHeight??0;
-                if(width!=newWidth || height!=newHeight){
-                    width=newWidth;
-                    height=newHeight;
-                    stableCount=0;
-                }else{
-                    stableCount++;
-                }
-                if(stableCount>=3)break;
+
+        let width=0;
+        let height=0;
+        let stableCount=0;
+        for(let t1=0;t1<100;t1++){
+            await new Promise(resolve=>requestAnimationFrame(resolve));
+            let newWidth=this.rref.container.current?.scrollWidth??0;
+            let newHeight=this.rref.container.current?.scrollHeight??0;
+            if(width!=newWidth || height!=newHeight){
+                width=newWidth;
+                height=newHeight;
+                stableCount=0;
+            }else{
+                stableCount++;
             }
-        })();
-        let width=this.rref.container.current?.scrollWidth??0;
-        let height=this.rref.container.current?.scrollHeight??0;
-        let wndWidth=(rootWindowsList.current?.container.current?.offsetWidth)??0;
-        let wndHeight=(rootWindowsList.current?.container.current?.offsetHeight)??0;
-        if(width>wndWidth-5)width=wndWidth-5;
-        if(height>wndHeight-5)height=wndHeight-5;
-        let left=(wndWidth-width)>>1;
-        let top=(wndHeight-height)>>1;
-        if(left!=this.state.layout.left || top!=this.state.layout.top){
-            await new Promise((resolve)=>{
-                this.setState({layout:{left:left,top:top}},()=>resolve(null))
-            });
+            if(stableCount>=3)break;
+
+            let wndWidth=(rootWindowsList.current?.container.current?.offsetWidth)??0;
+            let wndHeight=(rootWindowsList.current?.container.current?.offsetHeight)??0;
+            if(width>wndWidth-5)width=wndWidth-5;
+            if(height>wndHeight-5)height=wndHeight-5;
+            let left=(wndWidth-width)>>1;
+            let top=(wndHeight-height)>>1;
+            if(left!=this.state.layout.left || top!=this.state.layout.top){
+                await new Promise((resolve)=>{
+                    this.setState({layout:{left:left,top:top}},()=>resolve(null))
+                });
+            }
         }
     }
     renderIcon(url:string|null,onClick:()=>void){
@@ -220,7 +218,8 @@ export class WindowComponent extends ReactEventTarget<WindowComponentProps,Windo
         if(this.props.contentDivInlineStyle!=undefined){
             Object.assign(contentDivStyle,this.props.contentDivInlineStyle)
         }
-        return <div className={[cssBase.flexColumn,this.props.windowDivClassName??css.defaultWindowDiv].join(' ')} style={windowDivStyle}
+        return <div className={[cssBase.flexColumn,this.props.windowDivClassName??css.defaultWindowDiv].join(' ')} 
+            style={windowDivStyle}
             ref={this.rref.container}
             onMouseDown={()=>{
                 if(this.state.activateTime>=0 && !this.props.disableUserInputActivate)
@@ -393,16 +392,33 @@ export async function confirm(message:string,title?:string){
     return r;
 }
 
-export async function prompt(form:React.VNode,title?:string){
+export async function prompt(form:React.VNode,title?:string):Promise<{response:future<'ok'|'cancel'>,close:()=>void}>
+export async function prompt(form:React.VNode,opt?:{
+    onButtonClick?:(clicked:'ok'|'cancel')=>void
+    title?:string
+}|string){
     let result=new future<'ok'|'cancel'>();
+    if(typeof opt==='string'){
+        opt={title:opt}
+    }
+    let title=opt?.title;
     let windowRef=new ReactRefEx<WindowComponent>();
     let floatWindow1=<WindowComponent key={GenerateRandomString()} ref={windowRef}
-    title={title??i18n.caution} onClose={()=>result.setResult('cancel')} >
+    title={title??i18n.caution} onClose={()=>{
+        result.setResult('cancel');
+        opt?.onButtonClick?.('cancel');
+    }} >
         <div className={cssBase.flexColumn}>
             {form}
             <div className={cssBase.flexRow}>
-                <input type='button' style={{flexGrow:'1'}} onClick={()=>result.setResult('ok')} value={i18n.ok}/>
-                <input type='button' style={{flexGrow:'1'}} onClick={()=>result.setResult('cancel')} value={i18n.cancel}/>
+                <input type='button' style={{flexGrow:'1'}} onClick={()=>{
+                    result.setResult('ok');
+                    opt?.onButtonClick?.('ok');
+                }} value={i18n.ok}/>
+                <input type='button' style={{flexGrow:'1'}} onClick={()=>{
+                    result.setResult('cancel');
+                    opt?.onButtonClick?.('cancel');
+                }} value={i18n.cancel}/>
             </div>
         </div>
     </WindowComponent>;
