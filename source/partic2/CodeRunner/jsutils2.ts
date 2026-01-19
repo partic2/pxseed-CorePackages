@@ -1,5 +1,4 @@
-import { ArrayBufferConcat, ArrayWrap2, GenerateRandomString, Ref2, Task, assert, future, requirejs, throwIfAbortError ,TaskLocalRef, mutex, sleep, GetCurrentTime } from "partic2/jsutils1/base";
-import { getPersistentRegistered, importRemoteModule } from "partic2/pxprpcClient/registry";
+import { ArrayBufferConcat, ArrayWrap2, Ref2, Task,  future, requirejs ,TaskLocalRef, mutex, sleep} from "partic2/jsutils1/base";
 
 
 let __name__=requirejs.getLocalRequireModule(require);
@@ -194,14 +193,17 @@ export function FlattenArraySync<T>(source:RecursiveIteratable<T>){
 }
 
 export class Singleton<T> extends future<T>{
-    constructor(public init:()=>Promise<T>){super()}
-    i:T|null=null;
+    constructor(protected init:()=>Promise<T>){super()}
+	protected initing=false;
     async get(){
-		if(!this.done){
+		if(!this.done && !this.initing){
+			this.initing=true;
 			this.init().then((result)=>{
 				this.setResult(result);
+				this.initing=false;
 			},(err)=>{
 				this.setException(err);
+				this.initing=false;
 			})
 		}
         return super.get();
@@ -210,31 +212,27 @@ export class Singleton<T> extends future<T>{
 
 export function deepEqual(a:any, b:any) {
 	if (a === b) return true;
-	
 	if (a === null || b === null || typeof a !== 'object' || typeof b !== 'object') {
 	  return false;
 	}
-	
 	const keysA = Object.keys(a);
 	const keysB = Object.keys(b);
-	
 	if (keysA.length !== keysB.length) return false;
-	
 	for (const key of keysA) {
 	  if (!keysB.includes(key) || !deepEqual(a[key], b[key])) {
 		return false;
 	  }
 	}
-	
 	return true;
 }
 
-export class DebounceCall{
+export class DebounceCall<T extends (...args: any) => any>{
     protected callId:number=1;
-    protected result=new future();
+    protected result=new future<ReturnType<T>|undefined>();
     protected mut=new mutex();
-    constructor(public fn:()=>Promise<void>,public delayMs:number){}
-    async call(){
+	protected canceled=false;
+    constructor(public fn:T,public delayMs:number){}
+    async call(...args:Parameters<T>):Promise<undefined|ReturnType<T>>{
         if(this.callId==-1){
             //waiting fn return
             return await this.result.get();
@@ -242,10 +240,11 @@ export class DebounceCall{
         this.callId++;
         let thisCallId=this.callId;
         await sleep(this.delayMs);
+		if(this.canceled)return
         if(thisCallId==this.callId){
         try{
             this.callId=-1;
-            let r=await this.fn();
+            let r=await this.fn(...args);
             this.result.setResult(r);
         }catch(e){
             this.result.setException(e);
@@ -257,8 +256,12 @@ export class DebounceCall{
         }}else{
             return await this.result.get();
         }
-        
     }
+	cancel(){
+		this.result.setResult(undefined);
+		this.callId=1;
+		this.result=new future();
+	}
 }
 
 export function setupAsyncHook(){
