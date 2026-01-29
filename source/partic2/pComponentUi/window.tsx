@@ -1,6 +1,6 @@
 
 import * as React from 'preact'
-import { css as cssBase, DomDivComponent, DomRootComponent, FloatLayerComponent, ReactEventTarget, ReactRefEx, ReactRender, RefChangeEvent } from './domui';
+import { css as cssBase, DomDivComponent, DomRootComponent, FloatLayerComponent, ReactEventTarget, ReactRefEx, ReactRender } from './domui';
 import { future, GenerateRandomString, GetCurrentTime } from 'partic2/jsutils1/base';
 import { DynamicPageCSSManager } from 'partic2/jsutils1/webutils';
 import { PointTrace } from './transform';
@@ -40,8 +40,8 @@ export let css={
     defaultTitleStyle:GenerateRandomString(),
 }
 
-DynamicPageCSSManager.PutCss('.'+css.defaultWindowDiv,['border:solid black 1px','box-sizing: border-box']);
-DynamicPageCSSManager.PutCss('.'+css.borderlessWindowDiv,[]);
+DynamicPageCSSManager.PutCss('.'+css.defaultWindowDiv,['border:solid black 1px','box-sizing: border-box','pointer-events:auto']);
+DynamicPageCSSManager.PutCss('.'+css.borderlessWindowDiv,['pointer-events:auto']);
 DynamicPageCSSManager.PutCss('.'+css.defaultContentDiv ,['flex-grow:1','background-color:white','overflow:auto'])
 DynamicPageCSSManager.PutCss('.'+css.defaultTitleStyle ,['background-color:black','color:white'])
 
@@ -119,30 +119,18 @@ export class WindowComponent extends ReactEventTarget<WindowComponentProps,Windo
             this.setState({layout:{...this.state.layout,left:curr.x-start.x,top:curr.y-start.y}},()=>this.dispatchEvent(new Event('move')));
         }
     });
-    __onTitleMouseDownHandler=(evt:React.TargetedMouseEvent<HTMLDivElement>)=>{
+    __onTitleMouseDownHandler=(evt:React.TargetedPointerEvent<HTMLDivElement>)=>{
         this.__wndMove.start({x:evt.clientX-this.state.layout.left,y:evt.clientY-this.state.layout.top},true);
         evt.preventDefault();
-    }
-    __onTitleTouchDownHandler=(evt:React.TargetedTouchEvent<HTMLDivElement>)=>{
-        if(evt.touches.length==1){
-            this.__wndMove.start({x:evt.touches.item(0)!.clientX-this.state.layout.left,y:evt.touches.item(0)!.clientY-this.state.layout.top},true);
-            evt.preventDefault();
-        }
     }
     __wndResize=new PointTrace({
         onMove:(curr,start)=>{
             this.setState({layout:{...this.state.layout,width:curr.x-start.x,height:curr.y-start.y}},()=>this.dispatchEvent(new Event('resize')));
         }
     });
-    __onResizeIconMouseDownHandler=(evt:React.TargetedMouseEvent<HTMLDivElement>)=>{
+    __onResizeIconMouseDownHandler=(evt:React.TargetedPointerEvent<HTMLDivElement>)=>{
         this.__wndResize.start({x:this.state.layout.left,y:this.state.layout.top},true);
         evt.preventDefault();
-    }
-    __onResizeIconTouchDownHandler=(evt:React.TargetedTouchEvent<HTMLDivElement>)=>{
-        if(evt.touches.length==1){
-            this.__wndResize.start({x:this.state.layout.left,y:this.state.layout.top},true);
-            evt.preventDefault();
-        }
     }
     activate(activateTime?:number){
         if(this.props.keepTop){
@@ -161,8 +149,8 @@ export class WindowComponent extends ReactEventTarget<WindowComponentProps,Windo
     }
     renderTitle(){
         return <div className={[cssBase.flexRow,css.defaultTitleStyle].join(' ')} style={{alignItems:'center'}}>
-                <div style={{flexGrow:'1',cursor:'move',userSelect:'none',overflowY:'auto'}} 
-                onMouseDown={this.__onTitleMouseDownHandler} onTouchStart={this.__onTitleTouchDownHandler} >
+                <div style={{flexGrow:'1',cursor:'move',userSelect:'none',overflowY:'auto',touchAction:'none'}} 
+                onPointerDown={this.__onTitleMouseDownHandler} >
                 {(this.props.title??'').replace(/ /g,String.fromCharCode(160))}</div>&nbsp;
                 {
                     (this.props.titleBarButton??[]).map(t1=>this.renderIcon(t1.icon,t1.onClick))
@@ -197,9 +185,9 @@ export class WindowComponent extends ReactEventTarget<WindowComponentProps,Windo
             position:'absolute',
             left:this.state.layout.left+'px',
             top:this.state.layout.top+'px',
-            pointerEvents:'auto',
             maxWidth:(window.innerWidth-this.state.layout.left)+'px',
             maxHeight:(window.innerHeight-this.state.layout.top)+'px',
+            touchAction:'none'
         };
         if(typeof this.state.layout.width==='number'){
             windowDivStyle.width=this.state.layout.width+'px';
@@ -221,11 +209,7 @@ export class WindowComponent extends ReactEventTarget<WindowComponentProps,Windo
         return <div className={[cssBase.flexColumn,this.props.windowDivClassName??css.defaultWindowDiv].join(' ')} 
             style={windowDivStyle}
             ref={this.rref.container}
-            onMouseDown={()=>{
-                if(this.state.activateTime>=0 && !this.props.disableUserInputActivate)
-                    this.activate()
-            }}
-            onTouchStart={()=>{
+            onPointerDown={()=>{
                 if(this.state.activateTime>=0 && !this.props.disableUserInputActivate)
                     this.activate()
             }}>
@@ -241,10 +225,9 @@ export class WindowComponent extends ReactEventTarget<WindowComponentProps,Windo
                     (this.props.noResizeHandle)?null:<img src={getIconUrl('arrow-down-right.svg')} 
                     style={{
                         position:'absolute',cursor:'nwse-resize',
-                        right:'0px',bottom:'0px',
+                        right:'0px',bottom:'0px',touchAction:'none',
                         backgroundColor:'white'}} 
-                        onMouseDown={this.__onResizeIconMouseDownHandler} 
-                        onTouchStart={this.__onResizeIconTouchDownHandler}
+                        onPointerDown={this.__onResizeIconMouseDownHandler} 
                     width="12" height="12"
                     />
                 ]}
@@ -314,6 +297,7 @@ export function ensureRootWindowContainer(){
         div.style.position='absolute';
         div.style.left='0px';
         div.style.top='0px';
+        div.style.pointerEvents='none'
         DomRootComponent.addChild(windowDomRootComponent).then(()=>DomRootComponent.update());
         ReactRender(<WindowsList ref={rootWindowsList}/>,windowDomRootComponent);
     }

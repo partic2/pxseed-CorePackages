@@ -24,6 +24,7 @@ interface OpenNewWindopwOption{
     layoutHint?:string
     parentWindow?:NewWindowHandle,
     windowOptions?:WindowComponentProps
+    WindowComponentClass?:{new(prop:WindowComponentProps,ctx:any):WindowComponent}
 }
 export interface NewWindowHandle extends OpenNewWindopwOption{
     waitClose:()=>Promise<void>,
@@ -44,16 +45,26 @@ export let openNewWindow=async function(contentVNode:React.VNode,options?:OpenNe
     options=options??{};
     let closeFuture=new future<boolean>();
     let windowRef=new ReactRefEx<WindowComponent>();
+    let onWindowLayoutChange:(()=>void)|null=null;
     let handle={
         ...options,
         waitClose:async function(){
             await closeFuture.get();
         },
-        close:function(){
+        close:async function(){
             for(let t1 of this.children){
                 t1.close();
             }
+            let at=NewWindowHandleLists.value.indexOf(handle);
+            if(at>=0)NewWindowHandleLists.value.splice(at,1);
+            NewWindowHandleLists.dispatchEvent(new Event('change'));
+            if(onWindowLayoutChange!=null){
+                let window1=await windowRef.waitValid();
+                window1.removeEventListener('move',onWindowLayoutChange);
+                window1.removeEventListener('resize',onWindowLayoutChange);
+            }
             removeFloatWindow(windowVNode);
+            closeFuture.setResult(true);
         },
         async activate(){
             (await this.windowRef.waitValid()).activate();
@@ -119,30 +130,17 @@ export let openNewWindow=async function(contentVNode:React.VNode,options?:OpenNe
             }
         }
     }
-    let onWindowLayooutChange:(()=>void)|null=null;
-    let windowVNode=<WindowComponent ref={windowRef} onClose={async ()=>{
-        for(let t1 of NewWindowHandleLists.value){
-            if(t1.parentWindow===handle){
-                t1.close();
-            }
-        }
-        closeFuture.setResult(true);
-        removeFloatWindow(windowVNode);
-        let at=NewWindowHandleLists.value.indexOf(handle);
-        if(at>=0)NewWindowHandleLists.value.splice(at,1);
-        NewWindowHandleLists.dispatchEvent(new Event('change'));
-        if(onWindowLayooutChange!=null){
-            let window1=await windowRef.waitValid();
-            window1.removeEventListener('move',onWindowLayooutChange);
-            window1.removeEventListener('resize',onWindowLayooutChange);
-        }
+    
+    let WindowComponentClass=options.WindowComponentClass??WindowComponent
+    let windowVNode=<WindowComponentClass ref={windowRef} onClose={async ()=>{
+        handle.close();
     }} onComponentDidUpdate={()=>{
         NewWindowHandleLists.dispatchEvent(new Event('change'));
     }} titleBarButton={[{
         icon:getIconUrl('minus.svg'),
         onClick:async()=>handle.hide()
     }]} title={options.title} {... (options.windowOptions??{})}
-    ><WorkspaceWindowContext.Provider value={{lastWindow:handle}}>{contentVNode}</WorkspaceWindowContext.Provider></WindowComponent>;
+    ><WorkspaceWindowContext.Provider value={{lastWindow:handle}}>{contentVNode}</WorkspaceWindowContext.Provider></WindowComponentClass>;
     handle.windowVNode=windowVNode;
     appendFloatWindow(windowVNode,true);
     NewWindowHandleLists.value.push(handle);
@@ -154,11 +152,11 @@ export let openNewWindow=async function(contentVNode:React.VNode,options?:OpenNe
     window1.setState({layout:{...layout1}})
     if(options.layoutHint!=undefined){
         let saveLayout=new DebounceCall(handle.saveWindowPosition,3000);
-        onWindowLayooutChange=()=>{
+        onWindowLayoutChange=()=>{
             saveLayout.call()
         }
-        window1.addEventListener('move',onWindowLayooutChange);
-        window1.addEventListener('resize',onWindowLayooutChange);
+        window1.addEventListener('move',onWindowLayoutChange);
+        window1.addEventListener('resize',onWindowLayoutChange);
     }
     return handle;
 }

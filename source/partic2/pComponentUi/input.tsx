@@ -1,6 +1,6 @@
 import { ArrayWrap2, GenerateRandomString } from "partic2/jsutils1/base"
 import { getIconUrl } from "partic2/pxseedMedia1/index1"
-import { css, ReactEventTarget, ReactRefEx, RefChangeEvent } from "./domui"
+import { css, ReactEventTarget, ReactRefEx } from "./domui"
 import * as React from 'preact'
 import { PlainTextEditorInput } from "./texteditor"
 import { prompt } from "./window"

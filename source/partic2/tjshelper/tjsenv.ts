@@ -1,6 +1,7 @@
 //import this module to Initialize pxseed environment on txiki.js platform.
 
 import { ArrayBufferConcat, DateDiff, future, GetCurrentTime, requirejs} from 'partic2/jsutils1/base';
+import * as jsutils1base from 'partic2/jsutils1/base';
 import type {} from 'partic2/tjshelper/txikijs'
 import { Io } from 'pxprpc/base';
 
@@ -130,6 +131,21 @@ export function setupImpl(){
             }
             new Function(jscode)();
         }) as any
+    }
+    if((tjs.engine as any).bufferToBase64!=undefined){
+        (jsutils1base as any).ArrayBufferToBase64=function(buffer: ArrayBuffer|Uint8Array): string{
+            let bytes:Uint8Array;
+            if(buffer instanceof ArrayBuffer){
+                bytes=new Uint8Array(buffer);
+            }else{
+                bytes = new Uint8Array(buffer.buffer,buffer.byteOffset,buffer.byteLength);
+            }
+            return new TextDecoder().decode((tjs.engine as any).bufferToBase64(bytes));
+        };
+        (jsutils1base as any).Base64ToArrayBuffer=function(base64: string): ArrayBuffer {
+            let b64buf=new TextEncoder().encode(base64);
+            return (tjs.engine as any).base64ToBuffer(b64buf).buffer;
+        };
     }
 }
 
