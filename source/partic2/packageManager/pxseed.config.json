@@ -4,7 +4,8 @@
       "name": "typescript"
     },{
       "name":"rollup",
-      "entryModules":["buffer","isomorphic-git"]
+      "entryModules":["buffer","isomorphic-git"],
+      "noImplicitExternal":["buffer","isomorphic-git"]
     }
   ],
   "name": "partic2/packageManager"

@@ -9,14 +9,18 @@ export interface PxseedStatus{
     lastSuccessBuildTime:number,
     lastBuildError:string[],
     currentBuildError:string[],
-    subpackages:string[]
+    subpackages:string[],
+    loadersData:Record<string,any>,
+    deleteOnClean:string[],
 }
 let PxseedStatusDefault:PxseedStatus={
     lastBuildTime:1,
     lastSuccessBuildTime:1,
     lastBuildError:[],
     currentBuildError:[],
-    subpackages:[]
+    subpackages:[],
+    loadersData:{},
+    deleteOnClean:[]
 }
 
 
@@ -35,7 +39,7 @@ export interface PxseedConfig{
 declare var requirejs:any
 
 function makeDefaultStatus():PxseedStatus{
-    return {...PxseedStatusDefault,lastBuildError:[],currentBuildError:[],subpackages:[]}
+    return {...PxseedStatusDefault,lastBuildError:[],currentBuildError:[],subpackages:[],deleteOnClean:[],loadersData:{}}
 }
 
 
@@ -127,6 +131,14 @@ export async function cleanBuildStatus(dir:string){
         if(t1.isDirectory()){
             await cleanBuildStatus(path.join(dir,t1.name))
         }else if(t1.name=='.pxseed.status.json'){
+            try{
+                let pstat:PxseedStatus={...makeDefaultStatus(),...await utili.readJson(path.join(dir,t1.name))};
+                for(let t1 of pstat.deleteOnClean){
+                    await fs.rm(path.join(outputDir,t1)).catch(()=>{});
+                }
+            }catch(err:any){
+                console.warn(err.toString(),err.stack);
+            }
             await fs.rm(path.join(dir,t1.name));
         }
     }

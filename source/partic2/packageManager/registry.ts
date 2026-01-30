@@ -1,5 +1,5 @@
 
-import {PxseedConfig, processDirectory, sourceDir} from 'pxseedBuildScript/buildlib'
+import {PxseedConfig, cleanBuildStatus, processDirectory, sourceDir} from 'pxseedBuildScript/buildlib'
 import {defaultHttpClient, getWWWRoot, kvStore, path} from 'partic2/jsutils1/webutils'
 import {ArrayBufferConcat, ArrayWrap2, GenerateRandomString, assert, logger, requirejs} from 'partic2/jsutils1/base'
 import { getNodeCompatApi, __internal__ as utilsi, withConsole } from 'pxseedBuildScript/util';
@@ -492,7 +492,9 @@ export async function fetchPackage(name:string){
 
 export async function uninstallPackage(pkgname:string){
     const {fs,path,wwwroot}=await getNodeCompatApi();
-    await fs.rm(path.join(wwwroot,'..','source',...pkgname.split('/')),{recursive:true});
+    let dir1=path.join(wwwroot,'..','source',...pkgname.split('/'));
+    await cleanBuildStatus(dir1)
+    await fs.rm(dir1,{recursive:true});
     let pkgdb=await kvStore(pkgdbName);
     await pkgdb.delete('pkg-'+pkgname);
 }
