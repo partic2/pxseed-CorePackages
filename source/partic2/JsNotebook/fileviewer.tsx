@@ -4,9 +4,10 @@ import * as React from 'preact'
 import { SimpleFileSystem } from 'partic2/CodeRunner/JsEnviron';
 import { TextEditor } from 'partic2/pComponentUi/texteditor';
 import { WorkspaceContext } from './workspace';
-import { utf8conv } from 'partic2/CodeRunner/jsutils2';
+import { DebounceCall, utf8conv } from 'partic2/CodeRunner/jsutils2';
 import { ClientInfo, getPersistentRegistered, ServerHostRpcName, ServerHostWorker1RpcName } from 'partic2/pxprpcClient/registry';
 import { openNewWindow } from 'partic2/pComponentUi/workspace';
+import { GenerateRandomString } from '../jsutils1/base';
 
 
 
@@ -24,7 +25,7 @@ class TextFileViewer extends React.Component<{context:WorkspaceContext,path:stri
     rref={inputArea:new ReactRefEx<TextEditor>()}
     action={} as Record<string,()=>Promise<void>>;
 
-    onKeyDown(ev: React.JSX.TargetedKeyboardEvent<HTMLElement>){
+    onKeyDown(ev: React.TargetedKeyboardEvent<HTMLElement>){
         if(ev.key==='KeyS'&&ev.ctrlKey){
             this.doSave();
             ev.preventDefault();
@@ -98,30 +99,110 @@ class ImageFileHandler extends FileTypeHandlerBase{
     }
 }
 
-class ProcessStdioViewer extends React.Component<{id:string,rpc:ClientInfo},{text:Array<{type:'stderr'|'stdout'|'stdin',data:string}>}>{
+
+interface StdioSource{
+    readStdoutUtf8():Promise<string>;
+    readStderrUtf8():Promise<string>;
+    writeStdinUtf8(s:string):Promise<void>;
+    close():Promise<void>;
+    waitClosed():Promise<void>
+}
+
+class StdioConsole extends React.Component<{stdioSource:StdioSource},
+    {outputs:string[],inputHistory:string[],inputHistoryIndex:number}>{
     rref={
-        input:new ReactRefEx<TextEditor>()
+        input:new ReactRefEx<TextEditor>(),
+        output:new ReactRefEx<HTMLDivElement>()
     }
-    onInputKeyDown(ev:React.TargetedKeyboardEvent<HTMLDivElement>){
-        console.info('key press',ev.key);
+    protected readingOutputs=false;
+    constructor(p:any,c:any){
+        super(p,c);
+        this.setState({outputs:[],inputHistory:[],inputHistoryIndex:-1});
+    }
+    componentDidMount(): void {
+        if(this.readingOutputs)return;
+        this.readingOutputs=true;
+        this.props.stdioSource.waitClosed().then(()=>this.readingOutputs=false).catch(()=>{});
+        (async ()=>{
+            while(this.readingOutputs){
+                let outtext=await this.props.stdioSource.readStdoutUtf8();
+                this.pushOutputToOutputsBuffer(outtext);
+            }
+        })().catch((err:any)=>{
+            this.pushOutputToOutputsBuffer(err.toString()+err.stack);
+        });
+        (async ()=>{
+            while(this.readingOutputs){
+                let outtext=await this.props.stdioSource.readStderrUtf8();
+                this.pushOutputToOutputsBuffer(outtext);
+            }
+        })().catch((err:any)=>{
+            this.pushOutputToOutputsBuffer(err.toString()+err.stack);
+        });
+    }
+    componentWillUnmount(): void {
+        this.readingOutputs=false;
+    }
+    debounceScrollOutputsToBottom=new DebounceCall(async ()=>{
+        await new Promise(requestAnimationFrame);
+        let div1=await this.rref.output.waitValid();
+        div1.scrollTo({top:div1.scrollHeight,behavior:'smooth'});
+    },50);
+    pushOutputToOutputsBuffer(output:string){
+        let buf=this.state.outputs.slice(Math.max(0,this.state.outputs.length-100))
+        buf.push(output);
+        this.setState({outputs:buf});
+        this.debounceScrollOutputsToBottom.call();
+    }
+    async onInputKeyDown(ev:KeyboardEvent){
+        if(ev.key=='Enter' && !ev.ctrlKey && !ev.altKey && !ev.shiftKey){
+            let te=await this.rref.input.waitValid();
+            let intext=te.getPlainText();
+            let histIdx=this.state.inputHistoryIndex
+            let hist=this.state.inputHistory.slice(Math.max(0,histIdx-30),histIdx+1);
+            if(hist.at(-1)!==intext){
+                hist.push(intext);
+            }
+            this.setState({inputHistory:hist,inputHistoryIndex:hist.length-1})
+            this.pushOutputToOutputsBuffer(intext+'\n')
+            try{
+                await this.props.stdioSource.writeStdinUtf8(intext+'\n');
+            }catch(err:any){
+                this.pushOutputToOutputsBuffer(err.toString()+err.stack);
+            }finally{
+                await new Promise(requestAnimationFrame);
+                te.setPlainText('');
+            }
+        }else if(ev.key=='ArrowUp'){
+            let histIdx=this.state.inputHistoryIndex;
+            if(histIdx>=0){
+                let te=await this.rref.input.waitValid();
+                te.setPlainText(this.state.inputHistory[histIdx]);
+                this.setState({inputHistoryIndex:histIdx-1});
+            }
+        }else if(ev.key=='ArrowDown'){
+            let histIdx=this.state.inputHistoryIndex+1;
+            if(histIdx<this.state.inputHistory.length){
+                let te=await this.rref.input.waitValid();
+                te.setPlainText(this.state.inputHistory[histIdx]);
+                this.setState({inputHistoryIndex:histIdx});
+            }
+        }
     }
     render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined; }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChildren {
-        return <div style={{backgroundColor:'white',whiteSpace:'pre-wrap',minWidth:'250px'}}>
-            <div>{this.state.text.map((t1)=>{
-                let style:React.CSSProperties={}
-                if(t1.type=='stderr')style.color='red';
-                if(t1.type=='stdin')style.color='green';
-                if(t1.type=='stdout')style.color='black';
-                return <span style={style}>{t1.data}</span>
-            })}</div>
-            <div><TextEditor ref={this.rref.input} divAttr={{onKeyDown:(ev)=>this.onInputKeyDown(ev)}}/></div>
+        return <div className={[css.flexColumn].join(' ')} style={{width:'100%',height:'100%'}}>
+            <div style={{whiteSpace:'pre-wrap',flexGrow:'1',flexShrink:'1',overflow:'auto'}}
+                ref={this.rref.output} >{this.state.outputs.join('')}</div>
+            <TextEditor divStyle={{flexGrow:'0',flexShrink:'0'}} ref={this.rref.input} 
+                divAttr={{onKeyDown:(ev)=>this.onInputKeyDown(ev)}} divClass={[css.simpleCard]}/>
         </div>
     }
 }
 
-export async function openViewerForStdioSource(id:string,nbctx?:{rpc?:ClientInfo}){
-    let rpc=nbctx?.rpc??(await getPersistentRegistered(ServerHostWorker1RpcName))!;
-    openNewWindow(<ProcessStdioViewer id={id} rpc={rpc}/>)
+export async function openStdioConsoleWebui(stdioSource:StdioSource,opt:{title?:string}){
+    let wh=await openNewWindow(<StdioConsole stdioSource={stdioSource}/>,{title:opt.title});
+    await wh.waitClose();
+    stdioSource.close();
 }
 
 export let __internal__={

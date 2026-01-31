@@ -37,7 +37,7 @@ class ReadStream4NodeIo implements tjs.Reader{
         });
         nodeInput.on('close',()=>{
             this.chunkQueue.queueSignalPush(null);
-            this.err=new Error('stream closed.');
+            this.endOfStream=true;
         })
     }
     protected remainbuf:Buffer|null=null;
@@ -52,7 +52,6 @@ class ReadStream4NodeIo implements tjs.Reader{
         if(this.remainbuf===null){
             this.remainbuf=await this.chunkQueue.queueBlockShift();
             if(this.remainbuf===null){
-                this.endOfStream=true;
                 if(this.err!=null){
                     throw this.err;
                 }
