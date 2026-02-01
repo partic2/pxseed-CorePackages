@@ -103,7 +103,7 @@ export async function ensureCodeUpdated(opt:{reload?:boolean}){
 
 
 export async function getServerWWWRoot():Promise<string>{
-    if(globalThis.process?.versions?.node!=undefined){
+    if(globalThis.location?.protocol==undefined || !globalThis.location.protocol.startsWith('http')){
         return getWWWRoot()
     }else{
         let misc=await remoteModule.misc.get();
@@ -170,7 +170,7 @@ async function findBrowserExecutabeLinux():Promise<{type:'gecko'|'chromium',exeP
     let tjs=await buildTjs();
     let {fs,path}=await getNodeCompatApi();
     let paths=(tjs.env['PATH']??'').split(':');
-    let chromiumName=['chrome','chromium','microsoft-edge'];
+    let chromiumName=['google-chrome','chromium','microsoft-edge'];
     let geckoName=['firefox'];
     for(let tpath of paths){
         let existed=false;

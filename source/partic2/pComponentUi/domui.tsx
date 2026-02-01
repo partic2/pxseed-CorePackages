@@ -1,8 +1,7 @@
 
 import * as React from 'preact'
-import { ArrayWrap2, clone, future, GenerateRandomString, Ref2, sleep } from 'partic2/jsutils1/base';
+import { future, GenerateRandomString, Ref2 } from 'partic2/jsutils1/base';
 import { DynamicPageCSSManager } from 'partic2/jsutils1/webutils';
-var ReactDOM=React
 
 export class DomComponent{
     protected domElem?:HTMLElement
@@ -52,16 +51,12 @@ export class DomComponentGroup extends DomComponent{
     }
 }
 
-
-
 export class DomDivComponent extends DomComponentGroup{
     public constructor(){
         super();
         this.domElem=globalThis.document.createElement('div');
     }
 }
-
-
 
 class CDomRootComponent extends DomComponentGroup{
     public constructor(){
@@ -142,14 +137,15 @@ export let __inited__=(async ()=>{
     if(globalThis.document!=undefined){
         DomRootComponent=new DomRootComponentProxy(new CDomRootComponent());
         //To fix preact BUG
-        if(!('ontouchstart' in HTMLElement)){
-            globalThis.HTMLElement.prototype.ontouchstart=undefined;
-            globalThis.HTMLElement.prototype.ontouchmove=undefined;
-            globalThis.HTMLElement.prototype.ontouchend=undefined;
-        }
+        try{
+            if(globalThis.document.body.ontouchstart===undefined){
+                globalThis.HTMLElement.prototype.ontouchstart=null;
+                globalThis.HTMLElement.prototype.ontouchmove=null;
+                globalThis.HTMLElement.prototype.ontouchend=null;
+            }
+        }catch(err){};
     }
 })()
-
 
 export abstract class ReactEventTarget<P={},S={}> extends React.Component<P,S> implements EventTarget{
     eventTarget:EventTarget=new EventTarget();
@@ -163,8 +159,6 @@ export abstract class ReactEventTarget<P={},S={}> extends React.Component<P,S> i
         this.eventTarget.removeEventListener(type,callback,options);
     }
 }
-
-
 
 export var css={
     flexRow:GenerateRandomString(),
@@ -193,7 +187,7 @@ export let floatLayerZIndexBase=600;
 
 let FloatLayerManager={
     layerComponents:new Map<FloatLayerComponent,{activateTime:number,layerZIndex:number}>(),
-    checkRenderLayerStyle:function(c:FloatLayerComponent,activateTime:number):React.JSX.CSSProperties{
+    checkRenderLayerStyle:function(c:FloatLayerComponent,activateTime:number):React.CSSProperties{
         let cur=this.layerComponents.get(c);
         if(cur==null){
             this.layerComponents.set(c,{activateTime,layerZIndex:0});
@@ -203,7 +197,7 @@ let FloatLayerManager={
             this.resortAllLayer();
         }
         cur=this.layerComponents.get(c);
-        let t1:React.JSX.CSSProperties={zIndex:cur!.layerZIndex};
+        let t1:React.CSSProperties={zIndex:cur!.layerZIndex};
         if(activateTime<0){
             t1.display='none'
         }
@@ -221,11 +215,6 @@ let FloatLayerManager={
     }
 }
 
-export class RefChangeEvent<T> extends Event{
-    constructor(public data:{prev:T|null,curr:T|null}){
-        super('change')
-    }
-}
 
 export class ReactRefEx<T> extends Ref2<T|null> implements React.RefObject<T>{
     constructor(){
@@ -311,7 +300,6 @@ export class FloatLayerComponent<
     }
 }
 
-//container accept Ref2<HTMLElement>|Ref2<DomComponentGroup>|HTMLElement|DomComponentGroup|'create', But tsc complain with it , So I use any now.
 export function ReactRender(vnode:React.ComponentChild,container:Ref2<HTMLElement>|Ref2<DomComponentGroup>|HTMLElement|DomComponentGroup|'create'){
     if(container instanceof HTMLElement){
         React.render(vnode,container);
@@ -346,8 +334,7 @@ export async function SetComponentFullScreen(comp:DomComponent):Promise<{onExit:
     return ctl;
 }
 
-
-export function RequestPrintWindow(options:{
+export function RequestUserAgentPrint(options:{
     pageSize?:{w:string,h:string}|'portrait'|'landscape'|'auto',
     pageOrientation?:'upright'|'rotate-left'|'rotate-right',
     margin?:{top?:string,left?:string,bottom?:string,right?:string}|string

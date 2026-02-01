@@ -8,7 +8,7 @@ import {ClientInfo, createIoPipe, getAttachedRemoteRigstryFunction, getPersisten
 import { FileTypeHandlerBase } from './fileviewer';
 
 import { connectToRemoteCodeContext, __name__ as RemoteCodeContextName } from 'partic2/CodeRunner/RemoteCodeContext';
-import { ReactRefEx, RefChangeEvent } from 'partic2/pComponentUi/domui';
+import { ReactRefEx } from 'partic2/pComponentUi/domui';
 import { RegistryUI } from 'partic2/pxprpcClient/ui';
 import { RemoteRunCodeContext } from 'partic2/CodeRunner/RemoteCodeContext';
 import { WindowComponent,alert, appendFloatWindow, prompt, removeFloatWindow } from 'partic2/pComponentUi/window';import { WorkspaceContext } from './workspace';

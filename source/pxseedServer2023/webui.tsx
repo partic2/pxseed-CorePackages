@@ -23,7 +23,7 @@ async function alertIfError<T>(p:()=>Promise<T>){
         return await p();
     }catch(err:any){
         throwIfAbortError(err);
-        alert(err.message+'\n'+err.stack)
+        alert(err.message+'\n'+err.stack+'\n'+(err.remoteStack??''))
     }
 }
 

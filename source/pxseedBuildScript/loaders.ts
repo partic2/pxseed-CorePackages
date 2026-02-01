@@ -73,34 +73,39 @@ export let pxseedBuiltinLoader={
             let include=config.include??["./**/*.ts","./**/*.tsx"];
             let files=await simpleGlob(include,{cwd:dir});
             for(let t1 of files){
-                let filePath=path.join(dir,t1)
-                let fileInfo=await fs.stat(filePath);
-                let mtime=fileInfo.mtime.getTime();
-                let moduleName=dir.substring(sourceDir.length+1).replace(/\\/g,'/')+'/'+t1.replace(/.tsx?$/,'')
-                moduleName=moduleName.replace(/\/\/+/g,'/')
-                if(mtime>status.lastBuildTime){
-                    console.info('typescript transpile '+t1);
-                    let transpiled='';
-                    if(t1.endsWith('.ts')){
-                        transpiled=ts.transpile(
-                            new TextDecoder().decode(await fs.readFile(filePath)),
-                            {target:ts.ScriptTarget.ES2020,module:ts.ModuleKind.AMD,esModuleInterop:false},
-                            filePath,
-                            [],
-                            moduleName
-                        );
-                    }else if(t1.endsWith('.tsx')){
-                        transpiled=ts.transpile(
-                            new TextDecoder().decode(await fs.readFile(filePath)),
-                            {target:ts.ScriptTarget.ES2020,module:ts.ModuleKind.AMD,esModuleInterop:false,jsx:ts.JsxEmit.React},
-                            filePath,
-                            [],
-                            moduleName
-                        );
+                try{
+                    if(t1.endsWith('.d.ts')||t1.endsWith('.d.tsx'))continue;
+                    let filePath=path.join(dir,t1)
+                    let fileInfo=await fs.stat(filePath);
+                    let mtime=fileInfo.mtime.getTime();
+                    let moduleName=dir.substring(sourceDir.length+1).replace(/\\/g,'/')+'/'+t1.replace(/.tsx?$/,'')
+                    moduleName=moduleName.replace(/\/\/+/g,'/')
+                    if(mtime>status.lastSuccessBuildTime){
+                        console.info('typescript transpile '+t1);
+                        let transpiled='';
+                        if(t1.endsWith('.ts')){
+                            transpiled=ts.transpile(
+                                new TextDecoder().decode(await fs.readFile(filePath)),
+                                {target:ts.ScriptTarget.ES2020,module:ts.ModuleKind.AMD,esModuleInterop:false},
+                                filePath,
+                                [],
+                                moduleName
+                            );
+                        }else if(t1.endsWith('.tsx')){
+                            transpiled=ts.transpile(
+                                new TextDecoder().decode(await fs.readFile(filePath)),
+                                {target:ts.ScriptTarget.ES2020,module:ts.ModuleKind.AMD,esModuleInterop:false,jsx:ts.JsxEmit.React},
+                                filePath,
+                                [],
+                                moduleName
+                            );
+                        }
+                        let outputPath=path.join(outputDir,dir.substring(sourceDir.length+1).replace(/\\/g,'/'),t1.replace(/.tsx?$/,'.js'));
+                        await fs.mkdir(path.join(outputPath,'..'),{recursive:true});
+                        await fs.writeFile(outputPath,new TextEncoder().encode(transpiled));
                     }
-                    let outputPath=path.join(outputDir,dir.substring(sourceDir.length+1).replace(/\\/g,'/'),t1.replace(/.tsx?$/,'.js'));
-                    await fs.mkdir(path.join(outputPath,'..'),{recursive:true});
-                    await fs.writeFile(outputPath,new TextEncoder().encode(transpiled));
+                }catch(err:any){
+                    status.currentBuildError.push('typescript transpile error:file:'+t1+' message:'+err.toString());
                 }
             }
         }else{
@@ -143,12 +148,16 @@ export let pxseedBuiltinLoader={
             if(returnCode!==0)status.currentBuildError.push('tsc failed.');
         }
     },
-    rollup:async function(dir:string,config:{entryModules:string[],compressed?:boolean}){
+    rollup:async function(dir:string,config:{entryModules:string[],compressed?:boolean,bundle?:string,noImplicitExternal?:string[]},status:PxseedStatus){
+        //noImplicitExternal: These module will always has no external module dependency except these listed in extryModules.
+        //bundle: These module will never be a external dependency except these listed in extryModules.
         const {fs,path}=await getNodeCompatApi();
         if(globalThis?.process?.versions?.node==undefined){
             //TODO: use cdn https://cdnjs.cloudflare.com/ and wrap amd custom?
-            console.info('rollup are not supported yet on non-node platform');
+            console.warn('rollup are not supported yet on non-node platform');
+            return;
         }
+        let rollupedJsModule=new Set(status.loadersData.rollup?.rollupedJsModule??[]);
         for(let i1=0;i1<config.entryModules.length && i1<0xffff;i1++){
             let mod=config.entryModules[i1];
             let existed=false;
@@ -159,6 +168,7 @@ export let pxseedBuiltinLoader={
                 existed=false
             }
             if(!existed){
+                rollupedJsModule.add(mod);
                 let rollup=(await import('rollup')).rollup;
                 let nodeResolve =(await import('@rollup/plugin-node-resolve')).default;
                 let commonjs =(await import('@rollup/plugin-commonjs')).default;
@@ -182,13 +192,13 @@ export let pxseedBuiltinLoader={
                     input:[mod],
                     plugins,
                     external:(source: string, importer: string | undefined, isResolved: boolean):boolean|null => {
-                        // TODO:How to handle builtin node module?
-                        /*
-                        if((globalThis as any).requirejs.__nodeenv.require.resolve.paths(source)==null){
+                        if(source!=mod && config.entryModules.includes(source)){
                             return true;
                         }
-                        */
-                        if(source!=mod && config.entryModules.includes(source)){
+                        if(source!=mod && !(source.startsWith('.') || source.startsWith('/')) && !config.noImplicitExternal?.includes(mod) && !config.bundle?.includes(source)){
+                            if(!config.entryModules.includes(source)){
+                                config.entryModules.push(source);
+                            }
                             return true;
                         }
                         return false;
@@ -200,6 +210,7 @@ export let pxseedBuiltinLoader={
                 });
             }
         }
+        status.loadersData.rollup={rollupedJsModule:Array.from(rollupedJsModule)}
     },
     subpackage:async function(dir:string,config:{packages:string[]},status:PxseedStatus){
         status.subpackages.push(...config.packages);

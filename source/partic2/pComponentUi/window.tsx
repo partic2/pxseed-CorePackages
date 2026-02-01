@@ -1,6 +1,6 @@
 
 import * as React from 'preact'
-import { css as cssBase, DomDivComponent, DomRootComponent, FloatLayerComponent, ReactEventTarget, ReactRefEx, ReactRender, RefChangeEvent } from './domui';
+import { css as cssBase, DomDivComponent, DomRootComponent, FloatLayerComponent, ReactEventTarget, ReactRefEx, ReactRender } from './domui';
 import { future, GenerateRandomString, GetCurrentTime } from 'partic2/jsutils1/base';
 import { DynamicPageCSSManager } from 'partic2/jsutils1/webutils';
 import { PointTrace } from './transform';
@@ -40,12 +40,12 @@ export let css={
     defaultTitleStyle:GenerateRandomString(),
 }
 
-DynamicPageCSSManager.PutCss('.'+css.defaultWindowDiv,['border:solid black 1px','box-sizing: border-box']);
-DynamicPageCSSManager.PutCss('.'+css.borderlessWindowDiv,[]);
+DynamicPageCSSManager.PutCss('.'+css.defaultWindowDiv,['border:solid black 1px','box-sizing: border-box','pointer-events:auto']);
+DynamicPageCSSManager.PutCss('.'+css.borderlessWindowDiv,['pointer-events:auto']);
 DynamicPageCSSManager.PutCss('.'+css.defaultContentDiv ,['flex-grow:1','background-color:white','overflow:auto'])
 DynamicPageCSSManager.PutCss('.'+css.defaultTitleStyle ,['background-color:black','color:white'])
 
-export class WindowComponent extends ReactEventTarget<WindowComponentProps,WindowComponentStats>{
+export class DefaultWindowComponent extends ReactEventTarget<WindowComponentProps,WindowComponentStats>{
     static defaultProps:WindowComponentProps={
         closeIcon:getIconUrl('x.svg'),
         maximize:getIconUrl('maximize-2.svg'),
@@ -119,30 +119,18 @@ export class WindowComponent extends ReactEventTarget<WindowComponentProps,Windo
             this.setState({layout:{...this.state.layout,left:curr.x-start.x,top:curr.y-start.y}},()=>this.dispatchEvent(new Event('move')));
         }
     });
-    __onTitleMouseDownHandler=(evt:React.TargetedMouseEvent<HTMLDivElement>)=>{
+    __onTitleMouseDownHandler=(evt:React.TargetedPointerEvent<HTMLDivElement>)=>{
         this.__wndMove.start({x:evt.clientX-this.state.layout.left,y:evt.clientY-this.state.layout.top},true);
         evt.preventDefault();
-    }
-    __onTitleTouchDownHandler=(evt:React.TargetedTouchEvent<HTMLDivElement>)=>{
-        if(evt.touches.length==1){
-            this.__wndMove.start({x:evt.touches.item(0)!.clientX-this.state.layout.left,y:evt.touches.item(0)!.clientY-this.state.layout.top},true);
-            evt.preventDefault();
-        }
     }
     __wndResize=new PointTrace({
         onMove:(curr,start)=>{
             this.setState({layout:{...this.state.layout,width:curr.x-start.x,height:curr.y-start.y}},()=>this.dispatchEvent(new Event('resize')));
         }
     });
-    __onResizeIconMouseDownHandler=(evt:React.TargetedMouseEvent<HTMLDivElement>)=>{
+    __onResizeIconMouseDownHandler=(evt:React.TargetedPointerEvent<HTMLDivElement>)=>{
         this.__wndResize.start({x:this.state.layout.left,y:this.state.layout.top},true);
         evt.preventDefault();
-    }
-    __onResizeIconTouchDownHandler=(evt:React.TargetedTouchEvent<HTMLDivElement>)=>{
-        if(evt.touches.length==1){
-            this.__wndResize.start({x:this.state.layout.left,y:this.state.layout.top},true);
-            evt.preventDefault();
-        }
     }
     activate(activateTime?:number){
         if(this.props.keepTop){
@@ -160,10 +148,14 @@ export class WindowComponent extends ReactEventTarget<WindowComponentProps,Windo
         return this.state.activateTime<0&&!this.props.keepTop
     }
     renderTitle(){
+        let titleString=this.props.title;
+        if(typeof titleString!=='string'){
+            titleString=''
+        }
         return <div className={[cssBase.flexRow,css.defaultTitleStyle].join(' ')} style={{alignItems:'center'}}>
-                <div style={{flexGrow:'1',cursor:'move',userSelect:'none',overflowY:'auto'}} 
-                onMouseDown={this.__onTitleMouseDownHandler} onTouchStart={this.__onTitleTouchDownHandler} >
-                {(this.props.title??'').replace(/ /g,String.fromCharCode(160))}</div>&nbsp;
+                <div style={{flexGrow:'1',cursor:'move',userSelect:'none',overflowY:'auto',touchAction:'none'}} 
+                onPointerDown={this.__onTitleMouseDownHandler} >
+                {titleString.replace(/ /g,String.fromCharCode(160))}</div>&nbsp;
                 {
                     (this.props.titleBarButton??[]).map(t1=>this.renderIcon(t1.icon,t1.onClick))
                 }{
@@ -192,63 +184,62 @@ export class WindowComponent extends ReactEventTarget<WindowComponentProps,Windo
         }
     }
     renderWindowMain(){
-        let windowDivStyle:React.CSSProperties={
-            boxSizing:'border-box',
-            position:'absolute',
-            left:this.state.layout.left+'px',
-            top:this.state.layout.top+'px',
-            pointerEvents:'auto',
-            maxWidth:(window.innerWidth-this.state.layout.left)+'px',
-            maxHeight:(window.innerHeight-this.state.layout.top)+'px',
-        };
-        if(typeof this.state.layout.width==='number'){
-            windowDivStyle.width=this.state.layout.width+'px';
-        }else if(typeof this.state.layout.width==='string'){
-            windowDivStyle.width=this.state.layout.width;
+        try{
+            let windowDivStyle:React.CSSProperties={
+                boxSizing:'border-box',
+                position:'absolute',
+                left:this.state.layout.left+'px',
+                top:this.state.layout.top+'px',
+                maxWidth:(window.innerWidth-this.state.layout.left)+'px',
+                maxHeight:(window.innerHeight-this.state.layout.top)+'px',
+                touchAction:'none'
+            };
+            if(typeof this.state.layout.width==='number'){
+                windowDivStyle.width=this.state.layout.width+'px';
+            }else if(typeof this.state.layout.width==='string'){
+                windowDivStyle.width=this.state.layout.width;
+            }
+            if(typeof this.state.layout.height==='number'){
+                windowDivStyle.height=this.state.layout.height+'px';
+            }else if(typeof this.state.layout.height==='string'){
+                windowDivStyle.height=this.state.layout.height;
+            }
+            if(this.props.windowDivInlineStyle!=undefined){
+                Object.assign(windowDivStyle,this.props.windowDivInlineStyle)
+            }
+            let contentDivStyle:React.CSSProperties={};
+            if(this.props.contentDivInlineStyle!=undefined){
+                Object.assign(contentDivStyle,this.props.contentDivInlineStyle)
+            }
+            return <div className={[cssBase.flexColumn,this.props.windowDivClassName??css.defaultWindowDiv].join(' ')} 
+                style={windowDivStyle}
+                ref={this.rref.container}
+                onPointerDown={()=>{
+                    if(this.state.activateTime>=0 && !this.props.disableUserInputActivate)
+                        this.activate()
+                }}>
+                    {this.props.noTitleBar?null:this.renderTitle()}
+                    {[
+                        <div style={{...contentDivStyle}} 
+                        className={[this.props.contentDivClassName??css.defaultContentDiv].join(' ')} ref={this.rref.contentDiv}>
+                            {this.state.errorOccured==null?this.props.children:<pre style={{backgroundColor:'white',color:'black'}}>
+                                {this.state.errorOccured.message}
+                                {this.state.errorOccured.stack}
+                            </pre>}
+                        </div>,
+                        (this.props.noResizeHandle)?null:<img src={getIconUrl('arrow-down-right.svg')} 
+                        style={{
+                            position:'absolute',cursor:'nwse-resize',
+                            right:'0px',bottom:'0px',touchAction:'none',
+                            backgroundColor:'white'}} 
+                            onPointerDown={this.__onResizeIconMouseDownHandler} 
+                        width="12" height="12"
+                        />
+                    ]}
+            </div>
+        }catch(err:any){
+            return <div>{err.message+err.stack}</div>
         }
-        if(typeof this.state.layout.height==='number'){
-            windowDivStyle.height=this.state.layout.height+'px';
-        }else if(typeof this.state.layout.height==='string'){
-            windowDivStyle.height=this.state.layout.height;
-        }
-        if(this.props.windowDivInlineStyle!=undefined){
-            Object.assign(windowDivStyle,this.props.windowDivInlineStyle)
-        }
-        let contentDivStyle:React.CSSProperties={};
-        if(this.props.contentDivInlineStyle!=undefined){
-            Object.assign(contentDivStyle,this.props.contentDivInlineStyle)
-        }
-        return <div className={[cssBase.flexColumn,this.props.windowDivClassName??css.defaultWindowDiv].join(' ')} 
-            style={windowDivStyle}
-            ref={this.rref.container}
-            onMouseDown={()=>{
-                if(this.state.activateTime>=0 && !this.props.disableUserInputActivate)
-                    this.activate()
-            }}
-            onTouchStart={()=>{
-                if(this.state.activateTime>=0 && !this.props.disableUserInputActivate)
-                    this.activate()
-            }}>
-                {this.props.noTitleBar?null:this.renderTitle()}
-                {[
-                    <div style={{...contentDivStyle}} 
-                    className={[this.props.contentDivClassName??css.defaultContentDiv].join(' ')} ref={this.rref.contentDiv}>
-                        {this.state.errorOccured==null?this.props.children:<pre style={{backgroundColor:'white',color:'black'}}>
-                            {this.state.errorOccured.message}
-                            {this.state.errorOccured.stack}
-                        </pre>}
-                    </div>,
-                    (this.props.noResizeHandle)?null:<img src={getIconUrl('arrow-down-right.svg')} 
-                    style={{
-                        position:'absolute',cursor:'nwse-resize',
-                        right:'0px',bottom:'0px',
-                        backgroundColor:'white'}} 
-                        onMouseDown={this.__onResizeIconMouseDownHandler} 
-                        onTouchStart={this.__onResizeIconTouchDownHandler}
-                    width="12" height="12"
-                    />
-                ]}
-        </div>
     }
     componentDidUpdate(previousProps: Readonly<WindowComponentProps>, previousState: Readonly<WindowComponentStats>, snapshot: any): void {
         this.props.onComponentDidUpdate?.();
@@ -260,6 +251,13 @@ export class WindowComponent extends ReactEventTarget<WindowComponentProps,Windo
             {this.renderWindowMain()}
         </FloatLayerComponent> 
     }
+}
+
+export let WindowComponent=DefaultWindowComponent;
+export type WindowComponent=DefaultWindowComponent;
+
+export function setDefaultWindowComponentImplemention(impl:typeof DefaultWindowComponent){
+    WindowComponent=impl;
 }
 
 export let WindowsListContext=React.createContext<WindowsList|null>(null);
@@ -314,6 +312,7 @@ export function ensureRootWindowContainer(){
         div.style.position='absolute';
         div.style.left='0px';
         div.style.top='0px';
+        div.style.pointerEvents='none'
         DomRootComponent.addChild(windowDomRootComponent).then(()=>DomRootComponent.update());
         ReactRender(<WindowsList ref={rootWindowsList}/>,windowDomRootComponent);
     }

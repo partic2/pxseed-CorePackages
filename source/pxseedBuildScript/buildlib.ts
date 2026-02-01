@@ -9,14 +9,16 @@ export interface PxseedStatus{
     lastSuccessBuildTime:number,
     lastBuildError:string[],
     currentBuildError:string[],
-    subpackages:string[]
+    subpackages:string[],
+    loadersData:Record<string,any>,
 }
 let PxseedStatusDefault:PxseedStatus={
     lastBuildTime:1,
     lastSuccessBuildTime:1,
     lastBuildError:[],
     currentBuildError:[],
-    subpackages:[]
+    subpackages:[],
+    loadersData:{},
 }
 
 
@@ -35,7 +37,7 @@ export interface PxseedConfig{
 declare var requirejs:any
 
 function makeDefaultStatus():PxseedStatus{
-    return {...PxseedStatusDefault,lastBuildError:[],currentBuildError:[],subpackages:[]}
+    return {...PxseedStatusDefault,lastBuildError:[],currentBuildError:[],subpackages:[],loadersData:{}}
 }
 
 
@@ -127,6 +129,12 @@ export async function cleanBuildStatus(dir:string){
         if(t1.isDirectory()){
             await cleanBuildStatus(path.join(dir,t1.name))
         }else if(t1.name=='.pxseed.status.json'){
+            try{
+                let pstat:PxseedStatus={...makeDefaultStatus(),...await utili.readJson(path.join(dir,t1.name))};
+                //How to clean unused file?
+            }catch(err:any){
+                console.warn(err.toString(),err.stack);
+            }
             await fs.rm(path.join(dir,t1.name));
         }
     }

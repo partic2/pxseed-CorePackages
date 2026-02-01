@@ -3,7 +3,7 @@ import * as React from 'preact'
 import {DomComponentGroup, DomRootComponent, ReactRefEx, ReactRender, css} from 'partic2/pComponentUi/domui'
 import { RemoteRunCodeContext } from 'partic2/CodeRunner/RemoteCodeContext'
 import {getPersistentRegistered, importRemoteModule,persistent,ServerHostRpcName,ServerHostWorker1RpcName, WebWorker1RpcName} from 'partic2/pxprpcClient/registry'
-import { GenerateRandomString, GetBlobArrayBufferContent, Task, assert, future, requirejs } from 'partic2/jsutils1/base'
+import { GenerateRandomString, GetBlobArrayBufferContent, Ref2, Task, assert, future, requirejs } from 'partic2/jsutils1/base'
 import { BuildUrlFromJsEntryModule, GetJsEntry, GetPersistentConfig, getResourceManager, path, RequestDownload, selectFile, useDeviceWidth } from 'partic2/jsutils1/webutils'
 import {promptWithForm, SimpleReactForm1} from 'partic2/pComponentUi/input'
 import {alert, appendFloatWindow, confirm, prompt, css as windowCss, WindowComponent} from 'partic2/pComponentUi/window'
@@ -14,7 +14,7 @@ import {RemotePxseedJsIoServer} from 'partic2/pxprpcClient/bus'
 export var __name__=requirejs.getLocalRequireModule(require);
 //remote code context
 
-import type * as registryModType from 'partic2/packageManager/registry'
+import * as registryModType from 'partic2/packageManager/registry'
 import type { PxseedConfig } from 'pxseedBuildScript/buildlib'
 import {openWorkspaceWindowFor, openWorkspaceWithProfile} from 'partic2/JsNotebook/workspace'
 import { PlainTextEditorInput, TextEditor } from 'partic2/pComponentUi/texteditor'
@@ -133,9 +133,9 @@ class WindowListIcon extends React.Component<{},{
         }</div>
         <div className={css.flexRow}>
             <div style={{flexGrow:'1'}}></div>
-            <div style={{pointerEvents:'auto'}} onPointerUp={()=>this.onExpandClick()}>
-                <img draggable={false} src={getIconUrl('layers.svg')} {...this.drag.trigger}
-                    style={{width:'32px',height:'32px'}}/>
+            <div draggable={false} style={{pointerEvents:'auto',touchAction:'none'}} {...this.drag.trigger} onPointerUp={(ev)=>{this.onExpandClick();}}>
+                <img draggable={false} src={getIconUrl('layers.svg')} 
+                    style={{width:'32px',height:'32px',touchAction:'none'}}/>
             </div>
             
         </div>
@@ -147,25 +147,57 @@ const SimpleButton=(props:React.RenderableProps<{
     onClick: () => void;
 }>)=><a href="javascript:;" onClick={()=>props.onClick()} className={css.simpleCard}>{props.children}</a>;
 
+export async function startWebuiForPackage(pkgName:string){
+    let registry=await remoteModule.registry.get();
+    let config1=await registry.getPxseedConfigForPackage(pkgName);
+    assert(config1!=null,'packages not found.');
+    assert(config1.options?.[registryModuleName]?.webui!=undefined,'No webui info found in package');
+    let pmopt=config1.options[registryModuleName] as registryModType.PackageManagerOption;
+    let entry=pmopt.webui!.entry
+    if(entry.startsWith('.')){
+        entry=path.join(pkgName,entry)
+    }
+    let entryModule=await import(entry);
+    if(entryModule.main!=undefined){
+        Task.fork(function*():Generator<any,any>{
+            let r:any=null;
+            if(entryModule.main.constructor.name=='GeneratorFunction'){
+                r=yield* entryModule.main('webui')
+            }else{
+                r=entryModule.main('webui');
+                if(r instanceof Promise){
+                    r=yield r;
+                }
+            }
+        }).run();
+    }
+}
+
 class PackageWebUiEntry extends React.Component<{pmopt:registryModType.PackageManagerOption,packageName:string}>{
     async launchWebui(){
-        let entry=this.props.pmopt.webui!.entry
-        if(entry.startsWith('.')){
-            entry=path.join(this.props.packageName,entry)
-        }
-        let entryModule=await import(entry);
-        if(entryModule.main!=undefined){
-            Task.fork(function*():Generator<any,any>{
-                let r:any=null;
-                if(entryModule.main.constructor.name=='GeneratorFunction'){
-                    r=yield* entryModule.main('webui')
-                }else{
-                    r=entryModule.main('webui');
-                    if(r instanceof Promise){
-                        r=yield r;
+        try{
+            await startWebuiForPackage(this.props.packageName)
+        }catch(err){
+            //use current cache
+            let pmopt=this.props.pmopt
+            let entry=pmopt.webui!.entry
+            if(entry.startsWith('.')){
+                entry=path.join(this.props.packageName,entry)
+            }
+            let entryModule=await import(entry);
+            if(entryModule.main!=undefined){
+                Task.fork(function*():Generator<any,any>{
+                    let r:any=null;
+                    if(entryModule.main.constructor.name=='GeneratorFunction'){
+                        r=yield* entryModule.main('webui')
+                    }else{
+                        r=entryModule.main('webui');
+                        if(r instanceof Promise){
+                            r=yield r;
+                        }
                     }
-                }
-            }).run();
+                }).run();
+            }
         }
     }
     render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChildren {
@@ -483,12 +515,43 @@ import2env('partic2/packageManager/registry');`,
 
 export let renderPackagePanel=async()=>{
     useDeviceWidth();
-    openNewWindow(<PackagePanel/>,{title:i18n.packageManager,layoutHint:__name__+'.PackagePanel'});
+    openNewWindow(<PackagePanel/>,{title:i18n.packageManager,layoutHint:__name__+'.PackagePanel',windowOptions:{closeIcon:null}});
     appendFloatWindow(<WindowComponent keepTop={true} noTitleBar={true} noResizeHandle={true} windowDivClassName={windowCss.borderlessWindowDiv}>
         <WindowListIcon/>
     </WindowComponent>)
     
 };
+
+export async function openPackageMainWindow(appInfo:{pkgName:string,beforeUnload?:()=>Promise<void>},...args:Parameters<typeof openNewWindow>){
+    if(args[1]==undefined){
+        args[1]={}
+    }
+    if(args[1].windowOptions==undefined){
+        args[1].windowOptions={}
+    }
+    if(args[1].windowOptions.titleBarButton==undefined){
+        args[1].windowOptions.titleBarButton=[]
+    }
+    let windowHandler:NewWindowHandle
+    args[1].windowOptions.titleBarButton.unshift({
+        icon:getIconUrl('refresh-ccw.svg'),
+        onClick:async ()=>{
+            windowHandler.close();
+            await appInfo.beforeUnload?.()
+            for(let t1 of Object.keys(await requirejs.getDefined())){
+                if(t1.startsWith(appInfo.pkgName+'/')){
+                    await requirejs.undef(t1);
+                }
+            }
+            let registry=await remoteModule.registry.get();
+            await registry.unloadPackageModules(appInfo.pkgName);
+            await registry.buildPackage(appInfo.pkgName)
+            startWebuiForPackage(appInfo.pkgName);
+        }
+    })
+    windowHandler=await openNewWindow(...args);
+    return windowHandler;
+}
 
 export let __inited__=(async ()=>{
     if(GetJsEntry()==__name__){

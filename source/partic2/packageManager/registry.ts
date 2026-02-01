@@ -1,8 +1,8 @@
 
-import {PxseedConfig, processDirectory, sourceDir} from 'pxseedBuildScript/buildlib'
+import {PxseedConfig, cleanBuildStatus, processDirectory, sourceDir} from 'pxseedBuildScript/buildlib'
 import {defaultHttpClient, getWWWRoot, kvStore, path} from 'partic2/jsutils1/webutils'
 import {ArrayBufferConcat, ArrayWrap2, GenerateRandomString, assert, logger, requirejs} from 'partic2/jsutils1/base'
-import { getNodeCompatApi, __internal__ as utilsi } from 'pxseedBuildScript/util';
+import { getNodeCompatApi, __internal__ as utilsi, withConsole } from 'pxseedBuildScript/util';
 import { defaultFileSystem, ensureDefaultFileSystem, getSimpleFileSysteNormalizedWWWRoot } from 'partic2/CodeRunner/JsEnviron';
 import { NotebookFileData, runNotebook } from 'partic2/JsNotebook/workerinit';
 import { CodeCellListData } from 'partic2/CodeRunner/Inspector';
@@ -200,10 +200,10 @@ export async function UpgradeCorePackages(){
 }
 
 
-export async function packPxseedForXplatj(){
+export async function packPxseedForPxseedLoader(){
     const {fs,path,wwwroot}=await getNodeCompatApi()
     let pxseedRoot=path.join(wwwroot,'..').replace(/\\/g,'/');
-    let outputRoot=path.join(wwwroot,__name__,'pxseedPack4Xplatj').replace(/\\/g,'/');
+    let outputRoot=path.join(wwwroot,__name__,'pxseedPack4PxseedLoader').replace(/\\/g,'/');
     await copyFilesNewer(outputRoot+'/pxseed',pxseedRoot,(name,path)=>{
         path=path.replace(/\\/g,'/');
         if(name=='.git'){
@@ -409,7 +409,7 @@ export async function installLocalPackage(path2:string){
             }
         }
     }
-    await processDirectory(destDir);
+    await buildPackage(pkgname);
     if(pkgConfig!=null){
         if(pkgConfig.onInstalled!=undefined){
             try{
@@ -492,7 +492,9 @@ export async function fetchPackage(name:string){
 
 export async function uninstallPackage(pkgname:string){
     const {fs,path,wwwroot}=await getNodeCompatApi();
-    await fs.rm(path.join(wwwroot,'..','source',...pkgname.split('/')),{recursive:true});
+    let dir1=path.join(wwwroot,'..','source',...pkgname.split('/'));
+    await cleanBuildStatus(dir1)
+    await fs.rm(dir1,{recursive:true});
     let pkgdb=await kvStore(pkgdbName);
     await pkgdb.delete('pkg-'+pkgname);
 }
@@ -780,9 +782,21 @@ export function main(args:string){
 export async function unloadPackageModules(pkg:string){
     for(let mid in await requirejs.getDefined()){
         if(mid.startsWith(pkg+'/')){
-            requirejs.undef(mid);
+            await requirejs.undef(mid);
         }
     }
+}
+
+export async function buildPackage(pkgName:string){
+    let records:any[][]=[];
+    let wrapConsole={...globalThis.console};
+    wrapConsole.debug=(...msg:any[])=>records.push(msg);
+    wrapConsole.info=(...msg:any[])=>records.push(msg);
+    wrapConsole.warn=(...msg:any[])=>records.push(msg);
+    wrapConsole.error=(...msg:any[])=>records.push(msg);
+    let buildPath=await getSourceDirForPackage(pkgName);
+    await withConsole(wrapConsole,()=>processDirectory(buildPath));
+    return records.map(t1=>t1.join(' ')).join('\n');
 }
 
 export async function exportPackagesInstallation(){

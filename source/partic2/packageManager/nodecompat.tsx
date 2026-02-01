@@ -93,7 +93,7 @@ export class NodeFsAdapter{
         }
     })as any;
     rm:typeof rm=(async (path: string, options?: any)=>{
-      if(options.recursive || await this.wrapped.filetype(path)=='file'){
+      if(options?.recursive || await this.wrapped.filetype(path)=='file'){
         await this.wrapped!.delete2(path);
       }else{
         await this.rmdir(path);
