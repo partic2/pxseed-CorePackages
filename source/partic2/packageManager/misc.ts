@@ -113,16 +113,21 @@ export async function getServerWWWRoot():Promise<string>{
 
 export async function processDirectoryContainFile(file:string):Promise<{sourceRoot:string,outputRoot:string,pkgName:string|null}>{
     if(globalThis.process?.versions?.node!=undefined){
-        let {dirname,join} = await import('path');
-        let {access}=await import('fs/promises');
+        let {fs,path,wwwroot}=await getNodeCompatApi()
+        let {dirname,join} = path;
+        let {access}=fs;
         let { processDirectory } =await import('pxseedBuildScript/buildlib');
         let sourceDir=join(dirname(dirname(dirname(__dirname))),'source');
         let splitPath=file.split(/[\\\/]/);
         let pkgPath:string|null=null;
         for(let t1 of ArrayWrap2.IntSequence(splitPath.length,-1)){
             try{
-                await access(join(...splitPath.slice(0,t1),'pxseed.config.json'));
-                pkgPath=join(...splitPath.slice(0,t1));
+                let testConfig=join(...splitPath.slice(0,t1),'pxseed.config.json');
+                if(wwwroot.startsWith('/')){
+                    testConfig='/'+testConfig;
+                }
+                await access(testConfig);
+                pkgPath=join(testConfig,'..');
                 break;
             }catch(e:any){
             }
