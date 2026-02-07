@@ -6,9 +6,10 @@ import { ReactRefEx } from './domui';
 export class PointTrace{
     startPos:{x:number,y:number}={x:0,y:0}
     currPos:{x:number,y:number}={x:0,y:0}
-    
+    stopped=true;
     constructor(public opt:{
         onMove?:(curr:{x:number,y:number},start:{x:number,y:number})=>void,
+        onStop?:(curr:{x:number,y:number},start:{x:number,y:number})=>void,
         preventDefault?:boolean
     }){
         this.opt.preventDefault=this.opt.preventDefault??true;
@@ -23,6 +24,9 @@ export class PointTrace{
     }
     __onPointerUp=(ev:PointerEvent)=>{
         this.stop();
+        this.currPos.x=ev.clientX;
+        this.currPos.y=ev.clientY;
+        this.opt.onStop?.(this.currPos,this.startPos);
         if(this.opt.preventDefault){
             ev.preventDefault();
         }
@@ -33,10 +37,12 @@ export class PointTrace{
         if(stopOnUp===true){
             document.addEventListener('pointerup',this.__onPointerUp,{passive:false});
         }
+        this.stopped=false;
     }
     stop(){
         document.removeEventListener('pointermove',this.__onPointerMove);
         document.removeEventListener('pointerup',this.__onPointerUp);
+        this.stopped=true;
     }
 }
 

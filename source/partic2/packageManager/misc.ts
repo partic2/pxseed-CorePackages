@@ -8,9 +8,7 @@ import { buildTjs } from 'partic2/tjshelper/tjsbuilder';
 import { getNodeCompatApi } from 'pxseedBuildScript/util';
 
 
-let servShell:any=null;
 export let __name__='partic2/packageManager/misc';
-type ThisModuleType=typeof import('partic2/packageManager/misc');
 
 let remoteModule={
     misc:new Singleton(async ()=>{
@@ -223,4 +221,13 @@ export async function openUrlInBrowser(url:string,opts?:{appMode?:boolean}){
         args.push(url);
     }
     tjs.spawn(args);
+}
+
+export async function serverConsoleLog(msg:string){
+    if(globalThis.location?.protocol==undefined || !globalThis.location.protocol.startsWith('http')){
+        console.info(msg);
+    }else{
+        let misc=await remoteModule.misc.get();
+        await misc.serverConsoleLog(msg);
+    }
 }

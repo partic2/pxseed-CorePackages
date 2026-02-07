@@ -3,7 +3,7 @@ import * as React from 'preact'
 import {DomComponentGroup, DomRootComponent, ReactRefEx, ReactRender, css} from 'partic2/pComponentUi/domui'
 import { RemoteRunCodeContext } from 'partic2/CodeRunner/RemoteCodeContext'
 import {getPersistentRegistered, importRemoteModule,persistent,ServerHostRpcName,ServerHostWorker1RpcName, WebWorker1RpcName} from 'partic2/pxprpcClient/registry'
-import { GenerateRandomString, GetBlobArrayBufferContent, Ref2, Task, assert, future, requirejs } from 'partic2/jsutils1/base'
+import { GenerateRandomString, GetBlobArrayBufferContent, GetCurrentTime, Ref2, Task, assert, future, requirejs } from 'partic2/jsutils1/base'
 import { BuildUrlFromJsEntryModule, GetJsEntry, GetPersistentConfig, getResourceManager, path, RequestDownload, selectFile, useDeviceWidth } from 'partic2/jsutils1/webutils'
 import {promptWithForm, SimpleReactForm1} from 'partic2/pComponentUi/input'
 import {alert, appendFloatWindow, confirm, prompt, css as windowCss, WindowComponent} from 'partic2/pComponentUi/window'
@@ -65,7 +65,8 @@ import {getIconUrl} from 'partic2/pxseedMedia1/index1'
 import { ReactDragController } from 'partic2/pComponentUi/transform'
 import { RpcExtendServer1 } from 'pxprpc/extend'
 import { Server } from 'pxprpc/base'
-import { rpcId } from '../pxprpcClient/rpcworker'
+import { rpcId } from 'partic2/pxprpcClient/rpcworker'
+import { serverConsoleLog } from './misc'
 
 let resourceManager=getResourceManager(__name__);
 
@@ -100,8 +101,8 @@ class WindowListIcon extends React.Component<{},{
         this.setState({windows})
     }
     onWindowResize=async ()=>{
-        //How to find a good place to move to?
-        this.drag.dragged.newPos?.({left:window.innerWidth-this.state.listWidth-10,top:window.innerHeight-this.state.listHeight-40});
+        //TODO: How to find a good place to move to?
+        //this.drag.dragged.newPos?.({left:window.innerWidth-this.state.listWidth-10,top:window.innerHeight-this.state.listHeight-40});
     }
     async componentDidMount(): Promise<void> {
         this.setState({listWidth:Math.min(250,window.innerWidth),listHeight:Math.min(320,window.innerHeight-32)});

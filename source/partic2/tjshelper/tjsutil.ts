@@ -58,7 +58,10 @@ export class PxprpcIoFromTjsStream implements Io{
 		if(size<1024){
 			await this.w!.write(new Uint8Array(ArrayBufferConcat([buf1,...data])));
 		}else{
-			await Promise.all(data.map((t1)=>this.w!.write(buf1)));
+			await this.w!.write(buf1);
+			for(let t1 of data){
+				await this.w!.write(t1);
+			}
 		}
 	}
 	close(): void {
