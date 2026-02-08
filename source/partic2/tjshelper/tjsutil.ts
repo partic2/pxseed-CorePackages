@@ -1,8 +1,10 @@
 /*jshint node:true */
 
 import { ArrayBufferConcat, ArrayWrap2, DateDiff, GetCurrentTime, assert, logger, requirejs } from "partic2/jsutils1/base";
-import { getWWWRoot } from "partic2/jsutils1/webutils";
-import { Io } from "pxprpc/base";
+import { Io, Serializer } from "pxprpc/base";
+import { RpcExtendClient1, RpcExtendClientCallable, RpcExtendClientObject } from "pxprpc/extend";
+import { getRpcFunctionOn } from "partic2/pxprpcBinding/utils";
+
 
 
 let __name__=requirejs.getLocalRequireModule(require);
@@ -69,3 +71,55 @@ export class PxprpcIoFromTjsStream implements Io{
 	}
 	
 }
+
+class CTxikijsPxprpcBinding{
+    rpc!:RpcExtendClient1;
+    protected remoteSslClientPopCipherSend:RpcExtendClientCallable|null=null;
+    protected remoteSslClientPushCipherRecv:RpcExtendClientCallable|null=null;
+    protected remoteSslClientWritePlain:RpcExtendClientCallable|null=null;
+    protected remoteSslClientReadPlain:RpcExtendClientCallable|null=null;
+	//Safe to call multitimes.
+	async init(){
+		if(this.rpc==undefined){
+			let {getRpc4RuntimeBridge0}=await import("partic2/pxprpcBinding/rpcregistry");
+			this.rpc=await getRpc4RuntimeBridge0();
+		}
+	}
+    async NewSslClientContext(hostname:string){
+        return (await getRpcFunctionOn(this.rpc,'pxprpc_txikijs.NewSslClientContext','s->o'))!.call(hostname);        
+    }
+    async SslClientPopCipherSend(sslCtx:RpcExtendClientObject){
+        if(this.remoteSslClientPopCipherSend==null){
+            this.remoteSslClientPopCipherSend=await getRpcFunctionOn(this.rpc,'pxprpc_txikijs.SslClientPopCipherSend','o->b')
+        }
+        return await this.remoteSslClientPopCipherSend!.call(sslCtx) as Uint8Array;
+    }
+    async SslClientPushCipherRecv(sslCtx:RpcExtendClientObject,data:Uint8Array){
+        if(this.remoteSslClientPushCipherRecv==null){
+            this.remoteSslClientPushCipherRecv=await getRpcFunctionOn(this.rpc,'pxprpc_txikijs.SslClientPushCipherRecv','ob->')
+        }
+        return await this.remoteSslClientPushCipherRecv!.call(sslCtx,data);
+    }
+    async SslClientWritePlain(sslCtx:RpcExtendClientObject,data:Uint8Array){
+        if(this.remoteSslClientWritePlain==null){
+            this.remoteSslClientWritePlain=await getRpcFunctionOn(this.rpc,'pxprpc_txikijs.SslClientWritePlain','ob->i')
+        }
+        return await this.remoteSslClientWritePlain!.call(sslCtx,data) as number;
+    }
+    async SslClientReadPlain(sslCtx:RpcExtendClientObject){
+        if(this.remoteSslClientReadPlain==null){
+            this.remoteSslClientReadPlain=await getRpcFunctionOn(this.rpc,'pxprpc_txikijs.SslClientReadPlain','o->b')
+        }
+        return await this.remoteSslClientReadPlain!.call() as Uint8Array;
+    }
+    async NewRuntime(){
+        let param=new Serializer().prepareSerializing(8);
+        param.putInt(0);
+        return await (await getRpcFunctionOn(this.rpc,'pxprpc_txikijs.NewRuntime','b->o'))!.call(param.build()) as RpcExtendClientObject;
+    }
+    async RunJs(rt:RpcExtendClientObject,jsCode:string){
+        await (await getRpcFunctionOn(this.rpc,'pxprpc_txikijs.RunJs','os->'))!.call(rt,jsCode);
+    }
+}
+
+export let txikijsPxprpc=new CTxikijsPxprpcBinding();

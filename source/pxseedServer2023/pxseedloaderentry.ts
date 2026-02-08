@@ -1,8 +1,8 @@
 import { assert, GetCurrentTime, requirejs, Task } from 'partic2/jsutils1/base';
-import { RpcExtendClient1, RpcExtendServer1, TableSerializer } from 'pxprpc/extend';
+import { RpcExtendClient1, RpcExtendClientCallable, RpcExtendClientObject, RpcExtendServer1, TableSerializer } from 'pxprpc/extend';
 import 'partic2/tjshelper/tjsenv'
 import {PxprpcRtbIo} from 'partic2/tjshelper/tjsenv'
-import { Client,Server as PxprpcBaseServer } from 'pxprpc/base';
+import { Client,Server as PxprpcBaseServer, Serializer } from 'pxprpc/base';
 import { rpcWorkerInitModule } from 'partic2/pxprpcClient/registry';
 import { getRpcFunctionOn } from 'partic2/pxprpcBinding/utils';
 import {inited as jseiorpcserverinited} from 'partic2/tjshelper/jseiorpcserver'
@@ -14,6 +14,7 @@ import {Invoker as rtbridgeInvoker} from 'partic2/pxprpcBinding/pxprpc_rtbridge'
 import * as pxseedhttpserver from './pxseedhttpserver';
 import { WebSocketIo } from 'pxprpc/backend';
 import {openUrlInBrowser} from 'partic2/packageManager/misc'
+import { getRpc4RuntimeBridge0 } from 'partic2/pxprpcBinding/rpcregistry';
 
 let __name__=requirejs.getLocalRequireModule(require);
 
@@ -36,6 +37,7 @@ export async function getLoaderInfo() {
     return cachedLoaderInfo;
 }
 
+
 export async function openWebviewForEntry(entryUrl:string){
     try{
         let loaderInfo=await getLoaderInfo()!;
@@ -48,15 +50,12 @@ export async function openWebviewForEntry(entryUrl:string){
     }catch(err){
         console.error(err);
     }
-    
 }
 
 
 export let __inited__=(async ()=>{
-    assert(globalThis.__pxprpc4tjs__!=undefined);
-    let io1=await PxprpcRtbIo.connect('/pxprpc/runtime_bridge/0');
-    assert(io1!=null);
-    pxprpcRuntimeBridgeClient=await new RpcExtendClient1(new Client(io1)).init();
+    assert(globalThis.__pxprpc4tjs__!=undefined);;
+    pxprpcRuntimeBridgeClient=await getRpc4RuntimeBridge0();
 
     await jseiorpcserverinited;
 

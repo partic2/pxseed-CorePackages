@@ -406,7 +406,9 @@ export class mutex{
     }
     public async exec<T>(fn:()=>Promise<T>){
         await this.lock();
-        try{await fn();}finally{
+        try{
+            return await fn();
+        }finally{
             await this.unlock()
         }
     }
@@ -626,7 +628,7 @@ export var logger={
     info:function(...msg:any[]){console.info(...msg)},
     warning:function(...msg:any[]){console.warn(...msg)},
     error:function(...msg:any[]){console.error(...msg)},
-    setHandler:function(level:'debug'|'info'|'warning'|'error',handler:(msg:string)=>void){
+    setHandler:function(level:'debug'|'info'|'warning'|'error',handler:(...msg:any[])=>void){
         this[level]=handler;
     },
     getLogger:function(label:string){

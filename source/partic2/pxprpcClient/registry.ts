@@ -130,6 +130,7 @@ export interface RemoteRegistryFunction{
 
 
 export class RpcWorker{
+    static connectingMutex:Record<string,mutex>={}
     initDone=new future<boolean>();
     client?:RpcExtendClient1;
     protected wt?:IWorkerThread;
@@ -139,27 +140,33 @@ export class RpcWorker{
         this.workerId=workerId??GenerateRandomString();
     }
     async ensureConnection():Promise<Io>{
-        if(this.conn===undefined){
-            try{
-                this.conn=await new WebMessage.Connection().connect(this.workerId,1000);
-            }catch(e){
-                if(e instanceof Error && e.message.match(/server not found/)!=null){
-                    //mute
-                }else{
-                    throw e;
-                }
-            };
-            if(this.conn===undefined){
-                this.wt=CreateWorkerThread(this.workerId);
-                await this.wt!.start();
-                WebMessage.bind(this.wt!.port!)
-                await this.wt!.runScript(`require(['partic2/pxprpcClient/rpcworker'],function(workerInit){
-                    workerInit.__internal__.initRpcWorker(${JSON.stringify(rpcWorkerInitModule)},'${rpcId.get()}').then(resolve,reject);
-                },reject)`,true);
-                this.conn= await new WebMessage.Connection().connect(this.wt!.workerId,500);
-            }
+        if(RpcWorker.connectingMutex[this.workerId]==undefined){
+            RpcWorker.connectingMutex[this.workerId]=new mutex();
         }
-        return this.conn!;
+        let mtx=RpcWorker.connectingMutex[this.workerId];
+        return await mtx.exec(async ()=>{
+            if(this.conn===undefined){
+                try{
+                    this.conn=await new WebMessage.Connection().connect(this.workerId,1000);
+                }catch(e){
+                    if(e instanceof Error && e.message.match(/server not found/)!=null){
+                        //mute
+                    }else{
+                        throw e;
+                    }
+                };
+                if(this.conn===undefined){
+                    this.wt=CreateWorkerThread(this.workerId);
+                    await this.wt!.start();
+                    WebMessage.bind(this.wt!.port!)
+                    await this.wt!.runScript(`require(['partic2/pxprpcClient/rpcworker'],function(workerInit){
+                        workerInit.__internal__.initRpcWorker(${JSON.stringify(rpcWorkerInitModule)},'${rpcId.get()}').then(resolve,reject);
+                    },reject)`,true);
+                    this.conn= await new WebMessage.Connection().connect(this.wt!.workerId,500);
+                }
+            }
+            return this.conn!;
+        })
     }
     async ensureClient(){
         if(this.conn==undefined){

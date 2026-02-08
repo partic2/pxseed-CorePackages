@@ -1,6 +1,6 @@
 //import this module to Initialize pxseed environment on txiki.js platform.
 
-import { ArrayBufferConcat, DateDiff, future, GetCurrentTime, requirejs} from 'partic2/jsutils1/base';
+import { ArrayBufferConcat, DateDiff, future, GetCurrentTime, requirejs, WaitUntil} from 'partic2/jsutils1/base';
 import * as jsutils1base from 'partic2/jsutils1/base';
 import type {} from 'partic2/tjshelper/txikijs'
 import { Io } from 'pxprpc/base';
@@ -13,6 +13,7 @@ import {BasicMessagePort, getWWWRoot, IKeyValueDb, IWorkerThread, lifecycle, pat
 import {__name__ as webutilsName} from 'partic2/jsutils1/webutils'
 
 import {setupImpl as kvdbInit} from 'partic2/nodehelper/kvdb'
+import { RpcExtendClientObject } from 'pxprpc/extend';
 
 //txiki.js has bugly eventTarget, patch it before upstream fix it.
 Object.defineProperty(Event.prototype,'target',{get:function(){return this.currentTarget}})
@@ -24,7 +25,7 @@ let workerEntryUrl=function(){
     }catch(e){};
     return '';
 }()
-const WorkerThreadMessageMark='__messageMark_WorkerThread'
+let WorkerThreadMessageMark='__messageMark_WorkerThread'
 
 
 class WebWorkerThread implements IWorkerThread{
@@ -109,9 +110,174 @@ class WebWorkerThread implements IWorkerThread{
     }
 }
 
+class PRtbWorkerMessagePort extends EventTarget{
+    constructor(public wt:PRtbWorkerThread){super()};
+    postMessage(message:any){
+        this.wt.conn!.send([tjs.engine.serialize(message)])
+    }
+}
+//Pxprpc runtime bridge based worker
+class PRtbWorkerThread implements IWorkerThread{
+    static thisPipeServerId='/pxprpc/txikijs/worker/'+GenerateRandomString();
+    static pipeServer:RpcExtendClientObject|null=null;
+    static childrenWorkerConnected:Record<string,((io:Io)=>void)|Io|undefined>={};
+    port?: BasicMessagePort | undefined;
+    workerId: string='';
+    conn?:Io
+    constructor(workerId?:string){
+        if(workerId==undefined){
+            this.workerId=GenerateRandomString()
+        }else{
+            this.workerId=workerId;
+        }
+    }
+    static async serveAsWorkerParent(){
+        let rtb=await import('partic2/pxprpcBinding/pxprpc_rtbridge')
+        await rtb.ensureDefaultInvoker();
+        PRtbWorkerThread.pipeServer=await rtb.defaultInvoker!.pipe_serve(PRtbWorkerThread.thisPipeServerId);
+        while(true){
+            let newConn=await rtb.defaultInvoker!.pipe_accept(PRtbWorkerThread.pipeServer);
+            let childWorkerId=new TextDecoder().decode(await rtb.defaultInvoker!.io_receive(newConn))
+            let connIo={
+                conn:newConn,
+                send:async function(data:Uint8Array[]){
+                    await rtb.defaultInvoker!.io_send(this.conn,new Uint8Array(ArrayBufferConcat(data)));
+                },
+                receive:async function(){
+                    return await rtb.defaultInvoker!.io_receive(this.conn);
+                },
+                close:function(){
+                    this.conn.free().catch(()=>{});
+                }
+            }
+            let cb=this.childrenWorkerConnected[childWorkerId];
+            if(typeof cb==='function'){
+                cb(connIo);
+            }else{
+                connIo.close();
+            }
+        }
+    }
+    running=false;
+    async start(): Promise<void> {
+        if(this.running)return;
+        this.running=true;
+        if(PRtbWorkerThread.pipeServer===null){
+            PRtbWorkerThread.serveAsWorkerParent();
+            await WaitUntil(()=>PRtbWorkerThread.pipeServer!==null,16,2000);
+        }
+        let {txikijsPxprpc}=await import('./tjsutil');
+        await txikijsPxprpc.init();
+        let rt1=await txikijsPxprpc.NewRuntime();
+        if(PRtbWorkerThread.childrenWorkerConnected[this.workerId]==undefined){
+            let childConnected=new Promise<Io>((resolve)=>{
+                PRtbWorkerThread.childrenWorkerConnected[this.workerId]=resolve;
+            })
+            let jsCode=`(async ()=>{
+                globalThis.__workerId='${this.workerId}';
+                globalThis.__PRTBParentPipeServerId='${PRtbWorkerThread.thisPipeServerId}';
+                let {main}=await import(String.raw\`${getWWWRoot().replace(/\\/g,'/')}/txikirun.js\`);
+                main('partic2/tjshelper/workerentry')
+            })()`
+            txikijsPxprpc.RunJs(rt1,jsCode);
+            this.conn=await childConnected;
+            this.port=new PRtbWorkerMessagePort(this) as any;
+            this.startStep2();
+            (async ()=>{
+                while(this.running){
+                    let msg=await this.conn!.receive();
+                    let data=tjs.engine.deserialize(msg);
+                    (this.port as any as PRtbWorkerMessagePort).dispatchEvent(
+                        new MessageEvent('message',{data})
+                    )
+                    
+                }
+            })();
+        }else{
+            throw new Error('Worker with same name is created.');
+        }
+        
+    }
+    exitListener=()=>{
+        this.runScript(`require(['${webutilsName}'],function(webutils){
+            webutils.lifecycle.dispatchEvent(new Event('exit'));
+        })`);
+    };
+    waitReady=new future<number>();
+    onExit?:()=>void;
+    async startStep2(){
+        this.port!.addEventListener('message',(msg:MessageEvent)=>{
+            if(typeof msg.data==='object' && msg.data[WorkerThreadMessageMark]){
+                let {type,scriptId}=msg.data as {type:string,scriptId?:string};
+                switch(type){
+                    case 'run':
+                        this.onHostRunScript(msg.data.script)
+                        break;
+                    case 'onScriptResolve':
+                        this.onScriptResult(msg.data.result,scriptId)
+                        break;
+                    case 'onScriptReject':
+                        this.onScriptReject(msg.data.reason,scriptId);
+                        break;
+                    case 'ready':
+                        this.waitReady.setResult(0);
+                        break;
+                    case 'closing':
+                        lifecycle.removeEventListener('exit',this.exitListener);
+                        this.onExit?.();
+                        break;
+                    case 'tjs-close':
+                        break;
+                }
+            }
+        });
+        await this.waitReady.get();
+        await this.runScript(`this.__workerId='${this.workerId}'`);
+        lifecycle.addEventListener('exit',this.exitListener);
+    }
+    onHostRunScript(script:string){
+        (new Function('workerThread',script))(this);
+    }
+    processingScript={} as {[scriptId:string]:future<any>}
+    async runScript(script:string,getResult?:boolean){
+        let scriptId='';
+        if(getResult===true){
+            scriptId=GenerateRandomString();
+            this.processingScript[scriptId]=new future<any>();
+        }
+            this.port?.postMessage({[WorkerThreadMessageMark]:true,type:'run',script,scriptId})
+        if(getResult===true){
+            return await this.processingScript[scriptId].get();            
+        }
+    }
+    onScriptResult(result:any,scriptId?:string){
+        if(scriptId!==undefined && scriptId in this.processingScript){
+            let fut=this.processingScript[scriptId];
+            delete this.processingScript[scriptId];
+            fut.setResult(result);
+        }
+    }
+    onScriptReject(reason:any,scriptId?:string){
+        if(scriptId!==undefined && scriptId in this.processingScript){
+            let fut=this.processingScript[scriptId];
+            delete this.processingScript[scriptId];
+            fut.setException(new Error(reason));
+            
+        }
+    }
+    requestExit(){
+        this.runScript('globalThis.close()');
+    }
+    
+}
+
 export function setupImpl(){
     kvdbInit();
-    setWorkerThreadImplementation(WebWorkerThread)
+    if(globalThis.__pxprpc4tjs__==undefined){
+        setWorkerThreadImplementation(WebWorkerThread)
+    }else{
+        setWorkerThreadImplementation(PRtbWorkerThread)
+    }
     if(globalThis.open==undefined){
         globalThis.open=(async (url:string,target?:string)=>{
             let jscode:string='';
