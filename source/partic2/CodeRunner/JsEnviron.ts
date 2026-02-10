@@ -150,8 +150,13 @@ export class TjsSfs implements SimpleFileSystem{
         }
         path=this.pathConvert(path);
         let files=[] as { name: string; type: 'dir'|'file'; }[];
-        for await (let child of await this.impl!.readDir(path)){
-            files.push({name:child.name,type:child.isDirectory?'dir':'file'})
+        let dirHandler=await this.impl!.readDir(path);
+        try{
+            for await (let child of dirHandler){
+                files.push({name:child.name,type:child.isDirectory?'dir':'file'})
+            }
+        }finally{
+            dirHandler.close();
         }
         return files;
     }
