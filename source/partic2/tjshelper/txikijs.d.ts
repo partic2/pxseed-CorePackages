@@ -213,7 +213,7 @@ declare global {
         /**
         * Changes the current working directory.
         */
-        function chdir(dir: string): void;
+        function chdir(dir: string): Promise<void>|undefined;
         
         /**
         * Current working directory.

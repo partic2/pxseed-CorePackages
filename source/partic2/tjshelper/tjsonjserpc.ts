@@ -270,8 +270,8 @@ async function mkdir(path: string, options?: MkdirOptions): Promise<void>{
 * @param newPath Target path.
 * @param flags Specify the mode for copying the file.
 */
-async function copyfile(path: string, newPath: string, flags?: number): Promise<void>{
-    jseio.copyFile(path,newPath);
+async function copyFile(path: string, newPath: string, flags?: number): Promise<void>{
+    await jseio.copyFile(path,newPath);
 }
 
 
@@ -581,7 +581,7 @@ async function listen(transport: Transport, host: string, port?: string | number
 }
 
     let tjsi={
-        realpath,unlink,rename,mkstemp,stat,open,rmdir,copyfile,mkdir,readdir,readFile,rm,spawn,homedir,platform,
+        realpath,unlink,rename,mkstemp,stat,open,rmdir,copyFile,mkdir,readdir,readFile,rm,spawn,homedir,platform,
         realPath:realpath,
         remove:rm,
         homeDir:dataDir,

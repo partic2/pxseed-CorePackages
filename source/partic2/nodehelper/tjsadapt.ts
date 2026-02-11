@@ -271,8 +271,8 @@ async function mkdir(path: string, options?: MkdirOptions): Promise<void>{
 * @param newPath Target path.
 * @param flags Specify the mode for copying the file.
 */
-async function copyfile(path: string, newPath: string, flags?: number): Promise<void>{
-    await fs.copyFile(path,newPath);
+async function copyFile(path: string, newPath: string, flags?: number): Promise<void>{
+    await fs.copyFile(path,newPath)
 }
 
 
@@ -336,17 +336,18 @@ async function rm(path: string): Promise<void>{
 }
 
 class Process {
-    nodeProcess?:child_process.ChildProcessWithoutNullStreams
+    nodeProcess?:child_process.ChildProcess
     processResult=new future<{
                     exit_status:number,
                     term_signal:null|string
                 }>();
-    constructor(public args: string | string[], public options?: ProcessOptions){
+    constructor(public args: string | string[], public options?: tjs.ProcessOptions){
         if(typeof args==='string'){
             args=[args];
         }
         this.nodeProcess=child_process.spawn(args[0],args.slice(1),{
-            stdio:'pipe'
+            stdio:[options?.stdin,options?.stdout,options?.stderr],
+            cwd:options?.cwd,env:options?.env
         });
         this.nodeProcess.on('error',(err)=>{
             this.processResult.setException(err);
@@ -361,7 +362,7 @@ class Process {
             if((this.options.stdin??'ignore')==='pipe'){
                 this.stdin={
                     write:(buf: Uint8Array):Promise<number>=>new Promise((resolve,reject)=>{
-                        this.nodeProcess!.stdin.write(buf,(err)=>{
+                        this.nodeProcess!.stdin!.write(buf,(err)=>{
                             if(err!=null){
                                 reject(err);
                             }else{
@@ -372,10 +373,10 @@ class Process {
                 }
             }
             if((this.options.stdout??'ignore')==='pipe'){
-                this.stdout=wrapReadable(this.nodeProcess.stdout);
+                this.stdout=wrapReadable(this.nodeProcess.stdout!);
             }
             if((this.options.stderr??'ignore')==='pipe'){
-                this.stderr=wrapReadable(this.nodeProcess.stderr);
+                this.stderr=wrapReadable(this.nodeProcess.stderr!);
             }
         }
         this.pid=this.nodeProcess.pid??-1
@@ -394,7 +395,7 @@ class Process {
 }
 
 
-function spawn(args: string | string[], options?: ProcessOptions): Process{
+function spawn(args: string | string[], options?: tjs.ProcessOptions): Process{
     let p = new Process(args,options)
     return p;
 }
@@ -618,8 +619,18 @@ async function listen(transport: Transport, host: string, port?: string | number
     }
 }
 
+/**
+* Changes the current working directory.
+*/
+function chdir(dir: string): Promise<void>|undefined{
+    process.chdir(dir)
+    tjsi.cwd=dir;
+    return undefined
+};
+
+
     let tjsi={
-        realpath,unlink,rename,mkstemp,stat,open,rmdir,copyfile,mkdir,readdir,readFile,rm,spawn,homedir,platform,
+        realpath,unlink,rename,mkstemp,stat,open,rmdir,copyFile,mkdir,readdir,readFile,rm,spawn,homedir,platform,
         realPath:realpath,
         remove:rm,
         homeDir:dataDir,
@@ -629,6 +640,8 @@ async function listen(transport: Transport, host: string, port?: string | number
         listen,connect,
         makeTempFile,
         env:process.env,
+        chdir,
+        cwd:process.cwd(),
         __impl__:'partic2/nodehelper/tjsadapt'
     } as any;
     tjsImpl=tjsi;
@@ -687,11 +700,4 @@ interface ProcessStatus {
     term_signal: null|string;
 }
 
-
-type ProcessStdio = 'pipe' | 'ignore';
-interface ProcessOptions {
-    stdin?: ProcessStdio;
-    stdout?: ProcessStdio;
-    stderr?: ProcessStdio;
-}
 
