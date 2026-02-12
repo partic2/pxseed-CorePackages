@@ -1,7 +1,7 @@
 
 import type { Dirent,StatsBase } from 'fs';
 import type {readFile,writeFile,unlink,readdir,mkdir,rmdir,stat,lstat,readlink,symlink,chmod,rm,access,copyFile} from 'fs/promises'
-import { SimpleFileSystem } from 'partic2/CodeRunner/JsEnviron';
+import { SimpleFileSystem, simpleFileSystemHelper } from 'partic2/CodeRunner/JsEnviron';
 import { assert, requirejs } from 'partic2/jsutils1/base';
 import {getWWWRoot, path} from 'partic2/jsutils1/webutils'
 import { easyCallRemoteJsonFunction, getPersistentRegistered } from 'partic2/pxprpcClient/registry';
@@ -117,11 +117,10 @@ export class NodeFsAdapter{
     chmod:typeof chmod=(async (path:string,mode:number)=>{
     })as any;
     copyFile:typeof copyFile=(async (src: string, dest: string, mode?: number)=>{
-      let data=await this.wrapped.readAll(src);
-      if(data==null){
-        throw makeENOENT();
-      }
-      await this.wrapped.writeAll(dest,data);
+        if(await this.wrapped.filetype(src)==='none'){
+            throw makeENOENT();
+        }
+        await simpleFileSystemHelper.copyFile(this.wrapped!,src,dest);
     }) as any;
 }
 

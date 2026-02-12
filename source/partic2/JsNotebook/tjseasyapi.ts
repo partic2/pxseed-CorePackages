@@ -2,10 +2,13 @@
 import { ExtendStreamReader, utf8conv } from "partic2/CodeRunner/jsutils2";
 import { buildTjs } from "partic2/tjshelper/tjsbuilder";
 import { TjsReaderDataSource, TjsWriterDataSink } from "partic2/tjshelper/tjsutil";
-import {assert} from "partic2/jsutils1/base";
+import {assert, mutex} from "partic2/jsutils1/base";
 import { future, Task } from "partic2/jsutils1/base";
 import { RpcSerializeMagicMark } from "partic2/pxprpcClient/registry";
 import { TaskLocalEnv } from "partic2/CodeRunner/CodeContext";
+import {SimpleFileSystem, simpleFileSystemHelper, TjsSfs} from 'partic2/CodeRunner/JsEnviron'
+import { getNodeCompatApi } from "pxseedBuildScript/util";
+import { getWWWRoot } from "partic2/jsutils1/webutils";
 
 export class TjsUtilsProcess{
 	stdin:WritableStream<Uint8Array>
@@ -125,8 +128,114 @@ export async function newTjsUtilsProcess(args:string[],tjsImpl?:typeof tjs){
 	return new TjsUtilsProcess(await tjsImpl.spawn(args,{stdin:'pipe',stdout:'pipe',stderr:'pipe'}),args)
 }
 
-export let shutils={
-	which:function(command:string){
-		
+export let files={
+	tjs:null as typeof tjs|null,
+	simple:null as SimpleFileSystem|null,
+	initmtx:new mutex(),
+	osPathSep:getWWWRoot().includes('\\')?'\\':'/',
+	async init(){
+		await this.initmtx.exec(async ()=>{
+			if(this.tjs==null){
+				this.tjs=await buildTjs();
+				let fs=new TjsSfs();
+				fs.from(this.tjs);
+				await fs.ensureInited()
+				this.simple=fs;
+			}
+		})
+	},
+	async whichExecutable(name:string):Promise<string|null>{
+		let tjsi=this.tjs!;
+        let path1=tjsi.env.PATH;
+        let pathsSep=path1.includes(';')?';':':';
+        let path1List=path1.split(pathsSep);
+        let found:string|null=null;
+        for(let t1 of path1List){
+            try{
+                let t2=t1+this.osPathSep+name;
+                await tjsi.stat(t2);
+                found=t2;
+                break;
+            }catch(err){};
+            try{
+                let t2=t1+this.osPathSep+name+'.exe';
+                await tjsi.stat(t2);
+                found=t2;
+                break;
+            }catch(err){};
+        }
+        return found;
+	},
+	pathJoin(...names:string[]){
+		return this.pathJoin2(names);
+	},
+	pathJoin2(names:string[],sep?:string){
+		let parts=[] as string[];
+		for(let t1 of names){
+			for(let t2 of t1.split(/[\\\/]/)){
+				if(t2==='..' && parts.length>=1){
+					parts.pop();
+				}else if(t2==='.'){
+					//skip
+				}else{
+					parts.push(t2);
+				}
+			}
+		}
+		let fullpath=parts.join(sep??this.osPathSep);
+		return fullpath
+	},
+	async copySingleFile(src:string,dest:string){
+		await simpleFileSystemHelper.copyFile(this.simple!,src,dest);
+	},
+	async copyFileTree(srcDir:string,destDir:string,opt?:{ignore?:(name:string,path:string)=>boolean,maxDepth?:number,confilctPolicy?:'overwrite'|'skip'|'most recent'}){
+		opt=opt??{};
+		if(opt.ignore==undefined)opt.ignore=()=>false;
+		if(opt.maxDepth==undefined)opt.maxDepth=1000;
+		opt.confilctPolicy=opt.confilctPolicy??'overwrite';
+        await this.simple!.mkdir(destDir);
+        let children=await this.simple!.listdir(srcDir);
+        for(let t1 of children){
+            if(opt.ignore(t1.name,[srcDir,t1.name].join('/'))){
+                continue;
+            }
+            if(t1.type=='dir'){
+                await this.copyFileTree([srcDir,t1.name].join('/'),[destDir,t1.name].join('/'),{...opt,maxDepth:opt.maxDepth-1});
+            }else if(t1.type=='file'){
+                let destPath=[destDir,t1.name].join('/')
+                let srcPath=[srcDir,t1.name].join('/');
+                let needCopy=false;
+				if(opt.confilctPolicy==='most recent'){
+					try{
+						let dfile=await this.simple!.stat(destPath);
+						let sfile2=await this.simple!.stat(srcPath);
+						if(dfile.mtime<sfile2.mtime){
+							needCopy=true;
+						}
+					}catch(e){
+						needCopy=true;
+					}
+				}else if(opt.confilctPolicy==='overwrite'){
+					needCopy=true;
+				}else if(opt.confilctPolicy==='skip'){
+					if(await this.simple!.filetype(destPath)==='none'){
+						needCopy=true;
+					}
+				}else{
+					assert(false,'Invalid parameter:opt.conflictPolicy');
+				}
+                if(needCopy){
+					await this.copySingleFile(srcPath,destPath);
+                }
+            }
+        }
 	}
 }
+
+
+export async function then(resolve:any){
+	await files.init()
+	delete exports.then;
+	resolve(exports);
+}
+

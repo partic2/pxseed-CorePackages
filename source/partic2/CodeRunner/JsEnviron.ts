@@ -197,7 +197,7 @@ export class TjsSfs implements SimpleFileSystem{
             }
             return len;
         }finally{
-            fh.close();
+            await fh.close();
         }
     }
     async write(path:string, offset:number, buf: Uint8Array): Promise<number> {
@@ -212,7 +212,7 @@ export class TjsSfs implements SimpleFileSystem{
             let len=await fh.write(buf,offset);
             return len;
         }finally{
-            fh.close();
+            await fh.close();
         }
     }
     async stat(path:string){
@@ -248,7 +248,7 @@ export async function getSimpleFileSystemFromPxprpc(pxprpc:RpcExtendClient1){
 
 class LWSFSInternalError extends Error{}
 
-export class LocalWindowSFS implements SimpleFileSystem{
+export class KVDbBasedFs implements SimpleFileSystem{
     db?: CKeyValueDb;
     root?:FileEntry;
     lastModified=0;
@@ -644,6 +644,8 @@ export class LocalWindowSFS implements SimpleFileSystem{
     }
 }
 
+export let LocalWindowSFS=KVDbBasedFs;
+
 export let defaultFileSystem:SimpleFileSystem|null=null;
 export async function ensureDefaultFileSystem(){
     if(defaultFileSystem===null){
@@ -768,7 +770,7 @@ export class NodeSimpleFileSystem implements SimpleFileSystem{
             let r=await fh.read(buf,0,buf.byteLength,offset);
             return r.bytesRead;
         }finally{
-            fh.close();
+            await fh.close();
         }
     }
     async write(path: string, offset: number, buf: Uint8Array): Promise<number> {
@@ -782,7 +784,7 @@ export class NodeSimpleFileSystem implements SimpleFileSystem{
             let r=await fh.write(buf,0,buf.byteLength,offset);
             return r.bytesWritten;
         }finally{
-            fh.close();
+            await fh.close();
         }
     }
     async stat(path: string): Promise<{ atime: Date; mtime: Date; ctime: Date; birthtime: Date; size: number; }> {
@@ -854,15 +856,15 @@ export class DirAsRootFS implements SimpleFileSystem{
 class SimpleFileSystemDataSource implements UnderlyingSource<Uint8Array>{
     constructor(public fs:SimpleFileSystem,public path:string){}
     public readPos=0;
-    public readBuffer=new Uint8Array(64*1024);
     async pull(controller: ReadableStreamController<Uint8Array>): Promise<void>{
-        let bytesRead=await this.fs.read(this.path,this.readPos,this.readBuffer);
+        let readBuffer=new Uint8Array(64*1024);
+        let bytesRead=await this.fs.read(this.path,this.readPos,readBuffer);
         if(bytesRead==0){
             controller.close();
             return;
         }
         this.readPos+=bytesRead;
-        controller.enqueue(this.readBuffer.slice(0,bytesRead));
+        controller.enqueue(new Uint8Array(readBuffer.buffer,0,bytesRead));
     }
 }
 export function getFileSystemReadableStream(fs:SimpleFileSystem,path:string,initialSeek?:number){
@@ -874,13 +876,26 @@ class SimpleFileSystemDataSink implements UnderlyingSink<Uint8Array>{
     public writePos=0;
     constructor(public fs:SimpleFileSystem,public path:string){}
     async write(chunk: Uint8Array, controller: WritableStreamDefaultController): Promise<void>{
-        await this.fs.write(this.path,this.writePos,chunk);
+        let writeCount=await this.fs.write(this.path,this.writePos,chunk);
+        this.writePos+=writeCount
     }
 }
 export function getFileSysteWritableStream(fs:SimpleFileSystem,path:string,initialSeek?:number){
     let dataSink=new SimpleFileSystemDataSink(fs,path);
     if(initialSeek!=undefined)dataSink.writePos=initialSeek;
     return new WritableStream(dataSink)
+}
+export let simpleFileSystemHelper={
+    getFileSystemReadableStream,getFileSysteWritableStream,
+    copyFile:async function (srcFs:SimpleFileSystem,src:string,dest:string,destFs?:SimpleFileSystem){
+        destFs=srcFs;
+        let r=getFileSystemReadableStream(srcFs,src);
+        let w=getFileSysteWritableStream(destFs,dest);
+        if(await destFs.filetype(dest)=='file'){
+            await destFs.truncate(dest,0)
+        }
+        await r.pipeTo(w);
+    }
 }
 
 class CSimpleFileSystemScriptLoader implements IamdeeScriptLoader{
