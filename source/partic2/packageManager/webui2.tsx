@@ -4,7 +4,7 @@ import {DomComponentGroup, DomRootComponent, ReactRefEx, ReactRender, css} from 
 import { RemoteRunCodeContext } from 'partic2/CodeRunner/RemoteCodeContext'
 import {getPersistentRegistered, importRemoteModule,persistent,ServerHostRpcName,ServerHostWorker1RpcName, WebWorker1RpcName} from 'partic2/pxprpcClient/registry'
 import { GenerateRandomString, GetBlobArrayBufferContent, GetCurrentTime, Ref2, Task, assert, future, requirejs } from 'partic2/jsutils1/base'
-import { BuildUrlFromJsEntryModule, GetJsEntry, GetPersistentConfig, getResourceManager, path, RequestDownload, selectFile, useDeviceWidth } from 'partic2/jsutils1/webutils'
+import { BuildUrlFromJsEntryModule, GetJsEntry, GetPersistentConfig, getResourceManager, path, RequestDownload, SavePersistentConfig, selectFile, useDeviceWidth } from 'partic2/jsutils1/webutils'
 import {promptWithForm, SimpleReactForm1} from 'partic2/pComponentUi/input'
 import {alert, appendFloatWindow, confirm, prompt, css as windowCss, WindowComponent} from 'partic2/pComponentUi/window'
 var registryModuleName='partic2/packageManager/registry';
@@ -554,12 +554,53 @@ export async function openPackageMainWindow(appInfo:{pkgName:string,beforeUnload
     return windowHandler;
 }
 
-export let __inited__=(async ()=>{
+let config:{
+    startupExecuteFunction?:Record<string,{once:boolean,module:string,functionName:string,arguments?:any[]}>,
+}={}
+
+export let webuiStartupExecuteFunction={
+    async add(id:string,functionInfo:{once:boolean,module:string,functionName:string,arguments?:any[]}){
+        config=await GetPersistentConfig(__name__)
+        config.startupExecuteFunction=config.startupExecuteFunction??{};
+        config.startupExecuteFunction[id]=functionInfo;
+        await SavePersistentConfig(__name__)
+    },
+    async delete(id:string){
+        config=await GetPersistentConfig(__name__)
+        config.startupExecuteFunction=config.startupExecuteFunction??{};
+        delete config.startupExecuteFunction[id];
+        await SavePersistentConfig(__name__)
+    },
+    async get(id:string){
+        config=await GetPersistentConfig(__name__);
+        return config.startupExecuteFunction?.[id];
+    },
+    async iter(){
+        config=await GetPersistentConfig(__name__);
+        config.startupExecuteFunction=config.startupExecuteFunction??{};
+        return Object.entries(config.startupExecuteFunction)
+    }
+}
+
+let __inited__=(async ()=>{
     if(GetJsEntry()==__name__){
         document.body.style.overflow='hidden';
-        renderPackagePanel()
+        renderPackagePanel();
         RemotePxseedJsIoServer.serve(`/pxprpc/pxseed_webui/${__name__.replace(/\//g,'.')}/${rpcId.get()}`,{
             onConnect:(io)=>new RpcExtendServer1(new Server(io))
-        });
+        }).catch((err:any)=>console.warn(err.message,err.stack));
+        config=await GetPersistentConfig(__name__);
+        for(let t1 of await webuiStartupExecuteFunction.iter()){
+            import(t1[1].module).then(mod=>mod[t1[1].functionName](...(t1[1].arguments??[]))).catch(()=>{});
+            if(t1[1].once){
+                await webuiStartupExecuteFunction.delete(t1[0]);
+            }
+        }
     }
 })();
+
+export async function then(resolve:any){
+    delete exports.then;
+    await __inited__;
+    resolve(exports);
+}
