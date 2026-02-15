@@ -104,7 +104,7 @@ export class TextEditor extends ReactEventTarget<TextEditorProps,{}>{
         let fullText=this.getPlainText();
         let min1=Math.min(anchor,focus);
         let max1=Math.max(anchor,focus);
-        this.rref.div1.current!.innerHTML=text2html(fullText.substring(0,min1)+text+fullText.substring(max1));
+        this.setPlainText(fullText.substring(0,min1)+text+fullText.substring(max1));
         this.setTextCaretOffset(min1+text.length);
     }
     deleteText(count:number){
@@ -152,7 +152,12 @@ export class TextEditor extends ReactEventTarget<TextEditorProps,{}>{
         return docNode2text(this.rref.div1.current!).concat();
     }
     setPlainText(text:string){
-        this.setHtml(text2html(text))
+        if(text==''){
+            //firefox prefer this.
+            this.setHtml('');
+        }else{
+            this.setHtml(text2html(text))
+        }
     }
     getTextCaretOffset(){
         let sel=document.getSelection();

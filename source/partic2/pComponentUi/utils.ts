@@ -21,18 +21,23 @@ export function docNode2text(node:Node){
                 isBlockElement(walker.currentNode))){
             textParts.push({node:'phony',text:'\n'});
         }
-        if(walker.currentNode instanceof HTMLBRElement && walker.currentNode.nextSibling!=null && !isBlockElement(walker.currentNode.nextSibling)){
-            textParts.push({node:walker.currentNode,text:'\n'});
+        if(walker.currentNode instanceof HTMLBRElement){
+            if(walker.currentNode.nextSibling!=null && !isBlockElement(walker.currentNode.nextSibling)){
+                textParts.push({node:walker.currentNode,text:'\n'});
+            }else{
+                textParts.push({node:walker.currentNode,text:''})
+            }
+            
         }else if(walker.currentNode instanceof Text){
             let textData='';
             let parentElem=walker.currentNode.parentElement;
             if(parentElem!=undefined && getComputedStyle(parentElem).whiteSpace.startsWith('pre')){
-                textData+=walker.currentNode.data
+                textData+=walker.currentNode.data;
             }else{
                 //trim charCode(32) and THEN replace charCode(160)
                 textData+=walker.currentNode.data.replace(/\n|(^ +)|( +$)/g,'').replace(/\u00a0/g,' ');
             }
-            if(walker.currentNode.nextSibling==null && textData.at(-1)=='\n'){
+            if( (walker.currentNode.nextSibling==null || isBlockElement(walker.currentNode.nextSibling)) && textData.at(-1)=='\n'){
                 textData=textData.substring(0,textData.length-1);
             }
             textParts.push({node:walker.currentNode,
@@ -58,7 +63,20 @@ export function docNode2text(node:Node){
                     offset=nextOffset;
                 }
             }
-            return {node:null,offset:-1};
+            let lastNode:Node|null=null;
+            for(let t1=this.textParts.length-1;t1>=0;t1--){
+                if(this.textParts[t1].node!=='phony'){
+                    lastNode=this.textParts[t1].node as any;
+                    break;
+                }
+            }
+            if(lastNode==null){
+                return {node:null,offset:0};
+            }else if(lastNode instanceof Text){
+                return {node:lastNode,offset:lastNode.data.length}
+            }else{
+                return {node:lastNode,offset:0}
+            }
         },
         textOffsetFromNode(node:Node,offset:number):number{
             if(this.node==node && offset==0){
