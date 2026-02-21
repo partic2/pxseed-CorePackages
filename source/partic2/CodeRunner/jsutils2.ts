@@ -1,4 +1,4 @@
-import { ArrayBufferConcat, ArrayWrap2, Ref2, Task,  future, requirejs ,TaskLocalRef, mutex, sleep} from "partic2/jsutils1/base";
+import { ArrayBufferConcat, ArrayWrap2, Ref2, Task,  future, requirejs ,TaskLocalRef, mutex, sleep, GetCurrentTime} from "partic2/jsutils1/base";
 
 
 let __name__=requirejs.getLocalRequireModule(require);
@@ -262,6 +262,37 @@ export class DebounceCall<T extends (...args: any) => any>{
 		this.callId=1;
 		this.result=new future();
 	}
+}
+
+export class ThrottleCall<T extends (...args: any) => any>{
+	constructor(public fn:T,public minIntervalMs:number){}
+	protected lastCallTime:number=0;
+	protected nextCallArgs:Parameters<T>|null=null;
+	protected result:future<ReturnType<T>>|null=null;
+	async call(...args:Parameters<T>):Promise<undefined|ReturnType<T>>{
+		this.nextCallArgs=args;
+		if(this.result!=null){
+			return await this.result.get();
+		}
+		this.result=new future();
+		let res=this.result;
+		let now=GetCurrentTime().getTime();
+		if(now<this.lastCallTime+this.minIntervalMs){
+			await sleep(this.lastCallTime+this.minIntervalMs-now);
+		}
+		try{
+			let r=await this.fn(...this.nextCallArgs);
+			res.setResult(r);
+		}catch(e){
+			res.setException(e);
+		}finally{
+			now=GetCurrentTime().getTime();
+			this.lastCallTime=now;
+			this.nextCallArgs=null;
+			this.result=null;
+		}
+		return await res.get();
+    }
 }
 
 export function setupAsyncHook(){

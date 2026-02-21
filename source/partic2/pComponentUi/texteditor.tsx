@@ -115,17 +115,19 @@ export class TextEditor extends ReactEventTarget<TextEditorProps,{}>{
         this.setTextCaretOffset(Math.max(0,offset-count))
     }
     protected savedSelection?:{anchorNode:Node|null,anchorOffset:number,focusNode:Node|null,focusOffset:number}
-    protected onBlurHandler(ev: React.JSX.TargetedFocusEvent<HTMLDivElement>){
+    protected onBlurHandler(ev: React.TargetedFocusEvent<HTMLDivElement>){
         (this.props.divAttr?.onBlur as any|undefined)?.bind(ev.currentTarget)?.(ev.currentTarget);
         this.props?.onBlur?.(this);
     }
-    protected onFocusHandler(ev: React.JSX.TargetedFocusEvent<HTMLDivElement>){
+    protected onFocusHandler(ev: React.TargetedFocusEvent<HTMLDivElement>){
         (this.props.divAttr?.onFocus as any|undefined)?.bind(ev.currentTarget)?.(ev.currentTarget);
         this.props.onFocus?.(this);
     }
     protected saveSelection(){
         let sel=window.getSelection();
-        if(sel!=null){
+        if(sel!=null && this.rref.div1.current!=null && this.rref.div1.current.contains(document.activeElement) && 
+            this.rref.div1.current.contains(sel.anchorNode) && this.rref.div1.current.contains(sel.focusNode)
+        ){
             this.savedSelection=partial(sel,['anchorNode','anchorOffset','focusNode','focusOffset']) as any;
         }else{
             this.savedSelection=undefined;
@@ -133,11 +135,11 @@ export class TextEditor extends ReactEventTarget<TextEditorProps,{}>{
     }
     protected restoreSelection(){
         let sel=window.getSelection();
-        if(sel!=null && this.savedSelection!=undefined){
+        if(sel!=null && this.savedSelection!=undefined && this.rref.div1.current!=null && this.rref.div1.current.contains(document.activeElement)){
             sel.setPosition(this.savedSelection.anchorNode,this.savedSelection.anchorOffset);
-            sel.collapse(this.savedSelection.focusNode,this.savedSelection.focusOffset)
-            this.savedSelection=undefined;
+            sel.collapse(this.savedSelection.focusNode,this.savedSelection.focusOffset);
         }
+        this.savedSelection=undefined;
     }
     getHtml(){
         return this.rref.div1.current?.innerHTML;
@@ -198,7 +200,6 @@ export class TextEditor extends ReactEventTarget<TextEditorProps,{}>{
                 parentNode.removeChild(textPart1);
                 pos1.node.data=fulltext;
                 this.restoreSelection();
-                //this.setTextCaretOffset(caret);
                 return result;
             }else if(pos1.node instanceof HTMLElement){
                 return {top:pos1.node.offsetTop,bottom:pos1.node.offsetTop+pos1.node.offsetHeight,left:pos1.node.offsetLeft};
