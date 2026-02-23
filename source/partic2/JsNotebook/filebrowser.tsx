@@ -3,7 +3,7 @@ import * as React from 'preact'
 var ReactDOM=React
 
 import {ArrayWrap2, GenerateRandomString, GetBlobArrayBufferContent, GetCurrentTime} from 'partic2/jsutils1/base'
-import {CKeyValueDb, DynamicPageCSSManager,path,selectFile} from 'partic2/jsutils1/webutils'
+import {CKeyValueDb, DynamicPageCSSManager,getResourceManager,path,selectFile} from 'partic2/jsutils1/webutils'
 import { ReactRefEx, ReactRender, css } from 'partic2/pComponentUi/domui'
 import { SimpleFileSystem,FileEntry, LocalWindowSFS } from 'partic2/CodeRunner/JsEnviron'
 import { FileTypeHandlerBase } from './fileviewer'
@@ -11,10 +11,16 @@ import { WorkspaceContext } from './workspace'
 import { alert, confirm, prompt } from 'partic2/pComponentUi/window'
 import { TextEditor } from 'partic2/pComponentUi/texteditor'
 import { SimpleReactForm1, ValueCheckBox } from '../pComponentUi/input'
+import { getIconUrl } from 'partic2/pxseedMedia1/index1'
 
 
 var __name__='partic2/JsNotebook/filebrowser'
 
+export let css1={
+    FileItem:GenerateRandomString()
+}
+
+DynamicPageCSSManager.PutCss('.'+css1.FileItem,['display:flex','align-content:center','flex-direction:row']);
 
 interface FileProp{
     path:string,
@@ -36,18 +42,19 @@ class File extends React.Component<FileProp,{}>{
             //Dblclick
             this.lastSelectTime=null;
             this.props.onOpenRequest?.(this.props.path);
+            ev.preventDefault();
         }else{
             this.props.onSelectChange?.(this.props.path,!this.props.selected);
             this.lastSelectTime=GetCurrentTime();
         }
     }
     public render(){
-        let cls=[css.selectable]
+        let cls=[css1.FileItem,css.selectable]
         if(this.props.selected){
             cls.push(css.selected)
         }
         return (<div className={cls.join(' ')} onClick={(ev)=>this.onClick(ev)} onDblClick={(ev)=>ev.preventDefault()}> 
-            [{this.props.type.charAt(0).toUpperCase()}]{this.props.name}
+            {this.props.type==='dir'?<img src={getIconUrl('folder.svg')}/>:<img src={getIconUrl('file.svg')}/>}{this.props.name}
         </div>)
     }
 }
@@ -59,14 +66,20 @@ interface FileBrowserState{
     selectedFiles:Set<string>,
     filterText:string,
     textInput1:string,
-    currPathHistory:string[]
+    currPathHistory:string[],
 };
 
-class FileBrowser extends React.Component<{context:WorkspaceContext},FileBrowserState>{
+interface FileBrowserProp{
+    context:WorkspaceContext,
+    isRootFileBrowser?:boolean
+}
+
+
+class FileBrowser<P={},S={}> extends React.Component<P&FileBrowserProp|FileBrowserProp,S&FileBrowserState|FileBrowserState>{
     public constructor(props?: any | undefined, context?: any){
         super(props,context)
         this.setState({childrenFile:[],
-            selectedFiles:new Set(),
+        selectedFiles:new Set(),
             filterText:'',currPath:'',currPathHistory:[]
         });
     }
@@ -109,8 +122,11 @@ class FileBrowser extends React.Component<{context:WorkspaceContext},FileBrowser
             this.setState({
                 currPath:newPath,
                 childrenFile:children
+            },async ()=>{
+                let div1=await this.rref.addressBar.waitValid();
+                div1.scrollLeft=div1.scrollWidth;
             })
-            if(this.props.context.startupProfile!=undefined){
+            if(this.props.context.startupProfile!=undefined && (this.props.isRootFileBrowser??true)){
                 this.props.context.startupProfile.currPath=path;
                 await this.props.context.saveStartupProfile();
             }
@@ -319,10 +335,13 @@ class FileBrowser extends React.Component<{context:WorkspaceContext},FileBrowser
         }
         dlg.close();
     }
+    rref={
+        addressBar:new ReactRefEx<HTMLDivElement>()
+    }
     public render(){
         return (<div className={css.flexColumn} style={{height:'100%'}}>
             <a href="javascript:;" onClick={()=>this.promptForCurrentPath()}>
-                <div style={{wordBreak:'break-all'}} className={[css.simpleCard].join(' ')}>
+                <div style={{whiteSpace:'nowrap',overflow:'auto',display:'block'}} className={[css.simpleCard].join(' ')} ref={this.rref.addressBar}>
                     {(this.state.currPath==undefined || this.state.currPath.length==0)?'/':this.state.currPath}
                 </div>
             </a>
