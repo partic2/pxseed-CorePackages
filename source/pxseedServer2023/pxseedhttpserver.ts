@@ -39,6 +39,10 @@ export interface PxseedServer2023StartupConfig{
     subprocessIndex?:number
     //RegExp to block private/secret file access.
     blockFilesMatch?:string[]
+    //Usually used for source map
+    serveSourceDirectory?:boolean
+    //COI mean crossOriginIsolated refer: https://developer.mozilla.org/en-US/docs/Web/API/Window/crossOriginIsolated
+    serveWwwRootWithCoi?:boolean
 };
 
 export let config:PxseedServer2023StartupConfig={
@@ -51,7 +55,9 @@ export let config:PxseedServer2023StartupConfig={
         subprocessConfig:[]
     },
     //pxprpcKey should be secret.
-    blockFilesMatch:['^/+www/+pxseedServer2023/+config\\.json$']
+    blockFilesMatch:['^/+www/+pxseedServer2023/+config\\.json$'],
+    serveSourceDirectory:false,
+    serveWwwRootWithCoi:true
 };
 
 export let rootConfig={...config};
@@ -181,7 +187,6 @@ export async function setupHttpServerHandler(){
     let wwwroot=getWWWRoot().replace(/\\/g,'/');
     let fileServer=new SimpleFileServer(new DirAsRootFS(tjsfs,wwwroot));
     fileServer.pathStartAt=(config.pxseedBase+'/www').length;
-    defaultRouter.setHandler(config.pxseedBase+'/www',{fetch:fileServer.onfetch});
     let blockFileMatchRegex=config.blockFilesMatch?.map(t1=>new RegExp(t1))??[];
     fileServer.interceptor=async (path)=>{
         path='/www'+path;
@@ -192,18 +197,30 @@ export async function setupHttpServerHandler(){
         }
         return null;
     }
-    fileServer.cacheControl=async (filePath)=>{
+    fileServer.cacheControl=async (filePath:string)=>{
         if(filePath.endsWith('.js')||filePath==='/index.html'){
             return 'no-cache'
         }else{
             return {maxAge:86400}
         }
+    };
+    if(config.serveWwwRootWithCoi){
+         let coiOnfetch=async (req:Request)=>{
+            let resp=await fileServer.onfetch(req);
+            resp.headers.append('Cross-Origin-Opener-Policy','same-origin');
+            resp.headers.append('Cross-Origin-Embedder-Policy','require-corp');
+            return resp;
+        }
+        defaultRouter.setHandler(config.pxseedBase+'/www',{fetch:coiOnfetch}); 
+    }else{
+        defaultRouter.setHandler(config.pxseedBase+'/www',{fetch:fileServer.onfetch});
     }
-    {
+    
+    if(config.serveSourceDirectory){
         //For sourcemap
-        fileServer=new SimpleFileServer(new DirAsRootFS(tjsfs,path.join(wwwroot,'..','source')));
-        fileServer.pathStartAt=(config.pxseedBase+'/source').length;
-        defaultRouter.setHandler(config.pxseedBase+'/source',{fetch:fileServer.onfetch});
+        let soourceFileServer=new SimpleFileServer(new DirAsRootFS(tjsfs,path.join(wwwroot,'..','source')));
+        soourceFileServer.pathStartAt=(config.pxseedBase+'/source').length;
+        defaultRouter.setHandler(config.pxseedBase+'/source',{fetch:soourceFileServer.onfetch});
     }
 }
 
