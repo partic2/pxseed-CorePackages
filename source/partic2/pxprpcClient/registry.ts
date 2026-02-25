@@ -1,7 +1,7 @@
 import { ArrayBufferConcat, ArrayWrap2, GenerateRandomString, future, mutex, requirejs, sleep } from "partic2/jsutils1/base";
 import { GetPersistentConfig, SavePersistentConfig,IWorkerThread, CreateWorkerThread, lifecycle, GetUrlQueryVariable, getWWWRoot } from "partic2/jsutils1/webutils";
 import { WebMessage, WebSocketIo } from "pxprpc/backend";
-import { Client, Io, Server } from "pxprpc/base";
+import { Client, Io, Serializer, Server } from "pxprpc/base";
 import { RpcExtendClient1, RpcExtendClientCallable, RpcExtendClientObject, RpcExtendServer1, RpcExtendServerCallable, TableSerializer, defaultFuncMap } from "pxprpc/extend";
 import { getRpcClientConnectWorkerParent, rpcId } from "./rpcworker";
 import {getRpcFunctionOn,getRpcLocalVariable,setRpcLocalVariable} from 'partic2/pxprpcBinding/utils'
@@ -57,52 +57,112 @@ defaultFuncMap[__name__+'.allocateRemoteObjectPool']=new RpcExtendServerCallable
     return new RemoteObjectPoolDefaultImpl();
 }).typedecl('->o');
 
+function unpackExtraBytesArray(extraBytes:Uint8Array){
+    if(extraBytes.length==0)return [];
+    let bytesArray=new Array<Uint8Array>();
+    let ser=new Serializer().prepareUnserializing(extraBytes);
+    let count=ser.getVarint();
+    for(let t1=0;t1<count;t1++){
+        bytesArray.push(ser.getBytes())
+    }
+    return bytesArray;
+}
 
+function packExtraBytesArray(bytesArray:Array<Uint8Array>){
+    let ser=new Serializer().prepareSerializing(32);
+    ser.putVarint(bytesArray.length);
+    bytesArray.forEach((val)=>ser.putBytes(val));
+    return ser.build();
+}
+
+interface CallJsonFunctionRequest{
+    module?:string,
+    object?:string,
+    method:string,
+    params:any[]
+}
+interface CallJsonFunctionResonse{
+    result?:any,
+    error?:{
+        message:string,
+        stack:string
+    }
+}
 defaultFuncMap[__name__+'.callJsonFunction']=new RpcExtendServerCallable(async (
-    moduleNameOrThisObject:string,
-    functionName:string,
-    paramsJson:string,
+    requestJson:string,
+    extraBytes:Uint8Array,
     objectPool:RpcRemoteObjectPool
 )=>{
     try{
-        let thisObject:any={};
-        if(moduleNameOrThisObject.startsWith('m:')){
-            thisObject=await import(moduleNameOrThisObject.substring(2));
-        }else if(moduleNameOrThisObject.startsWith('o:')){
-            thisObject=objectPool.get(moduleNameOrThisObject.substring(2));
-        }
-        let param=JSON.parse(paramsJson,(key,value)=>{
-            if(typeof value==='object' && value!==null && value[RpcSerializeMagicMark]!=undefined){
-                let markProp=value[RpcSerializeMagicMark]
-                if(markProp.t==='RpcRemoteObject'){
-                    return objectPool.get(markProp.id);
+        let extraBytesArray=unpackExtraBytesArray(extraBytes);
+        let request:CallJsonFunctionRequest=JSON.parse(requestJson,(key,value)=>{
+            if(typeof value==='object' && value!==null){
+                if(value[RpcSerializeMagicMark]===true){
+                    if(value.t==='Uint8Array'){
+                        return extraBytesArray[value.i];
+                    }else if(value.t==='ArrayBuffer'){
+                        return extraBytesArray[value.i].buffer;
+                    }else if(value.v instanceof Array){
+                        return new (globalThis as any)[value.t](...value.v)
+                    }else if(value.t==='Int8Array'){
+                        return new Int8Array(extraBytesArray[value.i].buffer);
+                    }
+                }else if(value[RpcSerializeMagicMark]!=undefined){
+                    let markProp=value[RpcSerializeMagicMark]
+                    if(markProp.t==='RpcRemoteObject'){
+                        return objectPool.get(markProp.id);
+                    }else{
+                        return value
+                    }
+                }else{
+                    return value;
                 }
-            }else{
-                return value
-            }
-        });
-        
-        return JSON.stringify([(await thisObject[functionName](...param))??null],(key,value)=>{
-            if(typeof value==='object' && value!==null && value[RpcSerializeMagicMark]!=undefined){
-                let markProp=value[RpcSerializeMagicMark];
-                if(markProp.id===undefined){
-                    markProp.id=GenerateRandomString(8)
-                }
-                if(objectPool!=null){
-                    objectPool.set(markProp.id,value)
-                }
-                return {[RpcSerializeMagicMark]:{t:'RpcRemoteObject',...markProp}}
             }else{
                 return value;
-            }
-        });
+            }});
+        
+        let thisObject:any={};
+        if(request.module!=undefined){
+            thisObject=await import(request.module);
+        }else if(request.object!=undefined){
+            thisObject=objectPool.get(request.object);
+        }
+        extraBytesArray=new Array();
+        return [
+            JSON.stringify({result:(await thisObject[request.method](...request.params))??null},(key,value)=>{
+                if(value instanceof Uint8Array){
+                    extraBytesArray.push(value);
+                    return {[RpcSerializeMagicMark]:true,t:'Uint8Array',i:extraBytesArray.length-1};
+                }else if(value instanceof ArrayBuffer){
+                    extraBytesArray.push(new Uint8Array(value));
+                    return {[RpcSerializeMagicMark]:true,t:'ArrayBuffer',i:extraBytesArray.length-1};
+                }else if(value instanceof Int8Array){
+                    extraBytesArray.push(new Uint8Array(value.buffer,value.byteOffset,value.byteLength));
+                    return {[RpcSerializeMagicMark]:true,t:'Int8Array',i:extraBytesArray.length-1};
+                }else if(typeof value==='object' && value!==null && value[RpcSerializeMagicMark]!=undefined){
+                    let markProp=value[RpcSerializeMagicMark];
+                    if(markProp.id===undefined){
+                        markProp.id=GenerateRandomString(8)
+                    }
+                    if(objectPool!=null){
+                        objectPool.set(markProp.id,value)
+                    }
+                    return {[RpcSerializeMagicMark]:{t:'RpcRemoteObject',...markProp}}
+                }else{
+                    return value;
+                }
+            }),
+            packExtraBytesArray(extraBytesArray)
+        ];
     }catch(err:any){
-        return JSON.stringify([null,{
-                message:err.message,
-                stack:err.stack
-            }]);
+        return [JSON.stringify({error:{
+                    message:err.message,
+                    stack:err.stack
+                }
+            }),new Serializer().prepareSerializing(1).putVarint(0).build()
+        ];
     }
-}).typedecl('ssso->s');
+}).typedecl('sbo->sb');
 
 
 
@@ -288,6 +348,10 @@ class RemoteCallFunctionError extends Error{
     }
 }
 
+let remoteObjectPoolFree=globalThis.FinalizationRegistry?new FinalizationRegistry<[id:string,funcs:RemoteRegistryFunction]>((v)=>{
+    v[1].freeObjectInRemoteObjectPool({[RpcSerializeMagicMark]:{id:v[0],t:'RpcRemoteObject'}})
+}):null;
+
 class RemoteRegistryFunctionImpl implements RemoteRegistryFunction{
     
     funcs:(RpcExtendClientCallable|null)[]=[]
@@ -298,10 +362,14 @@ class RemoteRegistryFunctionImpl implements RemoteRegistryFunction{
         return this.funcs[0]!.call(name);
     }
     async callJsonFunction(moduleNameOrThisObject:string|{[RpcSerializeMagicMark]:any},functionName:string,params:any,objectPool?:RpcExtendClientObject):Promise<any> {
+        let request:CallJsonFunctionRequest={
+            method:functionName,
+            params:params
+        }
         if(typeof moduleNameOrThisObject==='object' && moduleNameOrThisObject[RpcSerializeMagicMark]!=undefined){
-            moduleNameOrThisObject='o:'+moduleNameOrThisObject[RpcSerializeMagicMark].id
+            request.object=moduleNameOrThisObject[RpcSerializeMagicMark].id
         }else{
-            moduleNameOrThisObject='m:'+moduleNameOrThisObject;
+            request.module=moduleNameOrThisObject as string
         }
         if(objectPool==undefined){
             if(this.defaultObjectPool==undefined){
@@ -309,13 +377,66 @@ class RemoteRegistryFunctionImpl implements RemoteRegistryFunction{
             }
             objectPool=this.defaultObjectPool;
         }
-        let [result,error]=JSON.parse(await this.funcs[7]!.call(moduleNameOrThisObject,functionName,JSON.stringify(params),objectPool))
-        if(error!=null){
-            let remoteError=new RemoteCallFunctionError(error.message);
-            remoteError.remoteStack=error.stack;
-            throw remoteError;
+        let extraBytesArray=new Array<Uint8Array>();
+        let requestJson=JSON.stringify(request,(key,value)=>{
+            if(value instanceof Uint8Array){
+                extraBytesArray.push(value);
+                return {[RpcSerializeMagicMark]:true,t:'Uint8Array',i:extraBytesArray.length-1};
+            }else if(value instanceof ArrayBuffer){
+                extraBytesArray.push(new Uint8Array(value));
+                return {[RpcSerializeMagicMark]:true,t:'ArrayBuffer',i:extraBytesArray.length-1};
+            }else if(value instanceof Int8Array){
+                extraBytesArray.push(new Uint8Array(value.buffer,value.byteOffset,value.byteLength));
+                return {[RpcSerializeMagicMark]:true,t:'Int8Array',i:extraBytesArray.length-1};
+            }
+            return value
+        });
+        let [responseJson,extraBytes]=await this.funcs[7]!.call(requestJson,packExtraBytesArray(extraBytesArray),objectPool);
+        extraBytesArray=unpackExtraBytesArray(extraBytes);
+        let response:CallJsonFunctionResonse=JSON.parse(responseJson,(key,value)=>{
+            if(typeof value==='object' && value!==null){
+                if(value[RpcSerializeMagicMark]===true){
+                    if(value.t==='Uint8Array'){
+                        return extraBytesArray[value.i];
+                    }else if(value.t==='ArrayBuffer'){
+                        return extraBytesArray[value.i].buffer;
+                    }else if(value.v instanceof Array){
+                        return new (globalThis as any)[value.t](...value.v)
+                    }else if(value.t==='Int8Array'){
+                        return new Int8Array(extraBytesArray[value.i].buffer);
+                    }
+                }else if(value[RpcSerializeMagicMark]!=undefined){
+                    let markProp=value[RpcSerializeMagicMark]
+                    let funcs=this;
+                    if(markProp.t==='RpcRemoteObject'){
+                        let p=new Proxy(value,{
+                            get(target,p){
+                                //Avoid triggle by Promise.resolve
+                                if(p==='then')return undefined;
+                                if(p===RpcSerializeMagicMark)return target[p];
+                                if(p==='close')return async ()=>funcs.freeObjectInRemoteObjectPool(target)
+                                return async (...params:any[])=>{
+                                    return await funcs.callJsonFunction(target,p as string,params);
+                                }
+                            }
+                        });
+                        remoteObjectPoolFree?.register(p,[value[RpcSerializeMagicMark].id,funcs])
+                        return p;
+                    }else{
+                        return value
+                    }
+                }else{
+                    return value;
+                }
+            }else{
+                return value;
+            }});
+        if(response.error!=undefined){
+            let remoteErr=new RemoteCallFunctionError(response.error.message);
+            remoteErr.remoteStack=response.error.stack;
+            throw remoteErr;
         }
-        return result;
+        return response.result;
     }
     async runJsonResultCode(code: string): Promise<any> {
         let [result,error]=JSON.parse(await this.funcs[9]!.call(code));
@@ -367,7 +488,7 @@ class RemoteRegistryFunctionImpl implements RemoteRegistryFunction{
                 await getRpcFunctionOn(this.client1!,'builtin.jsExec','so->o'),
                 await getRpcFunctionOn(this.client1!,'builtin.bufferData','o->b'), //[5]
                 await getRpcFunctionOn(this.client1!,'builtin.anyToString','o->s'),
-                await getRpcFunctionOn(this.client1!,__name__+'.callJsonFunction','ssso->s'),
+                await getRpcFunctionOn(this.client1!,__name__+'.callJsonFunction','sbo->sb'),
                 await getRpcFunctionOn(this.client1!,__name__+'.unloadModule','s->'),
                 await getRpcFunctionOn(this.client1!,__name__+'.runJsonResultCode','s->s'),
                 await getRpcFunctionOn(this.client1!,__name__+'.allocateRemoteObjectPool','->o'), //[10]
@@ -398,7 +519,9 @@ export async function getConnectionFromUrl(url:string):Promise<Io|null>{
     let url2=new URL(url);
     if(url2.protocol=='pxpwebmessage:'){
         if(__internal__.isPxseedWorker){
-            
+            let fn=await getAttachedRemoteRigstryFunction((await getRpcClientConnectWorkerParent())!);
+            let remoteIo=await fn.getConnectionFromUrl(url);
+            return new IoOverPxprpc(remoteIo);
         }else{
             let conn=new WebMessage.Connection();
             await conn.connect(url2.pathname,300);
@@ -560,36 +683,6 @@ export let persistent={
     }
 }
 
-let remoteObjectPoolFree=globalThis.FinalizationRegistry?new FinalizationRegistry<[id:string,funcs:RemoteRegistryFunction]>((v)=>{
-    v[1].freeObjectInRemoteObjectPool({[RpcSerializeMagicMark]:{id:v[0],t:'RpcRemoteObject'}})
-}):null;
-
-function replaceRpcSerializeMarkOnClientSide(obj:any,funcs:RemoteRegistryFunction){
-    if(typeof obj==='object' && obj!==null){
-        if(obj[RpcSerializeMagicMark]!=undefined){
-            let p=new Proxy(obj,{
-                get(target,p){
-                    //Avoid triggle by Promise.resolve
-                    if(p==='then')return undefined;
-                    if(p===RpcSerializeMagicMark)return target[p];
-                    if(p==='close')return async ()=>funcs.freeObjectInRemoteObjectPool(target)
-                    return async (...params:any[])=>{
-                        return replaceRpcSerializeMarkOnClientSide(await funcs.callJsonFunction(target,p as string,params),funcs);
-                    }
-                }
-            });
-            remoteObjectPoolFree?.register(p,[obj[RpcSerializeMagicMark].id,funcs])
-            return p;
-        }else{
-            for(let t1 in obj){
-                obj[t1]=replaceRpcSerializeMarkOnClientSide(obj[t1],funcs);
-            }
-            return obj;
-        }
-    }else{
-        return obj;
-    }
-}
 
 //Before typescript support syntax like <typeof import(T)>, we can only tell module type explicitly.
 //Only support plain JSON parameter and return value.
@@ -601,7 +694,7 @@ export async function importRemoteModule(rpc:RpcExtendClient1,moduleName:string)
             //Avoid triggle by Promise.resolve
             if(p==='then')return undefined;
             return async (...params:any[])=>{
-                return replaceRpcSerializeMarkOnClientSide(await funcs.callJsonFunction(moduleName,p as string,params),funcs);
+                return await funcs.callJsonFunction(moduleName,p as string,params);
             }
         }
     });
@@ -611,6 +704,6 @@ export async function importRemoteModule(rpc:RpcExtendClient1,moduleName:string)
 export async function easyCallRemoteJsonFunction(rpc:RpcExtendClient1,moduleName:string,funcName:string,args:any[]):Promise<any>{
     let funcs:RemoteRegistryFunction|null=null;
     funcs=await getAttachedRemoteRigstryFunction(rpc);
-    let r=replaceRpcSerializeMarkOnClientSide(await funcs.callJsonFunction(moduleName,funcName,args),funcs);
+    let r=await funcs.callJsonFunction(moduleName,funcName,args);
     return r;
 }

@@ -83,7 +83,7 @@ export class NodeFsAdapter{
         }
     })as any;
     mkdir:typeof mkdir=(async (path2:string,opt?:number|{recursive?:boolean,mode?:number})=>{
-        this.wrapped!.mkdir(path2);
+        await this.wrapped!.mkdir(path2);
     })as any;
     rmdir:typeof rmdir=(async (path:string)=>{
         if((await this.wrapped!.listdir(path)).length==0){
