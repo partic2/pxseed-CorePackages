@@ -161,7 +161,11 @@ class FileBrowser<P={},S={}> extends React.Component<P&FileBrowserProp|FileBrows
             files=files.filter((v=>v.name.indexOf(this.state.filterText)>=0))
         }
         return files.map((v)=>{
-            let path=parentPath+'/'+v.name
+            let path=parentPath!;
+            if(path.at(-1)!='/'){
+                path=path+'/';
+            }
+            path=path+v.name;
             return <File path={path} 
             name={v.name} type={v.type as any} selected={this.state.selectedFiles.has(path)}
             onSelectChange={(path,selected)=>this.onSelectChange(path,selected)}
@@ -331,7 +335,9 @@ class FileBrowser<P={},S={}> extends React.Component<P&FileBrowserProp|FileBrows
         </div>,'Jump to');
         (await newPathInput.waitValid()).setPlainText(this.state.currPath??'');
         if(await dlg.response.get()==='ok'){
-            this.DoFileOpen((await newPathInput.waitValid()).getPlainText());
+            let newPath=(await newPathInput.waitValid()).getPlainText();
+            newPath=newPath.replace(/\n/g,'');
+            this.DoFileOpen(newPath);
         }
         dlg.close();
     }

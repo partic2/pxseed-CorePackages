@@ -67,18 +67,17 @@ export interface SimpleFileSystem{
 export class TjsSfs implements SimpleFileSystem{
     
     impl?:typeof tjs
-    
-    protected dummyRootDir:[string,tjs.StatResult][]=[];
+
     //is windows base(C:\... D:\...) path?
     protected winbasepath=false;
     from(impl:typeof tjs){
         this.impl=impl;
+        return this;
     }
     inited=false;
-    mtx=new mutex();
+    protected mtx=new mutex();
     async ensureInited(): Promise<void> {
-        await this.mtx.lock();
-        try{
+        await this.mtx.exec(async ()=>{
             if(this.inited)return;
             if(this.impl==undefined){
                 throw new Error('call from() first.');
@@ -90,9 +89,7 @@ export class TjsSfs implements SimpleFileSystem{
                 throwIfAbortError(e);
             }
             this.inited=true;
-        }finally{
-            await this.mtx.unlock();
-        }
+        })
     }
     async writeAll(path: string, data: Uint8Array): Promise<void> {
         let dirname=dirname2(path);
@@ -128,25 +125,29 @@ export class TjsSfs implements SimpleFileSystem{
             path='/';
         }
         if(path.startsWith('/') && this.winbasepath){
-            if(path.length<=3){
-                path=path.substring(1)+'\\';
-            }else{
-                path=path.substring(1);
+            let t1=0;
+            for(;t1<path.length;t1++){
+                if(path.charAt(t1)!=='/'){
+                    break;
+                }
+            }
+            path=path.substring(t1);
+            if(path.length==2){
+                path=path+'\\';
             }
         }
         return path;
     }
     async listdir(path: string): Promise<{ name: string; type: 'dir'|'file' }[]> {
         if((path==='/' || path==='') && this.winbasepath){
-            if(this.dummyRootDir.length===0){
-                for(let t1 of 'CDEFGHIJKMN'){
-                    try{
-                        this.dummyRootDir.push([t1+':',await this.impl!.stat(t1+':\\')]);
-                    }catch(e){
-                    }
-                }
-            }
-            return this.dummyRootDir.map(v=>({name:v[0],type:'dir'}))
+            //Performance issue?
+            let dummyRootDir:[string,tjs.StatResult][]=[];
+            await Promise.all(Array.from('CDEFGHIJKMNOPQRSTUVWXYZ').map(
+                (t1)=>this.impl!.stat(t1+':\\')
+                .then((statResult)=>dummyRootDir.push([t1+':',statResult]))
+                .catch(()=>{}))
+            )
+            return dummyRootDir.map(v=>({name:v[0],type:'dir'}))
         }
         path=this.pathConvert(path);
         let files=[] as { name: string; type: 'dir'|'file'; }[];
@@ -161,6 +162,9 @@ export class TjsSfs implements SimpleFileSystem{
         return files;
     }
     async filetype(path: string): Promise<"dir" | "file" | "none"> {
+        if((path==='/' || path==='') && this.winbasepath){
+            return 'dir';
+        }
         path=this.pathConvert(path);
         try{
             let st=await this.impl!.stat(path);
@@ -216,6 +220,10 @@ export class TjsSfs implements SimpleFileSystem{
         }
     }
     async stat(path:string){
+        if((path==='/' || path==='') && this.winbasepath){
+            let now=new Date()
+            return {atime:now,mtime:now,ctime:now,birthtime:now,size:0};
+        }
         path=this.pathConvert(path);
         let statRes=await this.impl!.stat(path);
         return {atime:statRes.atim,mtime:statRes.mtim,ctime:statRes.ctim,birthtime:statRes.birthtim,size:statRes.size};
@@ -664,139 +672,6 @@ export function setDefaultFileSystem(fs:SimpleFileSystem){
     defaultFileSystem=fs;
 }
 
-import type * as nodefsmodule from 'fs/promises'
-import type * as nodepathmodule from 'path'
-
-
-export class NodeSimpleFileSystem implements SimpleFileSystem{
-    
-    
-    pxprpc?: ClientInfo | undefined;
-    nodefs?:typeof nodefsmodule;
-    nodepath?:typeof nodepathmodule;
-    //is windows base(C:\... D:\...) path? like `TjsSfs` do.
-    //Maybe it is not good to use different path convention between node native and SimpleFileSystem.
-    winbasepath=false;
-    pathConvert(path:string){
-        //For windows 
-        if(path===''){
-            return '/';
-        }
-        if(path.startsWith('/') && this.winbasepath){
-            if(path.length<=3){
-                return path.substring(1)+'\\';
-            }else{
-                return path.substring(1);
-            }
-        }else{
-            return path;
-        }
-    }
-    mtx=new mutex();
-    async ensureInited(): Promise<void> {
-        await this.mtx.lock();
-        try{
-            this.nodefs=await import('fs/promises');
-            this.nodepath=await import('path')
-            try{
-                await this.nodefs!.stat('c:\\');
-                this.winbasepath=true;
-            }catch(e:any){
-                throwIfAbortError(e);
-            }
-        }finally{
-            await this.mtx.unlock();
-        }
-        
-    }
-    async writeAll(path: string, data: Uint8Array): Promise<void> {
-        path=this.pathConvert(path);
-        let parent=this.nodepath!.dirname(path);
-        if(await this.filetype(parent)==='none'){
-            await this.mkdir(parent);
-        }
-        await this.nodefs!.writeFile(path,data);
-    }
-    async readAll(path: string): Promise<Uint8Array | null> {
-        path=this.pathConvert(path);
-        return await this.nodefs!.readFile(path);
-    }
-    async delete2(path: string): Promise<void> {
-        path=this.pathConvert(path);
-        await this.nodefs!.rm(path,{recursive:true});
-    }
-    async listdir(path: string): Promise<{ name: string; type: 'dir'|'file'; }[]> {
-        let dummyRootDir:[string,{isDirectory:()=>boolean}][]=[];
-        if((path==='/' || path==='') && this.winbasepath){
-            if(dummyRootDir.length===0){
-                for(let t1 of 'cdefghijklmn'){
-                    try{
-                        dummyRootDir.push([t1+':',await this.nodefs!.stat(t1+':\\')]);
-                    }catch(e){
-                    }
-                }
-            }
-            return dummyRootDir.map(v=>({name:v[0],type:'dir'}))
-        }
-        path=this.pathConvert(path);
-        let dirinfo=await this.nodefs!.readdir(path,{withFileTypes:true});
-        return dirinfo.map(ent=>({name:ent.name,type:ent.isDirectory()?'dir':'file'}));
-    }
-    async filetype(path: string): Promise<"dir" | "file" | "none"> {
-        path=this.pathConvert(path);
-        try{
-            let ent=await this.nodefs!.stat(path);
-            return ent.isDirectory()?'dir':'file';
-        }catch(e:any){
-            throwIfAbortError(e);
-            return 'none';
-        }
-    }
-    async mkdir(path: string): Promise<void> {
-        path=this.pathConvert(path);
-        await this.nodefs!.mkdir(path,{recursive:true});
-    }
-    async rename(path: string, newPath: string): Promise<void> {
-        path=this.pathConvert(path);
-        await this.nodefs!.rename(path,newPath);
-    }
-    async dataDir(): Promise<string> {
-        return dirname2(getWWWRoot());
-    }
-    async read(path: string, offset: number, buf: Uint8Array): Promise<number> {
-        path=this.pathConvert(path);
-        let fh=await this.nodefs!.open(path,'r+');
-        try{
-            let r=await fh.read(buf,0,buf.byteLength,offset);
-            return r.bytesRead;
-        }finally{
-            await fh.close();
-        }
-    }
-    async write(path: string, offset: number, buf: Uint8Array): Promise<number> {
-        path=this.pathConvert(path);
-        let parent=this.nodepath!.dirname(path);
-        if(await this.filetype(parent)==='none'){
-            await this.mkdir(parent);
-        }
-        let fh=await this.nodefs!.open(path,'r+');
-        try{
-            let r=await fh.write(buf,0,buf.byteLength,offset);
-            return r.bytesWritten;
-        }finally{
-            await fh.close();
-        }
-    }
-    async stat(path: string): Promise<{ atime: Date; mtime: Date; ctime: Date; birthtime: Date; size: number; }> {
-        path=this.pathConvert(path);
-        return this.nodefs!.stat(path);
-    }
-    async truncate(path: string, newSize: number): Promise<void> {
-        path=this.pathConvert(path);
-        await this.nodefs!.truncate(path,newSize);
-    }
-}
-
 export class DirAsRootFS implements SimpleFileSystem{
     pxprpc?: ClientInfo | undefined;
     constructor(public fs:SimpleFileSystem,public rootDir:string){
@@ -888,13 +763,18 @@ export function getFileSysteWritableStream(fs:SimpleFileSystem,path:string,initi
 export let simpleFileSystemHelper={
     getFileSystemReadableStream,getFileSysteWritableStream,
     copyFile:async function (srcFs:SimpleFileSystem,src:string,dest:string,destFs?:SimpleFileSystem){
-        destFs=srcFs;
+        destFs=destFs??srcFs;
         let r=getFileSystemReadableStream(srcFs,src);
         let w=getFileSysteWritableStream(destFs,dest);
-        if(await destFs.filetype(dest)=='file'){
-            await destFs.truncate(dest,0)
+        try{
+            if(await destFs.filetype(dest)=='file'){
+                await destFs.truncate(dest,0)
+            }
+            await r.pipeTo(w);
+        }catch(err){
+            w.close().catch(()=>{});
+            throw err;
         }
-        await r.pipeTo(w);
     }
 }
 
