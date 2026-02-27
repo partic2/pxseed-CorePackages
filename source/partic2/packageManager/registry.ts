@@ -1,7 +1,7 @@
 
 import {PxseedConfig, cleanBuildStatus, processDirectory, sourceDir} from 'pxseedBuildScript/buildlib'
 import {defaultHttpClient, getWWWRoot, kvStore, path} from 'partic2/jsutils1/webutils'
-import {ArrayBufferConcat, ArrayWrap2, GenerateRandomString, assert, logger, requirejs} from 'partic2/jsutils1/base'
+import {ArrayBufferConcat, ArrayWrap2, GenerateRandomString, assert, logger, requirejs, throwIfAbortError} from 'partic2/jsutils1/base'
 import { getNodeCompatApi, __internal__ as utilsi, withConsole } from 'pxseedBuildScript/util';
 import { defaultFileSystem, ensureDefaultFileSystem, getSimpleFileSysteNormalizedWWWRoot } from 'partic2/CodeRunner/JsEnviron';
 import { NotebookFileData, runNotebook } from 'partic2/JsNotebook/workerinit';
@@ -242,6 +242,7 @@ export async function packPxseedForPxseedLoader(){
 
 }
 
+
 export interface PackageManagerOption{
     //provide webui entry
     webui?:{
@@ -419,13 +420,18 @@ export async function installLocalPackage(path2:string){
     }
 }
 
+export async function cleanPackageInstallCache(){
+    const {fs,path,wwwroot}=await getNodeCompatApi();
+    await fs.rm(path.join(wwwroot,...__name__.split('/'),'..','__temp'),{recursive:true});
+}
+
 export async function fetchGitPackageFromUrl(url:string,fetchDir?:string){
     const {fs,path,wwwroot}=await getNodeCompatApi();
     let {clone}=await import('isomorphic-git');
     let tempdir=fetchDir??path.join(wwwroot,...__name__.split('/'),'..','__temp',GenerateRandomString());
     try{
         await fs.access(tempdir);
-        await fs.rm(tempdir);
+        await fs.rm(tempdir,{recursive:true});
     }catch(e){
     };
     await fs.mkdir(tempdir,{recursive:true});
@@ -436,7 +442,14 @@ export async function fetchGitPackageFromUrl(url:string,fetchDir?:string){
 
 export async function fetchPackageFromUrl(url:string){
     const {fs,path,wwwroot}=await getNodeCompatApi();
-    if(url.startsWith('file://')){
+    if(url.startsWith('pxseedjs:')){
+        let url1=new URL(url);
+        let pxseedjspath=url1.pathname;
+        let t1=pxseedjspath.lastIndexOf('.');
+        let moduleName=pxseedjspath.substring(0,t1);
+        let functionName=pxseedjspath.substring(t1+1);
+        return await (await import(moduleName))[functionName](url);
+    }if(url.startsWith('file://')){
         let filePath=url.substring(7);
         if(/[a-zA-Z]:/.test(wwwroot)){
             //windows path format
@@ -447,6 +460,7 @@ export async function fetchPackageFromUrl(url:string){
         return await fetchGitPackageFromUrl(url);
     }
 }
+
 
 export async function getUrlTemplateFromScopeName(scopeName:string){
     return RepositoriesRegistry.getScopeRepo(scopeName);
@@ -522,14 +536,27 @@ export async function upgradePackage(pkgname:string){
             await fs.access(path.join(pkgdir,'.git'));
             upgradeMode='git pull'
         }catch(e){};
-        if(upgradeMode=='git pull'){
-            await upgradeGitPackage(pkgdir);
-        }else if(upgradeMode=='reinstall'){
-            await uninstallPackage(pkgname);
-            await installPackage(pkgname,{upgrade:false});
-        }else{
-            throw new Error('Unsupported upgrade mode '+upgradeMode)
+        let upgradeDone=false;
+        let upgErr=new Array<Error>();
+        try{
+            if(upgradeMode=='git pull'){
+                await upgradeGitPackage(pkgdir);
+                upgradeDone=true;
+            }
+        }catch(err:any){throwIfAbortError(err);upgErr.push(err)}
+        if(!upgradeDone){
+            upgradeMode=='reinstall'
         }
+        try{
+            if(upgradeMode=='reinstall'){
+                let dir1=path.join(wwwroot,'..','source',...pkgname.split('/'));
+                await fs.rm(dir1,{recursive:true});
+                await installPackage(pkgname,{upgrade:false});
+                upgradeDone=true
+            }
+        }catch(err:any){throwIfAbortError(err);upgErr.push(err)}
+        let err=new Error('Upgrade package failed.reason: \n'+upgErr.map(t1=>t1.message+t1.stack).join('\n'));
+        throw err;
     }
 }
 
@@ -609,15 +636,15 @@ export async function getPxseedConfigForPackage(pkgname:string):Promise<PxseedCo
     }
 }
 
-async function *listPackagesInternal(dir:string):AsyncGenerator<any>{
+async function *listPackagesInDirectory(dir:string):AsyncGenerator<{path:string,config:PxseedConfig}>{
     const {fs,path,wwwroot}=await getNodeCompatApi();
     let children=await fs.readdir(dir,{withFileTypes:true});
     if(children.find(t1=>t1.name=='pxseed.config.json')){
-        yield await utilsi.readJson(path.join(dir,'pxseed.config.json'));
+        yield {path:dir,config:await utilsi.readJson(path.join(dir,'pxseed.config.json'))};
     }else{
         for(let t1 of children){
             if(t1.isDirectory()){
-                yield *listPackagesInternal(path.join(dir,t1.name));
+                yield *listPackagesInDirectory(path.join(dir,t1.name));
             }
         }
     }
@@ -626,7 +653,9 @@ async function *listPackagesInternal(dir:string):AsyncGenerator<any>{
 
 export async function *listPackages():AsyncGenerator<PxseedConfig>{
     const {fs,path,wwwroot}=await getNodeCompatApi();
-    yield *listPackagesInternal(path.join(wwwroot,'..','source'));
+    for await(let t1 of listPackagesInDirectory(path.join(wwwroot,'..','source'))){
+        yield t1.config;
+    }
 }
 
 export async function listPackagesArray(filterString:string){
@@ -660,6 +689,7 @@ export async function listPackagesArray(filterString:string){
     }
     return arr;
 }
+
 
 const defaultInstallOption={
     upgrade:true

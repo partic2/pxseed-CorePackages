@@ -3,7 +3,7 @@ import * as React from 'preact'
 import {DomComponentGroup, DomRootComponent, ReactRefEx, ReactRender, css} from 'partic2/pComponentUi/domui'
 import { RemoteRunCodeContext } from 'partic2/CodeRunner/RemoteCodeContext'
 import {getPersistentRegistered, importRemoteModule,persistent,ServerHostRpcName,ServerHostWorker1RpcName, WebWorker1RpcName} from 'partic2/pxprpcClient/registry'
-import { GenerateRandomString, GetBlobArrayBufferContent, GetCurrentTime, Ref2, Task, assert, future, requirejs } from 'partic2/jsutils1/base'
+import { GenerateRandomString, GetBlobArrayBufferContent, GetCurrentTime, Ref2, Task, assert, future, requirejs, throwIfAbortError } from 'partic2/jsutils1/base'
 import { BuildUrlFromJsEntryModule, GetJsEntry, GetPersistentConfig, getResourceManager, path, RequestDownload, SavePersistentConfig, selectFile, useDeviceWidth } from 'partic2/jsutils1/webutils'
 import {promptWithForm, SimpleReactForm1} from 'partic2/pComponentUi/input'
 import {alert, appendFloatWindow, confirm, prompt, css as windowCss, WindowComponent} from 'partic2/pComponentUi/window'
@@ -35,7 +35,8 @@ let i18n={
     error:'error',
     upgradeCorePackages:'upgrade pxseed core',
     packageManager:"package manager",
-    done:'done'
+    done:'done',
+    cleanPackageInstallCache:'clean install cache'
 }
 
 if(navigator.language.split('-').includes('zh')){
@@ -52,6 +53,7 @@ if(navigator.language.split('-').includes('zh')){
     i18n.upgradeCorePackages='升级PXSEED核心库'
     i18n.packageManager='包管理'
     i18n.done='完成'
+    i18n.cleanPackageInstallCache='清除安装缓存'
 }
 
 let remoteModule={
@@ -218,7 +220,7 @@ class PackageWebUiEntry extends React.Component<{pmopt:registryModType.PackageMa
 
 class PackagePanel extends React.Component<{},{
     packageList:PxseedConfig[],
-    errorMessage:string
+    statusText:string
 }>{
     rref={
         installPackageName:new ReactRefEx<TextEditor>(),
@@ -226,7 +228,7 @@ class PackagePanel extends React.Component<{},{
     }
     constructor(props:any,context:any){
         super(props,context);
-        this.setState({packageList:[],errorMessage:''});
+        this.setState({packageList:[],statusText:''});
     }
     async install(){
         let dlg=await prompt(<div className={css.flexRow} style={{alignItems:'center'}}>
@@ -241,14 +243,16 @@ class PackagePanel extends React.Component<{},{
         }
         let source=(await this.rref.installPackageName.waitValid()).getPlainText();
         dlg.close();
-        this.setState({errorMessage:'Installing...'})
+        this.setState({statusText:'Installing...'})
         try{
             const registry=await remoteModule.registry.get();
             await registry.installPackage!(source);
-            this.setState({errorMessage:'done'});
             this.refreshList();
-        }catch(e:any){
-            this.setState({errorMessage:'Failed:'+e.toString()})
+        }catch(err:any){
+            throwIfAbortError(err);
+            alert('Failed:'+err.message+err.remoteStack);
+        }finally{
+            this.setState({statusText:''});
         }
     }
     async exportPackagesInstallation(){
@@ -328,7 +332,7 @@ class PackagePanel extends React.Component<{},{
                       }
                     }
                   }],
-                errorMessage:err.toString()
+                statusText:'Failed to connect to server :'+err.toString()
             });
         }
     }
@@ -413,8 +417,9 @@ class PackagePanel extends React.Component<{},{
                 basicInfo.options['partic2/packageManager/registry']=opt;
                 await registry.createPackageTemplate1!(basicInfo);
                 await alert(i18n.done,'CAUTION');
-            }catch(e:any){
-                this.setState({errorMessage:e.toString()});
+            }catch(err:any){
+                throwIfAbortError(err);
+                alert('Failed:'+err.message+err.remoteStack);
             }
         }catch(err:any){
             await alert(err.message+'\n'+err.stack,'ERROR');
@@ -437,13 +442,15 @@ class PackagePanel extends React.Component<{},{
         dlg.close();
         if(await confirm(`Uninstall package ${pkgName}?`)=='ok'){
             let registry=await remoteModule.registry.get();
-            this.setState({errorMessage:'uninstalling...'})
+            this.setState({statusText:'uninstalling...'})
             try{
                 await registry.uninstallPackage!(pkgName);
-            }catch(e:any){
-                this.setState({errorMessage:e.toString()});
+            }catch(err:any){
+                throwIfAbortError(err);
+                alert('Failed:'+err.message+err.remoteStack);
+            }finally{
+                this.setState({statusText:''})
             }
-            this.setState({errorMessage:'done'})
             this.refreshList();
         }
     }
@@ -476,12 +483,26 @@ import2env('partic2/packageManager/registry');`,
         try{
             let resp=await confirm(i18n.upgradeCorePackages+'?');
             if(resp=='cancel')return;
-            this.setState({errorMessage:'upgrading package...'});
+            this.setState({statusText:'upgrading package...'});
             let registry=await remoteModule.registry.get();
             await registry.UpgradeCorePackages();
-            this.setState({errorMessage:'done'});
         }catch(err:any){
-            this.setState({errorMessage:'Failed:'+err.toString()});
+            throwIfAbortError(err);
+            alert('Failed:'+err.message+err.remoteStack);
+        }finally{
+            this.setState({statusText:''})
+        }
+    }
+    async cleanPackageInstallCache(){
+        let registry=await remoteModule.registry.get();
+        this.setState({statusText:'cleaning...'})
+        try{
+            await registry.cleanPackageInstallCache();
+        }catch(err:any){
+            throwIfAbortError(err);
+            alert('Failed:'+err.message+err.remoteStack);
+        }finally{
+            this.setState({statusText:''});
         }
     }
     lastWindow?:NewWindowHandle
@@ -502,8 +523,9 @@ import2env('partic2/packageManager/registry');`,
                     <SimpleButton onClick={()=>this.exportPackagesInstallation()} >{i18n.exportInstallation}</SimpleButton>
                     <SimpleButton onClick={()=>this.importPackagesInstallation()} >{i18n.importInstallation}</SimpleButton>
                     <SimpleButton onClick={()=>this.upgradeCorePackages()} >{i18n.upgradeCorePackages}</SimpleButton>
+                    <SimpleButton onClick={()=>this.cleanPackageInstallCache()} >{i18n.cleanPackageInstallCache}</SimpleButton>
                     <SimpleButton onClick={()=>this.openNotebook()} >notebook</SimpleButton>
-                    <div style={{display:'inline-block',color:'red'}}>{this.state.errorMessage}</div>
+                    <div style={{display:'inline-block',color:'red'}}>{this.state.statusText}</div>
                 </div>
                 <div style={{flexGrow:1}}>{
                     this.renderPackageList()
