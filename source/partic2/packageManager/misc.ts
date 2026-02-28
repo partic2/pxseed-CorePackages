@@ -1,11 +1,12 @@
-import { ArrayWrap2, assert, DateDiff, GetCurrentTime, logger, requirejs, sleep } from 'partic2/jsutils1/base';
+import { ArrayWrap2, assert, DateDiff, GetCurrentTime, logger, requirejs, sleep, throwIfAbortError } from 'partic2/jsutils1/base';
 import { RemoteRunCodeContext } from 'partic2/CodeRunner/RemoteCodeContext';
 
 import { getPersistentRegistered, importRemoteModule, ServerHostRpcName, ServerHostWorker1RpcName } from 'partic2/pxprpcClient/registry'
-import { GetPersistentConfig, getWWWRoot, SavePersistentConfig } from 'partic2/jsutils1/webutils';
-import { Singleton } from 'partic2/CodeRunner/jsutils2';
+import { defaultHttpClient, GetPersistentConfig, getWWWRoot, SavePersistentConfig } from 'partic2/jsutils1/webutils';
+import { Singleton, utf8conv } from 'partic2/CodeRunner/jsutils2';
 import { buildTjs } from 'partic2/tjshelper/tjsbuilder';
 import { getNodeCompatApi } from 'pxseedBuildScript/util';
+import { defaultFileSystem, ensureDefaultFileSystem, getSimpleFileSysteNormalizedWWWRoot, simpleFileSystemHelper } from 'partic2/CodeRunner/JsEnviron';
 
 
 export let __name__='partic2/packageManager/misc';
@@ -230,4 +231,77 @@ export async function serverConsoleLog(msg:string){
         let misc=await remoteModule.misc.get();
         await misc.serverConsoleLog(msg);
     }
+}
+
+//Patch files in PXSEED_HOME from remote patch file.
+export async function patchPxseedServerFiles(patchIndexUrl:string){
+    let resp=await defaultHttpClient.fetch(patchIndexUrl);
+    let {path}=await import('partic2/jsutils1/webutils')
+    assert(resp.ok);
+    let patchIndex:{
+        fetchRoot:string,
+        files:Array<{path:string,lastModified:number}>,
+    }=await resp.json();
+    let fetchIndexRootUrl=new URL(patchIndexUrl);
+    if(patchIndex.fetchRoot.startsWith('.')){
+        fetchIndexRootUrl.pathname=path.join(fetchIndexRootUrl.pathname,'..',patchIndex.fetchRoot)
+    }else if(patchIndex.fetchRoot.startsWith('/')){
+        fetchIndexRootUrl.pathname=patchIndex.fetchRoot;
+    }else{
+        fetchIndexRootUrl=new URL(patchIndex.fetchRoot);
+    }
+    await ensureDefaultFileSystem();
+    let fs=defaultFileSystem!;
+    let pxseedHome=path.join(getSimpleFileSysteNormalizedWWWRoot(),'..');
+    for(let t1 of patchIndex.files){
+        try{
+            let needUpdate=true;
+            if(t1.lastModified>0){
+                try{
+                    let statRes=await fs.stat(pxseedHome+'/'+t1.path);
+                    if(statRes.mtime.getTime()>=t1.lastModified)needUpdate=false;
+                }catch(err:any){throwIfAbortError(err)};
+            }
+            if(needUpdate){
+                let url2=new URL(fetchIndexRootUrl);
+                url2.pathname+='/'+t1.path;
+                let file1=await defaultHttpClient.fetch(url2.toString())
+                if(file1.ok && file1.body!=null){
+                    await file1.body.pipeTo(simpleFileSystemHelper.getFileSystemWritableStream(fs,pxseedHome+'/'+t1.path))
+                }
+            }
+        }catch(err:any){
+            console.error(err);
+            throwIfAbortError(err);
+        }
+    }
+}
+
+//Generate patch files from patchDir relative the PXSEED_HOME
+export async function generatePxseedServerFilesPatch(patchDir:string[]){
+    let {path}=await import('partic2/jsutils1/webutils')
+    await ensureDefaultFileSystem();
+    let fs=defaultFileSystem!;
+    let pxseedHome=path.join(getSimpleFileSysteNormalizedWWWRoot(),'..');
+    let patchIndex={
+        fetchRoot:'../../../..',
+        files:new Array<{path:string,lastModified:number}>,
+    }
+    async function iterDir(dir:string,depth:number){
+        if(depth==0)return;
+        let children=await fs.listdir(dir);
+        for(let t1 of children){
+            if(t1.name.startsWith('.'))continue
+            let fullpath=dir+'/'+t1.name
+            if(t1.type==='dir'){
+                await iterDir(fullpath,depth-1);
+            }else{
+                patchIndex.files.push({path:fullpath.substring(pxseedHome.length+1),lastModified:(await fs.stat(fullpath)).mtime.getTime()})
+            }
+        }
+    }
+    for(let t1 of patchDir){
+        await iterDir(pxseedHome+'/'+t1,30);
+    }
+    await fs.writeAll(pxseedHome+'/www/'+__name__+'/PxseedServerFilesPatch.json',utf8conv(JSON.stringify(patchIndex)))
 }

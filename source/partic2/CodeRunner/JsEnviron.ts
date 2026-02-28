@@ -742,7 +742,7 @@ class SimpleFileSystemDataSource implements UnderlyingSource<Uint8Array>{
         controller.enqueue(new Uint8Array(readBuffer.buffer,0,bytesRead));
     }
 }
-export function getFileSystemReadableStream(fs:SimpleFileSystem,path:string,initialSeek?:number){
+function getFileSystemReadableStream(fs:SimpleFileSystem,path:string,initialSeek?:number){
     let dataSource=new SimpleFileSystemDataSource(fs,path);
     if(initialSeek!=undefined)dataSource.readPos=initialSeek;
     return new ReadableStream(dataSource)
@@ -755,17 +755,17 @@ class SimpleFileSystemDataSink implements UnderlyingSink<Uint8Array>{
         this.writePos+=writeCount
     }
 }
-export function getFileSysteWritableStream(fs:SimpleFileSystem,path:string,initialSeek?:number){
+function getFileSystemWritableStream(fs:SimpleFileSystem,path:string,initialSeek?:number){
     let dataSink=new SimpleFileSystemDataSink(fs,path);
     if(initialSeek!=undefined)dataSink.writePos=initialSeek;
     return new WritableStream(dataSink)
 }
 export let simpleFileSystemHelper={
-    getFileSystemReadableStream,getFileSysteWritableStream,
+    getFileSystemReadableStream,getFileSystemWritableStream,
     copyFile:async function (srcFs:SimpleFileSystem,src:string,dest:string,destFs?:SimpleFileSystem){
         destFs=destFs??srcFs;
-        let r=getFileSystemReadableStream(srcFs,src);
-        let w=getFileSysteWritableStream(destFs,dest);
+        let r=this.getFileSystemReadableStream(srcFs,src);
+        let w=this.getFileSystemWritableStream(destFs,dest);
         try{
             if(await destFs.filetype(dest)=='file'){
                 await destFs.truncate(dest,0)

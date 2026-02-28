@@ -1,7 +1,8 @@
 
 import { ExtendStreamReader } from "partic2/CodeRunner/jsutils2";
 import { future, ArrayWrap2, Ref2, CanceledError, ArrayBufferConcat, throwIfAbortError, assert, Task, ArrayBufferToBase64, GetCurrentTime } from "partic2/jsutils1/base";
-import {getFileSystemReadableStream, SimpleFileSystem} from 'partic2/CodeRunner/JsEnviron'
+import {simpleFileSystemHelper, SimpleFileSystem} from 'partic2/CodeRunner/JsEnviron'
+import { TjsReaderDataSource, TjsWriterDataSink } from "partic2/tjshelper/tjsutil";
 
 const decode=TextDecoder.prototype.decode.bind(new TextDecoder());
 const encode=TextEncoder.prototype.encode.bind(new TextEncoder());
@@ -91,48 +92,49 @@ class ProtocolSwitchResponse extends Response{
 	}
 }
 
-export interface WebSocketServerConnection{
+interface WebSocketConnection{
 	send(obj: Uint8Array | string | Array<Uint8Array>):Promise<void>
 	receive():Promise<Uint8Array|string>
 	close():void
 }
+export type WebSocketServerConnection=WebSocketConnection;
+export type WebSocketClientConnection=WebSocketConnection;
 
-export class WebSocketServerStreamHandler implements WebSocketServerConnection {
-	closed = new future<boolean>();
-	opcodes = { TEXT: 1, BINARY: 2, PING: 9, PONG: 10, CLOSE: 8 };
-	queuedRecvData = new ArrayWrap2<Uint8Array|string>();
+let WebSocketOpcodeConst={ TEXT: 1, BINARY: 2, PING: 9, PONG: 10, CLOSE: 8 };
 
-	protected _payloadXor=(mask:Uint8Array,payload:Uint8Array)=>{
-		for (let i = 0; i < payload.length; i++) {
-			payload[i] = mask[i % 4] ^ payload[i];
-		}
-	}
+class WebSocketStreamHandler{
 	constructor(public reader: ExtendStreamReader, public writer: WritableStreamDefaultWriter<Uint8Array>) {
 		if(typeof (WebSocket as any).__tjs_ws_fastXor==='function'){
 			this._payloadXor=(WebSocket as any).__tjs_ws_fastXor;
 		}
 		this.startProcessWebSocketStream();
 	}
-	protected pWsHeaderBuf = new Uint8Array(14);
+	closed = new future<boolean>();
 	protected pCurrPacket: null | {
 		payloads: Array<Uint8Array>,
 		opcode: number
 	} = null;
 	error:any=null;
+	protected queuedRecvData = new ArrayWrap2<Uint8Array|string>();
+	protected _payloadXor=(mask:Uint8Array,payload:Uint8Array)=>{
+		for (let i = 0; i < payload.length; i++) {
+			payload[i] = mask[i % 4] ^ payload[i];
+		}
+	}
+	protected async readForNBytesView(n:number){
+		let buf=await this.reader.readForNBytes(n);
+		return new DataView(buf.buffer,buf.byteOffset,buf.byteLength);
+	}
 	protected async startProcessWebSocketStream() {
 		try{
 			while(!this.closed.done){
-				let readPos = new Ref2<number>(0);
-				while (readPos.get() < 2) {
-					await this.reader.readInto(this.pWsHeaderBuf, readPos);
-				}
-				let view = new DataView(this.pWsHeaderBuf.buffer, 0);
+				let view = await this.readForNBytesView(2);
 				let idx = 2,
 					b1 = view.getUint8(0),
 					fin = b1 & 128,
 					opcode = b1 & 15,
 					b2 = view.getUint8(1),
-					hasMask = b2 & 128; //Must true
+					hasMask = b2 & 128;
 				if (this.pCurrPacket == null) {
 					if (this.pCurrPacket == null) {
 						this.pCurrPacket = { payloads: [], opcode }
@@ -141,45 +143,104 @@ export class WebSocketServerStreamHandler implements WebSocketServerConnection {
 				let length = b2 & 127;
 				if (length > 125) {
 					if (length == 126) {
-						while (readPos.get() < 4) {
-							await this.reader.readInto(this.pWsHeaderBuf, readPos);
-						}
-						length = view.getUint16(2, false);
+						length = (await this.readForNBytesView(2)).getUint16(0, false);
 						idx += 2;
 					} else if (length == 127) {
-						while (readPos.get() < 10) {
-							await this.reader.readInto(this.pWsHeaderBuf, readPos);
-						}
-						if (view.getUint32(2, false) != 0) {
+						view=(await this.readForNBytesView(8));
+						if (view.getUint32(0, false) != 0) {
 							this.close(1009, "");
 						}
-						length = view.getUint32(6, !1);
-						idx += 8;
+						length = view.getUint32(4, false);
 					}
 				}
-				while (readPos.get() < idx + 4) {
-					await this.reader.readInto(this.pWsHeaderBuf, readPos);
+				let maskBytes;
+				if(hasMask){
+					maskBytes = await this.reader.readForNBytes(4);
 				}
-				let maskBytes = this.pWsHeaderBuf.slice(idx, idx + 4);
-				idx += 4;
-				let payload = new Uint8Array(length);
-				if(readPos.get()-idx>0){
-					this.reader.unshiftBuffer(new Uint8Array(this.pWsHeaderBuf.buffer,idx,readPos.get()-idx))
+				let payload=await this.reader.readForNBytes(length);
+				if(hasMask){
+					this._payloadXor(maskBytes!,payload)
 				}
-				readPos.set(0);
-				while (readPos.get() < length) {
-					await this.reader.readInto(payload, readPos);
-				}
-				this._payloadXor(maskBytes,payload)
 				this.pCurrPacket.payloads.push(payload);
 				if (fin) {
 					this.handlePacket(this.pCurrPacket);
 					this.pCurrPacket = null;
 				}
 			}
-		}catch(err){
+		}catch(err:any){
+			throwIfAbortError(err);
 			this.error=err;
+		}finally{
+			if(!this.closed.done)this.close(1000,'Unexpected error');
 		}
+	}
+	protected async handlePacket(packet: {
+		payloads: Array<Uint8Array>,
+		opcode: number
+	}) {
+		let concated = packet.payloads.length === 1 ?
+			packet.payloads[0]
+			: new Uint8Array(ArrayBufferConcat(packet.payloads));
+
+		switch (packet.opcode) {
+			case WebSocketOpcodeConst.TEXT:
+				this.queuedRecvData.queueSignalPush(decode(concated));
+				break;
+			case WebSocketOpcodeConst.BINARY:
+				this.queuedRecvData.queueBlockPush(concated);
+				break;
+			case WebSocketOpcodeConst.PING:
+				await this.writeFrame(WebSocketOpcodeConst.PONG, [concated]);
+				break;
+			case WebSocketOpcodeConst.PONG:
+				break;
+			case WebSocketOpcodeConst.CLOSE:
+				let code: number | undefined;
+				let reason: string | undefined;
+				if (concated.length >= 2) {
+					code = new DataView(concated.buffer, concated.byteOffset).getUint16(0, false);
+					reason = decode(concated.slice(2));
+				}
+				this.close(code, reason);
+				break;
+			default:
+				this.close(1002, "unknown opcode");
+		}
+	}
+	protected sendWithMask():boolean{
+		return false;
+	}
+	protected encodeMessage(opcode: number, payload: Array<Uint8Array>) {
+		let buf, b1 = 128 | opcode, b2 = this.sendWithMask()?128:0;
+		let length = payload.reduce((prev,curr)=>prev+curr.length,0);
+		if (length < 126) {
+			buf = new Uint8Array(2 + 0);
+			const view = new DataView(buf.buffer);
+			b2 |= length;
+			view.setUint8(0, b1);
+			view.setUint8(1, b2);
+		} else if (length < 65536) {
+			buf = new Uint8Array(2 + 2);
+			const view = new DataView(buf.buffer);
+			b2 |= 126;
+			view.setUint8(0, b1);
+			view.setUint8(1, b2);
+			view.setUint16(2, length);
+		} else {
+			buf = new Uint8Array(2 + 8);
+			const view = new DataView(buf.buffer);
+			b2 |= 127;
+			view.setUint8(0, b1);
+			view.setUint8(1, b2);
+			view.setUint32(2, 0, false);
+			view.setUint32(6, length, false);
+		}
+		let bufs=[buf];
+		if(this.sendWithMask()){
+			bufs.push(new Uint8Array([0,0,0,0]));
+		}
+		bufs.push(...payload)
+		return new Uint8Array(ArrayBufferConcat(bufs));
 	}
 	protected async writeFrame(opcode: number, payload: Array<Uint8Array>) {
 		await this.writer.ready;
@@ -188,13 +249,13 @@ export class WebSocketServerStreamHandler implements WebSocketServerConnection {
 	async send(obj: Uint8Array | string | Array<Uint8Array>) {
 		let opcode: number, payload: Array<Uint8Array>;
 		if (obj instanceof Uint8Array) {
-			opcode = this.opcodes.BINARY;
+			opcode = WebSocketOpcodeConst.BINARY;
 			payload = [obj];
 		} else if (typeof obj == "string") {
-			opcode = this.opcodes.TEXT;
+			opcode = WebSocketOpcodeConst.TEXT;
 			payload = [encode(obj)];
 		} else if(obj instanceof Array){
-			opcode=this.opcodes.BINARY;
+			opcode=WebSocketOpcodeConst.BINARY;
 			payload=obj
 		}else {
 			throw new Error("Cannot send object. Must be string or Uint8Array");
@@ -217,7 +278,7 @@ export class WebSocketServerStreamHandler implements WebSocketServerConnection {
 	async close(code?: number, reason?: string) {
 		if(!this.closed.done){
 			this.closed.setResult(true);
-			const opcode = this.opcodes.CLOSE;
+			const opcode = WebSocketOpcodeConst.CLOSE;
 			let buffer: Uint8Array;
 			let reasonU8: Uint8Array | undefined;
 			if (reason != undefined) reasonU8 = encode(reason);
@@ -233,68 +294,11 @@ export class WebSocketServerStreamHandler implements WebSocketServerConnection {
 		}
 		this.queuedRecvData.cancelWaiting();
 	}
-
-	protected async handlePacket(packet: {
-		payloads: Array<Uint8Array>,
-		opcode: number
-	}) {
-		let concated = packet.payloads.length === 1 ?
-			packet.payloads[0]
-			: new Uint8Array(ArrayBufferConcat(packet.payloads));
-
-		switch (packet.opcode) {
-			case this.opcodes.TEXT:
-				this.queuedRecvData.queueSignalPush(decode(concated));
-				break;
-			case this.opcodes.BINARY:
-				this.queuedRecvData.queueBlockPush(concated);
-				break;
-			case this.opcodes.PING:
-				await this.writeFrame(this.opcodes.PONG, [concated]);
-				break;
-			case this.opcodes.PONG:
-				break;
-			case this.opcodes.CLOSE:
-				let code: number | undefined;
-				let reason: string | undefined;
-				if (concated.length >= 2) {
-					code = new DataView(concated.buffer, concated.byteOffset).getUint16(0, false);
-					reason = decode(concated.slice(2));
-				}
-				this.close(code, reason);
-				break;
-			default:
-				this.close(1002, "unknown opcode");
-		}
-	}
-	protected encodeMessage(opcode: number, payload: Array<Uint8Array>) {
-		let buf, b1 = 128 | opcode, b2 = 0;
-		let length = payload.reduce((prev,curr)=>prev+curr.length,0);
-		if (length < 126) {
-			buf = new Uint8Array(2 + 0);
-			const view = new DataView(buf.buffer);
-			b2 |= length;
-			view.setUint8(0, b1);
-			view.setUint8(1, b2);
-		} else if (length < 65536) {
-			buf = new Uint8Array(2 + 2);
-			const view = new DataView(buf.buffer);
-			b2 |= 126;
-			view.setUint8(0, b1);
-			view.setUint8(1, b2);
-			view.setUint16(2, length);
-		} else {
-			buf = new Uint8Array(2 + 8);
-			const view = new DataView(buf.buffer);
-			b2 |= 127;
-			view.setUint8(0, b1);
-			view.setUint8(1, b2);
-			view.setUint32(2, 0, !1);
-			view.setUint32(6, length, !1);
-		}
-		return new Uint8Array(ArrayBufferConcat([buf,...payload]));
-	}
 	static KEY_SUFFIX = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+	
+}
+
+export class WebSocketServerStreamHandler extends WebSocketStreamHandler {
 	handshakeResponse?:ProtocolSwitchResponse
 	async switchToWebsocketResponse(req: Request) {
 		if(this.handshakeResponse!=undefined)return this.handshakeResponse;
@@ -307,7 +311,7 @@ export class WebSocketServerStreamHandler implements WebSocketServerConnection {
 						await crypto.subtle.digest(
 							"SHA-1",
 							encode(
-								`${req.headers.get('sec-websocket-key')}${WebSocketServerStreamHandler.KEY_SUFFIX}`,
+								`${req.headers.get('sec-websocket-key')}${WebSocketStreamHandler.KEY_SUFFIX}`,
 							),
 						),
 					),
@@ -316,7 +320,7 @@ export class WebSocketServerStreamHandler implements WebSocketServerConnection {
 		} else {
 			//use partic2/txiki.js sha1
 			assert((tjs as any).mbedtls?.sha1!=undefined);
-			let t1=new TextEncoder().encode(`${req.headers.get('sec-websocket-key')}${WebSocketServerStreamHandler.KEY_SUFFIX}`);
+			let t1=new TextEncoder().encode(`${req.headers.get('sec-websocket-key')}${WebSocketStreamHandler.KEY_SUFFIX}`);
 			let hash=(tjs as any).mbedtls.sha1(t1) as Uint8Array;
 			key = ArrayBufferToBase64(hash)
 		}
@@ -333,9 +337,14 @@ export class WebSocketServerStreamHandler implements WebSocketServerConnection {
 	}
 }
 
+
+export class WebSocketClientStreamHandler extends WebSocketStreamHandler {
+	protected sendWithMask(): boolean {
+		return true;
+	}
+}
 let httpRequestExp=/^([A-Z-]+) ([^ ]+) HTTP\/([^ \t]+)\r\n$/;
-let httpResponseExp=/^HTTP\/([^ \t]+)\s+(\.+)\s+(.*)$/
-let httpUrlExp=/^(https?):\/\/(?:\[([^\]]+)\]|([^/?#:]+))(?::(\d+))?(.*)$/
+let httpResponseExp=/^HTTP\/([^ \t]+)\s+([^\s]+)\s+(.*)\r\n$/
 const lineSpliter='\n'.charCodeAt(0);
 
 async function parseHttpKevValueHeader(r:ExtendStreamReader){
@@ -426,24 +435,18 @@ export class HttpServer{
 	protected async pParseHttpRequest(r:ExtendStreamReader){
 		let header1=await parseHttpRequestHeader(r);
 		let bodySource
-		if(header1.headers.get('transfer-encoding')==='chunked'){
+		if(header1.headers.get('transfer-encoding')?.includes('chunked')){
 			bodySource={
 				pull:async (controller:ReadableStreamDefaultController<Uint8Array>)=>{
 					let length=Number(decode(await r.readUntil('\n'.charCodeAt(0))).trim());
 					if(length==0){
-						let eoc=new Uint8Array(2);
-						await r.readInto(eoc);
-						assert(decode(eoc)=='\r\n');
+						let eoc=await r.readForNBytes(2);
+						//assert(eoc[0]==0xd && eoc[1]==0xa);
 						controller.close();
 					}else{
-						let buf=new Uint8Array(length);
-						let writePos=new Ref2<number>(0);
-						while(writePos.get()<length){
-							await r.readInto(buf,writePos);
-						}
-						let eoc=new Uint8Array(2);
-						await r.readInto(eoc);
-						assert(decode(eoc)=='\r\n');
+						let buf=await r.readForNBytes(length);
+						let eoc=await r.readForNBytes(2);
+						//assert(eoc[0]==0xd && eoc[1]==0xa);
 						controller.enqueue(buf);
 					}
 				}
@@ -452,12 +455,7 @@ export class HttpServer{
 			bodySource={
 				pull:async (controller:ReadableStreamDefaultController<Uint8Array>)=>{
 					let contentLength=Number(header1.headers.get('content-length')!.trim());
-					let buf=new Uint8Array(contentLength);
-					let writePos=new Ref2<number>(0);
-					while(writePos.get()<length){
-						await r.readInto(buf,writePos);
-					}
-					controller.enqueue(buf);
+					controller.enqueue(await r.readForNBytes(contentLength));
 					controller.close();
 				}
 			}
@@ -490,7 +488,7 @@ export class HttpServer{
 	}
 	protected async pWriteResponse(w:WritableStreamDefaultWriter<Uint8Array>,resp:Response){
 		let headersString=new Array<string>();
-		let chunked=resp.headers.get('transfer-encoding')=='chunked'
+		let chunked=resp.headers.get('transfer-encoding')?.includes('chunked')
 		resp.headers.forEach((val,key)=>{
 			headersString.push(`${key}: ${val}`);
 		});
@@ -537,14 +535,12 @@ interface BasicRequest{
 
 export class HttpClient{
 	protected async pWriteRequest(w:WritableStreamDefaultWriter<Uint8Array>,req:BasicRequest){
-		let urlMatch=req.url.match(httpUrlExp);
-		assert(urlMatch!=null);
-		let protocol=urlMatch[1];
-		let hostname=urlMatch[2]??urlMatch[3];
-		let port=urlMatch[4];
-		let pathquery=urlMatch[5];
+		let purl=new URL(req.url);
 		let headersString=new Array<string>();
-		let chunked=req.headers.get('transfer-encoding')=='chunked'
+		let chunked=req.headers.get('transfer-encoding')?.includes('chunked')??false;
+		if(!req.headers.has('host')){
+			headersString.push('Host:'+purl.host);
+		}
 		req.headers.forEach((val,key)=>{
 			headersString.push(`${key}: ${val}`);
 		});
@@ -555,7 +551,7 @@ export class HttpClient{
 		}
 		await w.write(encode(
 			[
-				`${req.method} ${pathquery} HTTP/1.1\r\n`,
+				`${req.method} ${purl.pathname}${purl.search} HTTP/1.1`,
 				...headersString,
 				'\r\n'
 			].join('\r\n'))
@@ -582,24 +578,18 @@ export class HttpClient{
 	protected async pParseHttpResponse(r:ExtendStreamReader){
 		let header1=await parseHttpResponseHeader(r);
 		let bodySource:any
-		if(header1.headers.get('transfer-encoding')==='chunked'){
+		if(header1.headers.get('transfer-encoding')?.includes('chunked')){
 			bodySource={
 				pull:async (controller:ReadableStreamDefaultController<Uint8Array>)=>{
 					let length=Number(decode(await r.readUntil('\n'.charCodeAt(0))).trim());
 					if(length==0){
-						let eoc=new Uint8Array(2);
-						await r.readInto(eoc);
-						assert(decode(eoc)=='\r\n');
+						let eoc=await r.readForNBytes(2);
+						//assert(eoc[0]==0xd && eoc[1]==0xa);
 						controller.close();
 					}else{
-						let buf=new Uint8Array(length);
-						let writePos=new Ref2<number>(0);
-						while(writePos.get()<length){
-							await r.readInto(buf,writePos);
-						}
-						let eoc=new Uint8Array(2);
-						await r.readInto(eoc);
-						assert(decode(eoc)=='\r\n');
+						let buf=await r.readForNBytes(length);
+						let eoc=await r.readForNBytes(2);
+						//assert(eoc[0]==0xd && eoc[1]==0xa);
 						controller.enqueue(buf);
 					}
 				}
@@ -608,11 +598,7 @@ export class HttpClient{
 			bodySource={
 				pull:async (controller:ReadableStreamDefaultController<Uint8Array>)=>{
 					let contentLength=Number(header1.headers.get('content-length')!.trim());
-					let buf=new Uint8Array(contentLength);
-					let writePos=new Ref2<number>(0);
-					while(writePos.get()<length){
-						await r.readInto(buf,writePos);
-					}
+					let buf=await r.readForNBytes(contentLength);
 					controller.enqueue(buf);
 					controller.close();
 				}
@@ -624,15 +610,88 @@ export class HttpClient{
 				}
 			}
 		}
-		bodySource satisfies UnderlyingDefaultSource<Uint8Array>;
-		let req=new Response(bodySource,{
-			status:Number(header1.status),
-			statusText:header1.statusText,
-			headers:header1.headers
-		});
-		return req;
+		let status=Number(header1.status);
+		if(status===101){
+			let resp=new ProtocolSwitchResponse(null,{
+				statusText:header1.statusText,
+				headers:header1.headers
+			});
+			return resp;
+		}else{
+			let resp=new Response(new ReadableStream(bodySource),{
+				status:Number(header1.status),
+				statusText:header1.statusText,
+				headers:header1.headers
+			});
+			return resp;
+		}
 	}
-	//TODO: How to implement fetch?
+	protected connections:Record<string,{r:ExtendStreamReader,w:WritableStreamDefaultWriter<Uint8Array>}>={};
+	connector:((url:URL)=>Promise<{r:ExtendStreamReader,w:WritableStreamDefaultWriter<Uint8Array>}>)|null=null;
+	connect(connector:(url:URL)=>Promise<{r:ExtendStreamReader,w:WritableStreamDefaultWriter<Uint8Array>}>){
+		this.connector=connector;
+		return this;
+	}
+	connectTjs(tjsConn?:typeof tjs.connect){
+		return this.connect(async (url:URL)=>{
+			let target={
+				host:url.hostname,
+				port:0
+			}
+			if(url.port===''){
+				if(['http:','ws:'].includes(url.protocol)){
+					target.port=80
+				}else if(['https:','wss:'].includes(url.protocol)){
+					target.port=443
+					//TODO: SSL support
+				}
+			}else{
+				target.port=Number.parseInt(url.port);
+			}
+			if(tjsConn==undefined){
+				let {buildTjs}=await import('./tjsbuilder');
+				tjsConn=(await buildTjs()).connect;
+			}
+			let c=await tjsConn('tcp',target.host,target.port) as tjs.Connection;
+			return {
+				r:new ExtendStreamReader(new ReadableStream(new TjsReaderDataSource(c)).getReader()),
+				w:new WritableStream(new TjsWriterDataSink(c)).getWriter()
+			}
+		})
+	}
+	async fetch(req:Request){
+		assert(this.connector!=null);
+		let purl=new URL(req.url);
+		let cid=purl.origin
+		if(this.connections[cid]==undefined){
+			let newConn=await this.connector(purl);
+			this.connections[cid]=newConn;
+			newConn.r.closed.then(()=>{delete this.connections[cid]});
+		}
+		let {r,w}=this.connections[cid];
+		await this.pWriteRequest(w,req);
+		return await this.pParseHttpResponse(r);
+	}
+	async websocket(url:string){
+		assert(this.connector!=null);
+		let purl=new URL(url);
+		let {r,w}=await this.connector(purl);
+		let req=new Request(url,{
+			headers:{
+				Upgrade:'websocket',Connection:'Upgrade',
+				'Sec-WebSocket-Key': 'dGhlIHNhbXBsZSBub25jZQ==',
+				'Sec-WebSocket-Version': '13'}
+		});
+		await this.pWriteRequest(w,req)
+		let resp=await this.pParseHttpResponse(r);
+		assert(resp.status==101);
+		return new WebSocketClientStreamHandler(r,w);
+	}
+	close(){
+		for(let t1 of Object.values(this.connections)){
+			t1.w.close();
+		}
+	}
 }
 
 interface HttpRouterHandler{
@@ -753,7 +812,7 @@ export class SimpleFileServer{
 				}else{
 					headers.set('transfer-encoding','chunked')
 				}
-				return new Response(getFileSystemReadableStream(this.fs,filepath),
+				return new Response(simpleFileSystemHelper.getFileSystemReadableStream(this.fs,filepath),
 						{status:200,headers});
 			}else if(filetype==='dir' && this.showIndex){
 				let children=await this.fs.listdir(filepath);
