@@ -555,8 +555,10 @@ export async function upgradePackage(pkgname:string){
                 upgradeDone=true
             }
         }catch(err:any){throwIfAbortError(err);upgErr.push(err)}
-        let err=new Error('Upgrade package failed.reason: \n'+upgErr.map(t1=>t1.message+t1.stack).join('\n'));
-        throw err;
+        if(!upgradeDone){
+            let err=new Error('Upgrade package failed.reason: \n'+upgErr.map(t1=>t1.message+t1.stack).join('\n'));
+            throw err;
+        }
     }
 }
 
