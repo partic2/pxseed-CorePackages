@@ -134,7 +134,7 @@ class NotebookViewer extends React.Component<{context:WorkspaceContext,path:stri
             await code.runCode(`jsnotebook.openRpcChooser=(...argv)=>_ENV.event.dispatchEvent(new CodeContextEvent('${__name__}.NotebookViewer',{data:{call:'openRpcChooser',argv}}))`);
             await code.runCode(`jsnotebook.updateNotebookCodeCellsData=(...argv)=>_ENV.event.dispatchEvent(new CodeContextEvent('${__name__}.NotebookViewer',{data:{call:'updateNotebookCodeCellsData',argv}}))`);
             await code.runCode(`jsnotebook.setCodeCellsDataOnRemoteJsNotebook=(...argv)=>_ENV.event.dispatchEvent(new CodeContextEvent('${__name__}.NotebookViewer',{data:{call:'setCodeCellsDataOnRemoteJsNotebook',argv}}))`);
-            
+            await code.runCode(`jsnotebook.reconnectCodeContextSoon=(...argv)=>_ENV.event.dispatchEvent(new CodeContextEvent('${__name__}.NotebookViewer',{data:{call:'reconnectCodeContextSoon',argv}}))`)
         }catch(e:any){
             await alert([e.toString(),e.stack,(e.remoteStack??'')].join('\n'),'Error');
         }
@@ -193,6 +193,18 @@ class NotebookViewer extends React.Component<{context:WorkspaceContext,path:stri
     async setCodeCellsDataOnRemoteJsNotebook(){
         let ccl=await this.rref.ccl.waitValid();
         await this.state.codeContext?.runCode(`jsnotebook.codeCellsData=${JSON.stringify(ccl.saveTo())}`);
+    }
+    async reconnectCodeContextSoon(opt?:{wait?:number}){
+        try{
+            await this.state.rpc!.disconnect();
+        }catch(err){};
+        await sleep(opt?.wait??1000);
+        try{
+            await this.state.rpc!.ensureConnected();
+            await this.useRpc(this.state.rpc!);
+        }catch(err:any){
+            alert(err.message+err.stack)
+        }
     }
     protected getRpcStringRepresent(){
         return this.state.rpc?.name??'<No name>';

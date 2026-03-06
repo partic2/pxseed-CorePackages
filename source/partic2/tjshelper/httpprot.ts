@@ -1,6 +1,6 @@
 
 import { ExtendStreamReader } from "partic2/CodeRunner/jsutils2";
-import { future, ArrayWrap2, Ref2, CanceledError, ArrayBufferConcat, throwIfAbortError, assert, Task, ArrayBufferToBase64, GetCurrentTime } from "partic2/jsutils1/base";
+import { future, ArrayWrap2, Ref2, CanceledError, ArrayBufferConcat, throwIfAbortError, assert, Task, ArrayBufferToBase64, GetCurrentTime, GenerateRandomString, mutex } from "partic2/jsutils1/base";
 import {simpleFileSystemHelper, SimpleFileSystem} from 'partic2/CodeRunner/JsEnviron'
 import { TjsReaderDataSource, TjsWriterDataSink } from "partic2/tjshelper/tjsutil";
 
@@ -76,19 +76,39 @@ const mimeDb={
 
 
 //Don't use Response directly, Response limit status range into 200-599
-class ProtocolSwitchResponse extends Response{
-	protected pStatus:number=101;
+export class ExtendHttpResponse extends Response{
+	protected pStatus:number=0;
 	get status(){
 		return this.pStatus;
 	}
-	set status(v:number){}
+	set status(v:number){this.pStatus=v}
 	constructor(body?: BodyInit | null, init?: ResponseInit){
-		let pStat=init?.status
-		if(init?.status!=undefined){
+		let savedStatus=init?.status
+		if(init?.status!=undefined && (init?.status<200 || init?.status>599)){
 			init.status=200;
 		}
 		super(body,init);
-		if(pStat!=undefined)this.pStatus=pStat;
+		this.pStatus=savedStatus??200;
+	}
+}
+
+//Don't use Request directly, Request don't support CONNECT method.
+export class ExtendHttpRequest extends Request{
+	protected pMethod=''
+	get method(){
+		return this.pMethod;
+	}
+	set method(v:string){this.pMethod=v}
+	constructor(input: RequestInfo | URL, init?: RequestInit){
+		let savedMethod=init?.method
+		if(init?.method==='CONNECT'){
+			delete init.method
+			if(typeof input==='string' && !input.startsWith('http:')){
+				input='http:'+input;
+			}
+		}
+		super(input,init);
+		this.pMethod=savedMethod??'GET';
 	}
 }
 
@@ -299,7 +319,7 @@ class WebSocketStreamHandler{
 }
 
 export class WebSocketServerStreamHandler extends WebSocketStreamHandler {
-	handshakeResponse?:ProtocolSwitchResponse
+	handshakeResponse?:ExtendHttpResponse
 	async switchToWebsocketResponse(req: Request) {
 		if(this.handshakeResponse!=undefined)return this.handshakeResponse;
 		// Use Web Cryptography API crypto.subtle where defined
@@ -324,7 +344,7 @@ export class WebSocketServerStreamHandler extends WebSocketStreamHandler {
 			let hash=(tjs as any).mbedtls.sha1(t1) as Uint8Array;
 			key = ArrayBufferToBase64(hash)
 		}
-		this.handshakeResponse=new ProtocolSwitchResponse(null,{
+		this.handshakeResponse=new ExtendHttpResponse(null,{
 			status:101,
 			statusText:'Switch Protocol',
 			headers:new Headers({
@@ -343,11 +363,11 @@ export class WebSocketClientStreamHandler extends WebSocketStreamHandler {
 		return true;
 	}
 }
-let httpRequestExp=/^([A-Z-]+) ([^ ]+) HTTP\/([^ \t]+)\r\n$/;
-let httpResponseExp=/^HTTP\/([^ \t]+)\s+([^\s]+)\s+(.*)\r\n$/
+let httpRequestExp=/^(\S+)\s+(\S+)\s+HTTP\/(\S+)\s*\r\n$/;
+let httpResponseExp=/^HTTP\/(\S+)\s+(\S+)\s+(.*?)\r\n$/
 const lineSpliter='\n'.charCodeAt(0);
 
-async function parseHttpKevValueHeader(r:ExtendStreamReader){
+async function parseHttpKeyValueHeader(r:ExtendStreamReader){
 	let headers=new Headers();
 	for(let t1=0;t1<64*1024;t1++){
 		let line=decode(await r!.readUntil(lineSpliter));
@@ -362,9 +382,9 @@ async function parseHttpRequestHeader(r:ExtendStreamReader){
 	let matchResult=reqHdr.match(httpRequestExp);
 	assert(matchResult!=null);
 	let method=matchResult[1];
-	let pathname=matchResult[2];
+	let url=matchResult[2];
 	let httpVersion=matchResult[3];
-	return {method,pathname,httpVersion,headers:await parseHttpKevValueHeader(r)};
+	return {method,url,httpVersion,headers:await parseHttpKeyValueHeader(r)};
 }
 async function parseHttpResponseHeader(r:ExtendStreamReader){
 	let respHdr=decode(await r.readUntil(lineSpliter));
@@ -373,7 +393,7 @@ async function parseHttpResponseHeader(r:ExtendStreamReader){
 	let httpVersion=matchResult[1];
 	let status=matchResult[2];
 	let statusText=matchResult[3];
-	return {httpVersion,status,statusText,headers:await parseHttpKevValueHeader(r)};
+	return {httpVersion,status,statusText,headers:await parseHttpKeyValueHeader(r)};
 	
 }
 
@@ -386,7 +406,7 @@ export class HttpServer{
 	async serve(stream:{r:ExtendStreamReader,w:WritableStreamDefaultWriter<Uint8Array>}){
 		try{
 			while(true){
-				let req=await this.pParseHttpRequest(stream.r);
+				let {request:req}=await this.pParseHttpRequest(stream.r);
 				if(req.headers.get('upgrade')?.toLowerCase()==='websocket'){
 					let that=this;
 					let p={
@@ -395,7 +415,7 @@ export class HttpServer{
 						accept:async function(){
 							if(this._ws==null){
 								this._ws=new WebSocketServerStreamHandler(stream.r,stream.w);
-								that.pWriteResponse(stream.w,await this._ws.switchToWebsocketResponse(this.request));
+								await that.pWriteResponse(stream.w,await this._ws.switchToWebsocketResponse(this.request));
 							}
 							return this._ws;
 						}
@@ -404,7 +424,7 @@ export class HttpServer{
 					if(p._ws==null){
 						await this.pWriteResponse(stream.w,new Response("Unsupported",{status:426}))
 					}else{
-						await p._ws.closed.get();;
+						await p._ws.closed.get();
 					}
 				}else{
 					let resp=await this.onfetch(req);
@@ -434,15 +454,17 @@ export class HttpServer{
 	}
 	protected async pParseHttpRequest(r:ExtendStreamReader){
 		let header1=await parseHttpRequestHeader(r);
+		let bodyCompleted=new future<void>();
 		let bodySource
 		if(header1.headers.get('transfer-encoding')?.includes('chunked')){
 			bodySource={
 				pull:async (controller:ReadableStreamDefaultController<Uint8Array>)=>{
-					let length=Number(decode(await r.readUntil('\n'.charCodeAt(0))).trim());
+					let length=Number.parseInt(decode(await r.readUntil('\n'.charCodeAt(0))).trim(),16);
 					if(length==0){
 						let eoc=await r.readForNBytes(2);
 						//assert(eoc[0]==0xd && eoc[1]==0xa);
 						controller.close();
+						bodyCompleted.setResult();
 					}else{
 						let buf=await r.readForNBytes(length);
 						let eoc=await r.readForNBytes(2);
@@ -452,11 +474,23 @@ export class HttpServer{
 				}
 			}
 		}else if(header1.headers.has('content-length')){
+			let contentLength=Number(header1.headers.get('content-length')!.trim());
+			let remainBytes=contentLength;
 			bodySource={
 				pull:async (controller:ReadableStreamDefaultController<Uint8Array>)=>{
-					let contentLength=Number(header1.headers.get('content-length')!.trim());
-					controller.enqueue(await r.readForNBytes(contentLength));
-					controller.close();
+					let buf=await r.read();
+					if(!buf.done){
+						if(buf.value.byteLength>remainBytes){
+							r.unshiftBuffer(new Uint8Array(buf.value.buffer,buf.value.byteOffset+remainBytes,buf.value.byteLength-remainBytes));
+							buf.value=new Uint8Array(buf.value.buffer,buf.value.byteOffset,remainBytes);
+						}
+						controller.enqueue(buf.value);
+						remainBytes-=buf.value.byteLength;
+					}
+					if(remainBytes==0){
+						controller.close();
+						bodyCompleted.setResult();
+					}
 				}
 			}
 		}else{
@@ -467,24 +501,24 @@ export class HttpServer{
 			}
 		}
 		bodySource satisfies UnderlyingDefaultSource<Uint8Array>;
-		let url=header1.pathname;
-		if(!url.startsWith('http:')){
+		let url=header1.url;
+		if(!url.startsWith('http:') && url.startsWith('/')){
 			url='http://';
 			if(header1.headers.has('host')){
 				url+=header1.headers.get('host')
 			}else{
 				url+='0.0.0.0:0';
 			}
-			url+=header1.pathname;
+			url+=header1.url;
 		}
-		let req=new Request(url,{
+		let req=new ExtendHttpRequest(url,{
 			method:header1.method,
 			body:['GET','HEAD'].includes(header1.method.toUpperCase())?undefined
 				:new ReadableStream(bodySource),
 			headers:header1.headers,
 			duplex: 'half' //BUG:TS complain with it, but it's required in this case.
 		} as RequestInit);
-		return req;
+		return {request:req,bodyCompleted};
 	}
 	protected async pWriteResponse(w:WritableStreamDefaultWriter<Uint8Array>,resp:Response){
 		let headersString=new Array<string>();
@@ -578,29 +612,42 @@ export class HttpClient{
 	protected async pParseHttpResponse(r:ExtendStreamReader){
 		let header1=await parseHttpResponseHeader(r);
 		let bodySource:any
+		let bodyCompleted=new future<void>();
 		if(header1.headers.get('transfer-encoding')?.includes('chunked')){
 			bodySource={
 				pull:async (controller:ReadableStreamDefaultController<Uint8Array>)=>{
-					let length=Number(decode(await r.readUntil('\n'.charCodeAt(0))).trim());
+					let length=Number.parseInt(decode(await r.readUntil('\n'.charCodeAt(0))).trim(),16);
 					if(length==0){
 						let eoc=await r.readForNBytes(2);
-						//assert(eoc[0]==0xd && eoc[1]==0xa);
+						assert(eoc[0]==0xd && eoc[1]==0xa);
 						controller.close();
+						bodyCompleted.setResult();
 					}else{
 						let buf=await r.readForNBytes(length);
 						let eoc=await r.readForNBytes(2);
-						//assert(eoc[0]==0xd && eoc[1]==0xa);
+						assert(eoc[0]==0xd && eoc[1]==0xa);
 						controller.enqueue(buf);
 					}
 				}
 			}
 		}else if(header1.headers.has('content-length')){
+			let contentLength=Number(header1.headers.get('content-length')!.trim());
+			let remainBytes=contentLength;
 			bodySource={
 				pull:async (controller:ReadableStreamDefaultController<Uint8Array>)=>{
-					let contentLength=Number(header1.headers.get('content-length')!.trim());
-					let buf=await r.readForNBytes(contentLength);
-					controller.enqueue(buf);
-					controller.close();
+					let buf=await r.read();
+					if(!buf.done){
+						if(buf.value.byteLength>remainBytes){
+							r.unshiftBuffer(new Uint8Array(buf.value.buffer,buf.value.byteOffset+remainBytes,buf.value.byteLength-remainBytes));
+							buf.value=new Uint8Array(buf.value.buffer,buf.value.byteOffset,remainBytes);
+						}
+						controller.enqueue(buf.value);
+						remainBytes-=buf.value.byteLength;
+					}
+					if(remainBytes==0){
+						controller.close();
+						bodyCompleted.setResult()
+					}
 				}
 			}
 		}else{
@@ -609,31 +656,24 @@ export class HttpClient{
 					controller.close();
 				}
 			}
+			bodyCompleted.setResult();
 		}
-		let status=Number(header1.status);
-		if(status===101){
-			let resp=new ProtocolSwitchResponse(null,{
-				statusText:header1.statusText,
-				headers:header1.headers
-			});
-			return resp;
-		}else{
-			let resp=new Response(new ReadableStream(bodySource),{
-				status:Number(header1.status),
-				statusText:header1.statusText,
-				headers:header1.headers
-			});
-			return resp;
-		}
+		let resp=new ExtendHttpResponse(new ReadableStream(bodySource),{
+			status:Number(header1.status),
+			statusText:header1.statusText,
+			headers:header1.headers
+		});
+		return {response:resp,bodyCompleted};
+
 	}
-	protected connections:Record<string,{r:ExtendStreamReader,w:WritableStreamDefaultWriter<Uint8Array>}>={};
+	protected connections:Record<string,{r:ExtendStreamReader,w:WritableStreamDefaultWriter<Uint8Array>,idle:boolean}>={};
 	connector:((url:URL)=>Promise<{r:ExtendStreamReader,w:WritableStreamDefaultWriter<Uint8Array>}>)|null=null;
-	connect(connector:(url:URL)=>Promise<{r:ExtendStreamReader,w:WritableStreamDefaultWriter<Uint8Array>}>){
+	setConnector(connector:(url:URL)=>Promise<{r:ExtendStreamReader,w:WritableStreamDefaultWriter<Uint8Array>}>){
 		this.connector=connector;
 		return this;
 	}
-	connectTjs(tjsConn?:typeof tjs.connect){
-		return this.connect(async (url:URL)=>{
+	setConnectorTjs(tjsConn?:typeof tjs.connect){
+		return this.setConnector(async (url:URL)=>{
 			let target={
 				host:url.hostname,
 				port:0
@@ -662,28 +702,39 @@ export class HttpClient{
 	async fetch(req:Request){
 		assert(this.connector!=null);
 		let purl=new URL(req.url);
-		let cid=purl.origin
+		let foundConn=Object.entries(this.connections).find(t1=>t1[0].startsWith(purl.origin+'/fetch')&&t1[1].idle);
+		if(foundConn==undefined){
+			let t1=await this.connector(purl);
+			foundConn=[purl.origin+'/fetch'+GenerateRandomString(),{r:t1.r,w:t1.w,idle:true}];
+			this.connections[foundConn[0]]=foundConn[1];
+			Promise.race([t1.w.closed,t1.r.closed]).then(()=>delete this.connections[foundConn![0]]);
+		}
+		try{
+			foundConn[1].idle=false;
+			await this.pWriteRequest(foundConn[1].w,req);
+			let res=await this.pParseHttpResponse(foundConn[1].r);
+			res.bodyCompleted.get().then(()=>foundConn[1].idle=true);
+			return res.response;
+		}catch(err:any){
+			foundConn[1].w.close().catch(()=>{});
+			throw err;
+		}
+	}
+	async websocket(req:Request){
+		assert(this.connector!=null);
+		let purl=new URL(req.url);
+		let {r,w}=await this.connector(purl);
+		let cid=purl.origin+'/ws'+GenerateRandomString();
 		if(this.connections[cid]==undefined){
 			let newConn=await this.connector(purl);
-			this.connections[cid]=newConn;
-			newConn.r.closed.then(()=>{delete this.connections[cid]});
+			this.connections[cid]={r:newConn.r,w:newConn.w,idle:false};
+			Promise.race([newConn.w.closed,newConn.r.closed]).then(()=>{delete this.connections[cid]});
 		}
-		let {r,w}=this.connections[cid];
-		await this.pWriteRequest(w,req);
-		return await this.pParseHttpResponse(r);
-	}
-	async websocket(url:string){
-		assert(this.connector!=null);
-		let purl=new URL(url);
-		let {r,w}=await this.connector(purl);
-		let req=new Request(url,{
-			headers:{
-				Upgrade:'websocket',Connection:'Upgrade',
-				'Sec-WebSocket-Key': 'dGhlIHNhbXBsZSBub25jZQ==',
-				'Sec-WebSocket-Version': '13'}
-		});
+		req.headers.set('Upgrade','websocket');
+		req.headers.set('Sec-WebSocket-Key','dGhlIHNhbXBsZSBub25jZQ==');
+		req.headers.set('Sec-WebSocket-Version','13')
 		await this.pWriteRequest(w,req)
-		let resp=await this.pParseHttpResponse(r);
+		let {response:resp}=await this.pParseHttpResponse(r);
 		assert(resp.status==101);
 		return new WebSocketClientStreamHandler(r,w);
 	}

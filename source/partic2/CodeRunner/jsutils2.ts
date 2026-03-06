@@ -84,23 +84,26 @@ export class ExtendStreamReader implements ReadableStreamDefaultReader<Uint8Arra
 		if(typeof mark==='number'){
 			mark=new Uint8Array([mark]);
 		}
-		//Slow but simple
 		let concated:Uint8Array|null=null;
-		for(let t1=0;t1<0x7fffff;t1++){
+		let t1=0;
+		for(let readTryCount=0;readTryCount<0x10000000;readTryCount++){
 			let chunk=await this.read();
 			if(!chunk.done){
 				if(concated==null){
 					concated=chunk.value;
 				}else{
+					//slow but simple
 					concated=new Uint8Array(ArrayBufferConcat([concated,chunk.value]));
 				}
 				let markMatched=false;
 				let t2=0;
 				let t3=concated.length-mark.length
-				for(t2=0;t2<=t3;t2++){
+				for(t2=t1;t2<=t3;t2++){
+					t2=concated.indexOf(mark[0],t2);
+					if(t2<0)break;
 					markMatched=true;
-					for(let t3=0;t3<mark.length;t3++){
-						if(concated[t2+t3]!==mark[t3]){
+					for(let t4=1;t4<mark.length;t4++){
+						if(concated[t2+t4]!==mark[t4]){
 							markMatched=false;
 							break;
 						}
@@ -113,6 +116,8 @@ export class ExtendStreamReader implements ReadableStreamDefaultReader<Uint8Arra
 							concated.buffer,concated.byteOffset+t2+mark.length,concated.length-t2-mark.length));
 					}
 					return new Uint8Array(concated.buffer,concated.byteOffset,t2+mark.length);
+				}else{
+					t1=t3+1;
 				}
 			}else{
 				if(concated!=null)this.unshiftBuffer(concated);

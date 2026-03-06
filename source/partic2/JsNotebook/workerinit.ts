@@ -1,6 +1,6 @@
 import { defaultFileSystem, ensureDefaultFileSystem, installRequireProvider, SimpleFileSystem } from "partic2/CodeRunner/JsEnviron";
-import { assert, future, GenerateRandomString, requirejs, Task } from "partic2/jsutils1/base";
-import { ClientInfo, createIoPipe, getPersistentRegistered, rpcWorkerInitModule } from "partic2/pxprpcClient/registry";
+import { assert, future, GenerateRandomString, requirejs, sleep, Task } from "partic2/jsutils1/base";
+import { ClientInfo, createIoPipe, getConnectionFromUrl, getPersistentRegistered, importRemoteModule, rpcWorkerInitModule, ServerHostRpcName } from "partic2/pxprpcClient/registry";
 import { LocalRunCodeContext, RunCodeContext } from "partic2/CodeRunner/CodeContext";
 import { createConnectorWithNewRunCodeContext, RunCodeContextConnector } from "partic2/CodeRunner/RemoteCodeContext";
 import { utf8conv } from "partic2/CodeRunner/jsutils2";
@@ -145,6 +145,29 @@ export async function initNotebookCodeEnv(_ENV:any,opt?:{codePath?:string}){
         _ENV.fs.simple.delete2[CustomFunctionParameterCompletionSymbol]=makeFunctionCompletionWithFilePathArg0(undefined);
     }
     _ENV.globalThis=globalThis;
+    _ENV.pxseedServerCommand={
+        buildPackages:async ()=>{
+            let module1=await importRemoteModule(await (await getPersistentRegistered(ServerHostRpcName))!.ensureConnected(),'pxseedServer2023/pxseedhttpserver');
+            return await module1.serverCommand('buildPackages')
+        },
+        rebuildPackages:async ()=>{
+            let module1=await importRemoteModule(await (await getPersistentRegistered(ServerHostRpcName))!.ensureConnected(),'pxseedServer2023/pxseedhttpserver');
+            return await module1.serverCommand('rebuildPackages')
+        },
+        getConfig:async ()=>{
+            let module1=await importRemoteModule(await (await getPersistentRegistered(ServerHostRpcName))!.ensureConnected(),'pxseedServer2023/pxseedhttpserver');
+            return await module1.serverCommand('rebuildPackages')
+        },
+        saveConfig:async (cfg:any)=>{
+            let module1=await importRemoteModule(await (await getPersistentRegistered(ServerHostRpcName))!.ensureConnected(),'pxseedServer2023/pxseedhttpserver');
+            return await module1.serverCommand('saveConfig',cfg)
+        }
+    }
+    _ENV.restartThisWorker=async ()=>{
+        _ENV.jsnotebook?.reconnectCodeContextSoon?.();
+        await sleep(100);
+        globalThis.close();
+    }
 }
 
 
