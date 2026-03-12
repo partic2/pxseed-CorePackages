@@ -276,6 +276,9 @@ export class ClientInfo{
             await this.connecting.unlock();
         }
     }
+    toJSON(){
+        return {name:this.name,url:this.url};
+    }
 }
 
 export class IoOverPxprpc implements Io{
@@ -512,7 +515,8 @@ export async function getAttachedRemoteRigstryFunction(client1:RpcExtendClient1)
 }
 
 export let __internal__={
-    isPxseedWorker:false
+    isPxseedWorker:false,
+    isServerHost:new future<boolean>(),
 }
 
 export async function getConnectionFromUrl(url:string):Promise<Io|null>{
@@ -544,7 +548,7 @@ export async function getConnectionFromUrl(url:string):Promise<Io|null>{
         let firstRpcName=decodeURIComponent(url2.pathname.substring(0,firstSlash));
         let restRpcPath=url2.pathname.substring(firstSlash+1);
         let cinfo=await getPersistentRegistered(firstRpcName);
-        if(cinfo==null){
+        if(cinfo==undefined){
             cinfo=await addClient(firstRpcName,firstRpcName);
         }
         await cinfo.ensureConnected()
@@ -598,19 +602,34 @@ export function listRegistered(){
 
 export async function getPersistentRegistered(name:string){
     await persistent.load();
+    await addPxseedJsBuiltinClient();
     return registered.get(name);
 }
 
-export async function listPersistentRegistered(name:string){
+
+export async function listPersistentRegistered(){
     await persistent.load();
-    return registered.entries();
+    await addPxseedJsBuiltinClient();
+    return Array.from(registered.entries());
+}
+
+export async function isServerHost(set?:{newValue:boolean,overwrite?:boolean}){
+    if(set!==undefined){
+        if(__internal__.isServerHost.done && set.overwrite){
+            __internal__.isServerHost=new future();
+        }
+        __internal__.isServerHost.setResult(set.newValue);
+        
+    }
+    return await __internal__.isServerHost.get()
 }
 
 export async function addClient(url:string,name?:string):Promise<ClientInfo>{
     name=(name==undefined||name==='')?url.toString():name;
+    await persistent.load();
     let clie=registered.get(name);
     if(clie==undefined){
-        //Skip if existed, To avoid connection lost unexpected.
+        //Skip if existed, To avoid connection lost unexpectedly.
         clie=new ClientInfo(name,url);
     }
     clie.url=url;
@@ -620,9 +639,10 @@ export async function addClient(url:string,name?:string):Promise<ClientInfo>{
 }
 
 export async function removeClient(name:string){
+    await persistent.load();
     let clie=registered.get(name);
     if(clie!=undefined){
-        clie.disconnect()
+        clie.disconnect().catch(()=>{})
         registered.delete(name)
     }
     await persistent.save();
@@ -664,7 +684,7 @@ export let persistent={
         config.registered=Array.from(registered.entries()).map(v=>({name:v[0],url:v[1].url}));
         await SavePersistentConfig(__name__);
     },
-    load:async function load() {
+    load:async function() {
         let config=await GetPersistentConfig(__name__);
         if(config.registered != undefined){
             (config.registered as {name:string,url:string}[]).forEach(item=>{
@@ -678,11 +698,71 @@ export let persistent={
                 clie.url=url;
                 registered.set(name,clie);
             })
+        }       
+    },
+    pullFromServerHost:async function(){
+        let rpc=getRegistered(ServerHostRpcName);
+        if(rpc!=undefined && !await __internal__.isServerHost.get()){
+            let result1=await easyCallRemoteJsonFunction(await rpc.ensureConnected(),__name__,'listPersistentRegistered',[]);
+            for(let t1 of result1){
+                if(t1[0]==ServerHostRpcName)continue;
+                if(t1[1].url.startsWith('iooverpxprpc:')){
+                    await addClient(`iooverpxprpc:${ServerHostRpcName}/${t1[1].url.substring('iooverpxprpc:'.length)}`)
+                }else{
+                    await addClient(`iooverpxprpc:${ServerHostRpcName}/${encodeURIComponent(t1[1].url)}`,t1[0]);
+                }
+            }
         }
-        await addPxseedJsBuiltinClient();
+    },
+    pushToServerHost:async function(){
+        let rpc=getRegistered(ServerHostRpcName);
+        if(rpc!=undefined && !await __internal__.isServerHost.get()){
+            let remoteClientList=new Map(await easyCallRemoteJsonFunction(await rpc.ensureConnected(),__name__,'listPersistentRegistered',[]) as Array<[string,{url:string,name:string}]>);
+            let toRemove=new Array<string>();
+            let toAdd=new Array<[string,string]>();
+            let registered=await listPersistentRegistered();
+            for(let t1 of registered){
+                if(t1[1].url.startsWith(`iooverpxprpc:${ServerHostRpcName}/`)){
+                    let restRpcPath=t1[1].url.substring(`iooverpxprpc:${ServerHostRpcName}/`.length);
+                    if(restRpcPath.indexOf('/')>=0){
+                        restRpcPath='iooverpxprpc:'+restRpcPath;
+                    }else{
+                        restRpcPath=decodeURIComponent(restRpcPath);
+                    }
+                    if(remoteClientList.get(t1[0])?.url!=restRpcPath){
+                        toAdd.push([restRpcPath,t1[0]]);
+                    }
+                }
+            }
+            for(let t1 of remoteClientList.keys()){
+                if(getRegistered(t1)==undefined){
+                    toRemove.push(t1);
+                }
+            }
+            for(let t1 of toAdd){
+                await easyCallRemoteJsonFunction(await rpc.ensureConnected(),__name__,'addClient',t1)
+            }
+            for(let t1 of toRemove){
+                await easyCallRemoteJsonFunction(await rpc.ensureConnected(),__name__,'removeClient',[t1]);
+            }
+        }
     }
 }
 
+;(async ()=>{
+    try{
+        await persistent.load()
+        let rpc=getRegistered(ServerHostRpcName);
+        if(rpc!=undefined){
+            await easyCallRemoteJsonFunction(await rpc.ensureConnected(),__name__,'isServerHost',[{newValue:true}])
+        }
+        if(!__internal__.isServerHost.done){
+            __internal__.isServerHost.setResult(false);
+        }
+    }catch(err){
+        __internal__.isServerHost.setResult(false);
+    };
+})();
 
 //Before typescript support syntax like <typeof import(T)>, we can only tell module type explicitly.
 //Only support plain JSON parameter and return value.

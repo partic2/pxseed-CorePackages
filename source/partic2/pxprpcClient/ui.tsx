@@ -1,7 +1,7 @@
 
 
 import * as React from 'preact'
-import { ClientInfo, addClient, removeClient, getRegistered, listRegistered, persistent } from './registry';
+import { ClientInfo, addClient, removeClient, getRegistered, listRegistered, persistent, listPersistentRegistered } from './registry';
 import { ReactRefEx, css, event } from 'partic2/pComponentUi/domui';
 import { prompt,alert} from 'partic2/pComponentUi/window';
 import { ArrayWrap2, assert, GenerateRandomString } from 'partic2/jsutils1/base';
@@ -80,7 +80,7 @@ class AddCard extends React.Component<{},{
 export class RegistryUI extends React.Component<{},{selected:string|null}>{
     rref={div:React.createRef<HTMLDivElement>()}
     async doLoadConfig(){
-        await persistent.load()
+        await listPersistentRegistered();
         this.forceUpdate(()=>{
             let div=this.rref.div.current
             div?.dispatchEvent(new Event(event.layout,{bubbles:true}))
@@ -131,6 +131,15 @@ export class RegistryUI extends React.Component<{},{selected:string|null}>{
         await conn!.disconnect();
         this.forceUpdate();
     }
+    async doSyncWithServer(){
+        try{
+            await persistent.pullFromServerHost();
+            await persistent.pushToServerHost();
+            this.forceUpdate();
+        }catch(err:any){
+            alert(err.toString()+err.stack)
+        }
+    }
     async doConnect(){
         let conn=getRegistered(this.state.selected!);
         try{
@@ -156,6 +165,7 @@ export class RegistryUI extends React.Component<{},{selected:string|null}>{
             btns.push({label:'Remove',handler:()=>this.doRemove()});
         }
         btns.push({label:'Add',handler:()=>this.doAdd()})
+        btns.push({label:'SyncWithServer',handler:()=>this.doSyncWithServer()});
         let allClients=Array.from(listRegistered());
         allClients.sort((a,b)=>(a[0]<b[0])?-1:(a[0]===b[0]?0:1))
         return <div className={[css.simpleCard,css.flexColumn].join(' ')} ref={this.rref.div}>
