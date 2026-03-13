@@ -25,13 +25,14 @@ export class RunCodeContextConnector{
     constructor(public value:RunCodeContext){
         this[RpcSerializeMagicMark]={}
     };
+    connectorId=GenerateRandomString();
     close?:()=>void
-    async pullCodeContextEvent(timeGt:number){
+    async pullCodeContextEvent(seqGt:number){
         let codeContext=this.value;
         let events:any[]=[];
         const checkEvent=()=>{
-            events=codeContext.event._cachedEventQueue.arr().filter(t1=>t1.time>timeGt)
-                .map(t1=>({type:t1.event.type,data:(t1.event as any).data,time:t1.time}));
+            let filterev=codeContext.event._cachedEventQueue.arr().filter(t1=>t1.seq>seqGt);
+            events=filterev.map(t1=>({type:t1.event.type,data:(t1.event as any).data,time:t1.time,seq:t1.seq}));
         }
         checkEvent();
         if(events.length===0){
@@ -71,14 +72,14 @@ export class RemoteRunCodeContext implements RunCodeContext{
     event=new CodeContextEventTarget();
     protected async pullEventLoop(){
         try{
-            let lastEventTime=0;
+            let lastEventSeq=0;
             while(this._remoteContext!=null){
-                let events=await this._remoteContext!.pullCodeContextEvent(lastEventTime)
+                let events=await this._remoteContext!.pullCodeContextEvent(lastEventSeq)
                 for(let t1 of events){
                     this.event.dispatchEvent(new CodeContextEvent(t1.type,{data:t1.data}));
                 }
                 if(events.length>0){
-                    lastEventTime=events.at(-1)!.time;
+                    lastEventSeq=events.at(-1)!.seq;
                 }
             }
         }catch(err:any){

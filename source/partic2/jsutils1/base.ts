@@ -6,6 +6,20 @@ try{
     new Function('this.globalThis=this')()
 }
 
+//.at polyfill
+if(String.prototype.at==undefined){
+    String.prototype.at=function(index:number){
+        if(index<0)index+=this.length;
+        return this.charAt(index);
+    }
+    function arrayAt(this:any,index:number){
+        if(index<0)index+=this.length;
+        return this[index];
+    }
+    globalThis.Array.prototype.at=arrayAt
+    Object.getPrototypeOf(Uint8Array.prototype).at=arrayAt;
+}
+
 
 //AbortController polyfill on https://github.com/mo/abortcontroller-polyfill
 (function(){
@@ -115,10 +129,12 @@ export class Task<T> {
             if (this.__abortController.signal.aborted) {
                 this.__iter!.throw(this.__abortController.signal.reason);
             }
+            let yieldResult:IteratorResult<TaskCallback<any>, any>;
             if (error != undefined) {
-                this.__iter!.throw(error);
+                yieldResult = this.__iter!.throw(error);
+            }else{
+                yieldResult = this.__iter!.next(tNext);
             }
-            let yieldResult = this.__iter!.next(tNext);
             if (!yieldResult.done) {
                 yieldResult.value.then(
                     r => this.__step(r, undefined),

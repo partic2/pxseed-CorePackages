@@ -119,6 +119,9 @@ class NotebookViewer extends React.Component<{context:WorkspaceContext,path:stri
                 ${JSON.stringify(this.props.path)}
             )`);
             if(this.state.codeContext!=undefined){
+                if(opt==undefined){
+                    opt=JSON.parse((await this.state.codeContext.runCode(`return JSON.stringify(jsnotebook)`)).stringResult??'{}');
+                }
                 this.state.codeContext.close();
                 this.state.codeContext.event.removeEventListener(`${__name__}.NotebookViewer`,this.__notebookViewerEventHandler)
             }
@@ -177,7 +180,7 @@ class NotebookViewer extends React.Component<{context:WorkspaceContext,path:stri
         let cells=ccl.saveTo();
         let saved={ver:1,rpc:this.getRpcStringRepresent(),path:this.props.path,cells} as any;
         if(this.state.codeContext!=undefined){
-            let jsnotebook=JSON.parse((await this.state.codeContext.runCode(`return JSON.stringify(jsnotebook)`)).stringResult!);
+            let jsnotebook=JSON.parse((await this.state.codeContext.runCode(`return JSON.stringify(jsnotebook)`)).stringResult??'{}');
             saved.startupScript=jsnotebook.startupScript;
         }
         await this.props.context.fs!.writeAll(this.props.path,utf8conv(JSON.stringify(saved)));

@@ -24,10 +24,12 @@ setupAsyncHook();
 
 export class CodeContextEventTarget extends EventTarget{
     //Used by RemoteCodeContext, to delegate event. 
-    _cachedEventQueue=new jsutils1.ArrayWrap2<{time:number,event:Event}>();
+    _cachedEventQueue=new jsutils1.ArrayWrap2<{time:number,event:Event,seq:number}>();
     _eventQueueExpiredTime=1000;
+    _lastSeq=0;
     dispatchEvent(event: CodeContextEvent): boolean {
-        this._cachedEventQueue.queueSignalPush({time:jsutils1.GetCurrentTime().getTime(),event});
+        this._lastSeq++;
+        this._cachedEventQueue.queueSignalPush({time:jsutils1.GetCurrentTime().getTime(),event,seq:this._lastSeq});
         setTimeout(()=>this._cachedEventQueue.arr().shift(),this._eventQueueExpiredTime);
         return super.dispatchEvent(event);
     }
