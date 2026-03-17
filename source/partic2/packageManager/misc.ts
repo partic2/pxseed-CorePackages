@@ -233,6 +233,49 @@ export async function serverConsoleLog(msg:string){
     }
 }
 
+async function addSystemStartupCommandWindows(name:string,cmd:string){
+    let tjs1=await buildTjs();
+    let dir1=`${tjs1.env['APPDATA']}\\Microsoft\\Windows\\Start Menu\\Programs\\Startup`;
+    let file1=await tjs1.open(`${dir1}\\pxseed-${name}.bat`,'w');
+    try{
+        await file1.write(utf8conv(cmd));
+    }finally{
+        file1.close().catch(()=>{});
+    }
+}
+async function addSystemStartupCommandLinux(name:string,cmd:string){
+    let tjs1=await buildTjs();
+    let dir1=`${tjs1.env['HOME']}/.config/autostart`
+    const desktopFile = [
+    '[Desktop Entry]',
+    'Type=Application',
+    'Version=1.0',
+    `Name=pxseed-${name}`,
+    `Comment=pxseed-${name} startup script`,
+    `Exec=${cmd}`,
+    'StartupNotify=false',
+    'Terminal=false'
+  ].join('\n')
+    let file1=await tjs1.open(`${dir1}/pxseed-${name}.desktop`,'w');
+    try{
+        await file1.write(utf8conv(desktopFile));
+    }finally{
+        file1.close().catch(()=>{});
+    }
+    await tjs1.chmod(`${dir1}/pxseed-${name}.desktop`,0o777);
+}
+export async function addSystemStartupCommand(name:string,cmd:string){
+    let tjs=await buildTjs();
+    let platform=tjs.system.platform;
+    if(platform==='windows'){
+        await addSystemStartupCommandWindows(name,cmd);
+    }else if(platform==='linux'){
+        await addSystemStartupCommandLinux(name,cmd);
+    }else{
+        throw new Error('Unsupported platform');
+    }
+}
+
 //Patch files in PXSEED_HOME from remote patch file.
 export async function patchPxseedServerFiles(patchIndexUrl:string){
     let resp=await defaultHttpClient.fetch(patchIndexUrl);

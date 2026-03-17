@@ -109,4 +109,7 @@ defaultFuncMap['JseHelper.JseIo.platform']=new RpcExtendServerCallable(async()=>
 defaultFuncMap['JseHelper.JseIo.getDataDir']=new RpcExtendServerCallable(async()=>{
     return path.join(getWWWRoot().replace(/\\/g,'/'),'..');
 }).typedecl('->s');
+defaultFuncMap['JseHelper.JseIo.chmod']=new RpcExtendServerCallable(async (path:string,mode:number)=>{
+    return await tjs.chmod(path,mode);
+}).typedecl('si->')
 })();

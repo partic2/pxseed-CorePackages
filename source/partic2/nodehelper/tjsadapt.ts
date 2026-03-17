@@ -622,11 +622,16 @@ async function listen(transport: Transport, host: string, port?: string | number
 /**
 * Changes the current working directory.
 */
-function chdir(dir: string): Promise<void>|undefined{
+async function chdir(dir: string): Promise<void>{
     process.chdir(dir)
     tjsi.cwd=dir;
     return undefined
 };
+
+async function chmod(path: string, mode: number): Promise<void>{
+    fs.chmod(path,mode)
+}
+
 
 
     let tjsi={
@@ -640,7 +645,7 @@ function chdir(dir: string): Promise<void>|undefined{
         listen,connect,
         makeTempFile,
         env:process.env,
-        chdir,
+        chdir,chmod,
         cwd:process.cwd(),
         __impl__:'partic2/nodehelper/tjsadapt'
     } as any;

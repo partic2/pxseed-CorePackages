@@ -4,11 +4,14 @@ import { buildTjs } from "partic2/tjshelper/tjsbuilder";
 import { TjsReaderDataSource, TjsWriterDataSink } from "partic2/tjshelper/tjsutil";
 import {assert, mutex} from "partic2/jsutils1/base";
 import { future, Task } from "partic2/jsutils1/base";
-import { RpcSerializeMagicMark } from "partic2/pxprpcClient/registry";
+import { getConnectionFromUrl, listPersistentRegistered, RpcSerializeMagicMark } from "partic2/pxprpcClient/registry";
 import { TaskLocalEnv } from "partic2/CodeRunner/CodeContext";
 import {SimpleFileSystem, simpleFileSystemHelper, TjsSfs} from 'partic2/CodeRunner/JsEnviron'
 import { getNodeCompatApi } from "pxseedBuildScript/util";
 import { getWWWRoot } from "partic2/jsutils1/webutils";
+import { RpcExtendClient1 } from "pxprpc/extend";
+import { Client } from "pxprpc/base";
+import { tjsFrom } from "../tjshelper/tjsonjserpc";
 
 export class TjsUtilsProcess{
 	stdin:WritableStream<Uint8Array>
@@ -185,16 +188,21 @@ export let files={
 		let fullpath=parts.join(sep??this.osPathSep);
 		return fullpath
 	},
-	async copySingleFile(src:string,dest:string){
-		await simpleFileSystemHelper.copyFile(this.simple!,src,dest);
-	},
-	async copyFileTree(srcDir:string,destDir:string,opt?:{ignore?:(name:string,path:string)=>boolean,maxDepth?:number,confilctPolicy?:'overwrite'|'skip'|'most recent'}){
+	async copySingleFile(src:string,dest:string,opt?:{srcFs?:SimpleFileSystem,destFs?:SimpleFileSystem}){
 		opt=opt??{};
+		if(opt.srcFs==undefined)opt.srcFs=this.simple!
+		if(opt.destFs==undefined)opt.destFs=this.simple!
+		await simpleFileSystemHelper.copyFile(opt.srcFs!,src,dest,opt.destFs!);
+	},
+	async copyFileTree(srcDir:string,destDir:string,opt?:{ignore?:(name:string,path:string)=>boolean,maxDepth?:number,confilctPolicy?:'overwrite'|'skip'|'most recent',srcFs?:SimpleFileSystem,destFs?:SimpleFileSystem}){
+		opt=opt??{};
+		if(opt.srcFs==undefined)opt.srcFs=this.simple!;
+		if(opt.destFs==undefined)opt.destFs=this.simple!;
 		if(opt.ignore==undefined)opt.ignore=()=>false;
 		if(opt.maxDepth==undefined)opt.maxDepth=1000;
 		opt.confilctPolicy=opt.confilctPolicy??'overwrite';
-        await this.simple!.mkdir(destDir);
-        let children=await this.simple!.listdir(srcDir);
+        await opt.destFs!.mkdir(destDir);
+        let children=await opt.srcFs!.listdir(srcDir);
         for(let t1 of children){
             if(opt.ignore(t1.name,[srcDir,t1.name].join('/'))){
                 continue;
@@ -207,8 +215,8 @@ export let files={
                 let needCopy=false;
 				if(opt.confilctPolicy==='most recent'){
 					try{
-						let dfile=await this.simple!.stat(destPath);
-						let sfile2=await this.simple!.stat(srcPath);
+						let dfile=await opt.destFs!.stat(destPath);
+						let sfile2=await opt.srcFs!.stat(srcPath);
 						if(dfile.mtime<sfile2.mtime){
 							needCopy=true;
 						}
@@ -218,17 +226,29 @@ export let files={
 				}else if(opt.confilctPolicy==='overwrite'){
 					needCopy=true;
 				}else if(opt.confilctPolicy==='skip'){
-					if(await this.simple!.filetype(destPath)==='none'){
+					if(await opt.destFs!.filetype(destPath)==='none'){
 						needCopy=true;
 					}
 				}else{
 					assert(false,'Invalid parameter:opt.conflictPolicy');
 				}
                 if(needCopy){
-					await this.copySingleFile(srcPath,destPath);
+					await this.copySingleFile(srcPath,destPath,opt);
                 }
             }
         }
+	},
+	async connectPxprpc(url:string):Promise<SimpleFileSystem>{
+		let conn=await getConnectionFromUrl(url);
+		assert(conn!=null);
+		let rpc1=await new RpcExtendClient1(new Client(conn)).init();
+		let {tjsFrom}=await import('partic2/tjshelper/tjsonjserpc');
+		let sfs=new TjsSfs().from(await tjsFrom(rpc1))
+		await sfs.ensureInited();
+		(sfs as any).close=function(){
+			rpc1.close();
+		}
+		return sfs;
 	}
 }
 

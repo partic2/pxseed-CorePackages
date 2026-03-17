@@ -303,20 +303,23 @@ export class ThrottleCall<T extends (...args: any) => any>{
 export function setupAsyncHook(){
 	if(!('__onAwait' in Promise)){
 		let asyncStackDepth=0;
+		let depth0Task:Task<any>|null=null;
 		(Promise as any).__onAsyncEnter=()=>{
+			if(asyncStackDepth===0)depth0Task=Task.currentTask
 			asyncStackDepth++;
 		}
 		(Promise as any).__onAsyncExit=()=>{
 			asyncStackDepth--;
-			if(asyncStackDepth===0){Task.currentTask=null;}
+			if(asyncStackDepth===0){Task.currentTask=depth0Task;}
 		}
 		//Only call ONCE for each 'await'
 		(Promise as any).__onAwait=async (p:PromiseLike<any>)=>{
 			Task.getAbortSignal()?.throwIfAborted();
 			let task=Task.currentTask;
 			asyncStackDepth--;
-			if(asyncStackDepth===0){Task.currentTask=null;}
+			if(asyncStackDepth===0){Task.currentTask=depth0Task;}
 			try{return await p;}finally{
+				if(asyncStackDepth===0)depth0Task=Task.currentTask
 				asyncStackDepth++;
 				Task.currentTask=task;
 			}

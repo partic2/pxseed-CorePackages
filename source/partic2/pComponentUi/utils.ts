@@ -105,20 +105,23 @@ export function docNode2text(node:Node){
  
 
 
-export async function GetCookieNamed(name:string) {
-    if (document.cookie.length > 0) {
-        let begin = document.cookie.indexOf(name + "=");
+export async function GetCookieNamed(name:string,cookie?:string) {
+    if(cookie==undefined){
+        cookie=globalThis.document.cookie;
+    }
+    if (cookie.length > 0) {
+        let begin = cookie.indexOf(name + "=");
         if (begin !== -1) {
             begin += name.length + 1;
-            let end = document.cookie.indexOf(";", begin);
-            if (end === -1) end = document.cookie.length;
-            return decodeURIComponent(document.cookie.substring(begin, end));
+            let end = cookie.indexOf(";", begin);
+            if (end === -1) end = cookie.length;
+            return decodeURIComponent(cookie.substring(begin, end));
         }
     }
     return null;
 }
 
-export async function PutCookie(name:string,value:string,maxAge?:number,path?:string){
+export function GeneratePutCookieString(name:string,value:string,maxAge?:number,path?:string){
     let cookieString=`${name}=${value};`
     if(maxAge!=undefined){
         cookieString+=`max-age=${maxAge};`
@@ -126,5 +129,9 @@ export async function PutCookie(name:string,value:string,maxAge?:number,path?:st
     if(path!=undefined){
         cookieString+=`path=${path};`
     }
-    document.cookie=cookieString;
+    return cookieString;
+}
+
+export async function PutCookie(name:string,value:string,maxAge?:number,path?:string){
+    document.cookie=GeneratePutCookieString(name,value,maxAge,path);
 }
