@@ -11,7 +11,6 @@ import { getNodeCompatApi } from "pxseedBuildScript/util";
 import { getWWWRoot } from "partic2/jsutils1/webutils";
 import { RpcExtendClient1 } from "pxprpc/extend";
 import { Client } from "pxprpc/base";
-import { tjsFrom } from "../tjshelper/tjsonjserpc";
 
 export class TjsUtilsProcess{
 	stdin:WritableStream<Uint8Array>
@@ -243,12 +242,21 @@ export let files={
 		assert(conn!=null);
 		let rpc1=await new RpcExtendClient1(new Client(conn)).init();
 		let {tjsFrom}=await import('partic2/tjshelper/tjsonjserpc');
-		let sfs=new TjsSfs().from(await tjsFrom(rpc1))
+		let sfs=new TjsSfs().from(await tjsFrom(rpc1));
 		await sfs.ensureInited();
 		(sfs as any).close=function(){
 			rpc1.close();
 		}
 		return sfs;
+	},
+	async openFileBrowserInNotebook(fs:SimpleFileSystem,initdir?:string){
+		let env=TaskLocalEnv.get();
+		if(env?.jsnotebook?.callFunctionInNotebookWebui!=undefined){
+			if((fs as any)[RpcSerializeMagicMark]==undefined){
+				(fs as any)[RpcSerializeMagicMark]={};
+			}
+			env.jsnotebook.callFunctionInNotebookWebui('partic2/JsNotebook/filebrowser','openFileBrowserWindowForSimpleFileSystem',[{fs,title:'File browser',initdir}]);
+		}
 	}
 }
 

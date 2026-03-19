@@ -12,8 +12,6 @@ import { path } from 'partic2/jsutils1/webutils'
 import { DebounceCall, utf8conv } from 'partic2/CodeRunner/jsutils2';
 import './workerinit'
 import {NotebookFileData, __internal__ as workeriniti} from './workerinit'
-import { RpcExtendClient1, RpcExtendServer1 } from 'pxprpc/extend';
-import { Client, Server } from 'pxprpc/base';
 import { SimpleReactForm1, ValueCheckBox } from 'partic2/pComponentUi/input';
 import {prompt} from 'partic2/pComponentUi/window'
 import { assert, GenerateRandomString } from 'partic2/jsutils1/base';
@@ -89,11 +87,14 @@ export class WorkspaceContext{
         this.saveStartupProfile=async ()=>{await saveStartupProfile.call()}
     }
     
-    fileBrowser=filebrowseri.FileBrowser
+    fileBrowserFactory:(p:{context:WorkspaceContext,ref:ReactRefEx<filebrowseri.FileBrowser>})=>React.VNode=(p)=>{
+        const Fb=filebrowseri.WorkspaceFileBrowser
+        return <Fb ref={p.ref} fs={p.context.fs!} context={p.context}/>
+    }
     title='JS Notebook'
     rootFileBrowser={
         windowHandler:undefined as NewWindowHandle|undefined,
-        rref:new ReactRefEx<InstanceType<typeof this.fileBrowser>>()
+        rref:new ReactRefEx<filebrowseri.FileBrowser>()
     }
     openedFileWindow=new Map<string,{windowHandler:NewWindowHandle}>();
     async openNewWindowForFile(args:{title:string,vnode:React.VNode,filePath:string,layoutHint?:string}){
@@ -117,8 +118,7 @@ export class WorkspaceContext{
     }
     async start(){
         await this.ensureInited();
-        let FileBrowser=this.fileBrowser
-        this.rootFileBrowser.windowHandler=await openNewWindow(<FileBrowser context={this} ref={this.rootFileBrowser.rref}/>,{title:this.title+' File Browser',layoutHint:__name__+'.FileBrowser'})
+        this.rootFileBrowser.windowHandler=await openNewWindow(this.fileBrowserFactory({context:this,ref:this.rootFileBrowser.rref}),{title:this.title+' File Browser',layoutHint:__name__+'.FileBrowser'})
         let fb=await this.rootFileBrowser.rref.waitValid();
         
         if(this.startupProfile==null){
@@ -168,7 +168,7 @@ async function openJSNotebookFirstProfileWorkspace(opt:{
     notebookDirectory?:((c:WorkspaceContext)=>Promise<string>)|string,
     sampleCode?:string[]
 }){
-    class NotebookOnlyFileBrowser extends filebrowseri.FileBrowser{
+    class NotebookOnlyFileBrowser extends filebrowseri.WorkspaceFileBrowser{
         async DoNew(): Promise<void> {
             let form1=new ReactRefEx<SimpleReactForm1>();
             let dlg=await prompt(<div><SimpleReactForm1 ref={form1}>
@@ -182,13 +182,13 @@ async function openJSNotebookFirstProfileWorkspace(opt:{
             if(await dlg.response.get()=='ok'){
                 let {isDir,name}=(await form1.waitValid()).value;
                 if(isDir){
-                    await this.props.context.fs!.mkdir(path.join((this.state.currPath??''),name));
+                    await this.props.fs!.mkdir(path.join((this.state.currPath??''),name));
                 }else if(name.endsWith('.ijsnb')){
-                    await this.props.context.fs!.writeAll(path.join((this.state.currPath??''),name),utf8conv(JSON.stringify({
+                    await this.props.fs!.writeAll(path.join((this.state.currPath??''),name),utf8conv(JSON.stringify({
                         rpc:opt.defaultRpc,startupScript:opt.defaultStartupScript
                     })))
                 }else{
-                    await this.props.context.fs!.writeAll(path.join((this.state.currPath??''),name),new Uint8Array(0));
+                    await this.props.fs!.writeAll(path.join((this.state.currPath??''),name),new Uint8Array(0));
                 }
                 await this.reloadFileInfo();
             }
@@ -199,7 +199,9 @@ async function openJSNotebookFirstProfileWorkspace(opt:{
     assert(rpc1!=null,'rpc not found.');
     let workspace=new WorkspaceContext(rpc1);
     await workspace.ensureInited();
-    workspace.fileBrowser=NotebookOnlyFileBrowser;
+    workspace.fileBrowserFactory=(p)=>{
+        return <NotebookOnlyFileBrowser ref={p.ref} fs={p.context.fs!} context={p.context}/>
+    };
     if(opt.notebookDirectory!=undefined){
         let nbdir='';
         if(typeof opt.notebookDirectory==='function'){
@@ -207,7 +209,6 @@ async function openJSNotebookFirstProfileWorkspace(opt:{
         }else{
             nbdir=workspace.wwwroot+'/'+opt.notebookDirectory;
         }
-        let createProfile=true;
         try{
             let profileData=await workspace.fs!.readAll(nbdir+'/profile.json');
             assert(profileData!=null);
