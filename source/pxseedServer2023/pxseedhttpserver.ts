@@ -6,7 +6,7 @@ import {Client, Server as PxprpcBaseServer, Server} from 'pxprpc/base'
 
 export var __name__=requirejs.getLocalRequireModule(require);
 
-import { addClient, createIoPipe, getPersistentRegistered, getRegistered, rpcWorkerInitModule, ServerHostRpcName, ServerHostWorker1RpcName } from 'partic2/pxprpcClient/registry';
+import { addClient, createIoPipe, getPersistentRegistered, getRegistered, importRemoteModule, rpcWorkerInitModule, ServerHostRpcName, ServerHostWorker1RpcName } from 'partic2/pxprpcClient/registry';
 
 import { GetUrlQueryVariable2, getWWWRoot, path } from 'partic2/jsutils1/webutils';
 import { SimpleFileServer, SimpleHttpServerRouter, WebSocketServerConnection } from 'partic2/tjshelper/httpprot';
@@ -267,7 +267,7 @@ async function copyFilesNewer(destDir:string,srcDir:string,maxDepth?:number,log?
 }
 
 export let serverCommandRegistry:Record<string,(param:any)=>any>={
-    buildPackages:async ()=>{
+    __workerBuildPackages:async ()=>{
         let {processDirectory}=await import('pxseedBuildScript/buildlib');
         let {getNodeCompatApi,withConsole}=await import('pxseedBuildScript/util');
         let {path,wwwroot}=await getNodeCompatApi();
@@ -281,12 +281,29 @@ export let serverCommandRegistry:Record<string,(param:any)=>any>={
         await withConsole(wrapConsole,()=>processDirectory(path.join(wwwroot,'..','source')));
         return records.map(t1=>t1.join(' ')).join('\n');
     },
-    rebuildPackages:async ()=>{
+    buildPackages:async ()=>{
+        let mod1=await importRemoteModule(await (await getPersistentRegistered(ServerHostWorker1RpcName)!)!.ensureConnected(),__name__) as typeof import('./pxseedhttpserver')
+        return mod1.serverCommand('__workerBuildPackages',{});
+    },
+    __workerRebuildPackages:async ()=>{
         let {processDirectory,cleanBuildStatus}=await import('pxseedBuildScript/buildlib');
-        let {getNodeCompatApi}=await import('pxseedBuildScript/util');
+        let {getNodeCompatApi,withConsole}=await import('pxseedBuildScript/util');
         let {path,wwwroot}=await getNodeCompatApi();
-        await cleanBuildStatus(path.join(wwwroot,'..','source'))
-        await processDirectory(path.join(wwwroot,'..','source'));
+        let records:any[][]=[];
+        let wrapConsole={...globalThis.console};
+        wrapConsole.debug=(...msg:any[])=>records.push(msg);
+        wrapConsole.info=(...msg:any[])=>records.push(msg);
+        wrapConsole.warn=(...msg:any[])=>records.push(msg);
+        wrapConsole.error=(...msg:any[])=>records.push(msg);
+        await withConsole(wrapConsole,async ()=>{
+            await cleanBuildStatus(path.join(wwwroot,'..','source'))
+            await processDirectory(path.join(wwwroot,'..','source'));
+        });
+        return records.map(t1=>t1.join(' ')).join('\n');
+    },
+    rebuildPackages:async ()=>{
+        let mod1=await importRemoteModule(await (await getPersistentRegistered(ServerHostWorker1RpcName)!)!.ensureConnected(),__name__) as typeof import('./pxseedhttpserver')
+        return mod1.serverCommand('__workerRebuildPackages',{});
     },
     getConfig:async ()=>{
         await loadConfig();

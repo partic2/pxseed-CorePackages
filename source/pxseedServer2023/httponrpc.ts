@@ -1,10 +1,11 @@
 import { ArrayBufferConcat, ArrayBufferToBase64, ArrayWrap2, Base64ToArrayBuffer, future, GenerateRandomString, partial, requirejs } from "partic2/jsutils1/base";
 import { defaultFuncMap, RpcExtendClient1, RpcExtendClientCallable, RpcExtendClientObject, RpcExtendServerCallable } from "pxprpc/extend";
 
-import {defaultHttpHandler} from './pxseedhttpserver'
+import {defaultHttpHandler, defaultRouter} from './pxseedhttpserver'
 import { utf8conv } from "partic2/CodeRunner/jsutils2";
 import { getRpcFunctionOn } from "partic2/pxprpcBinding/utils";
 import { WebSocketServerConnection } from "partic2/tjshelper/httpprot";
+import { getPersistentRegistered, importRemoteModule, ServerHostRpcName } from "partic2/pxprpcClient/registry";
 
 let __name__=requirejs.getLocalRequireModule(require);
 
@@ -68,6 +69,7 @@ defaultFuncMap[__name__+'.newHttpSession']=new RpcExtendServerCallable(async (re
         body=new ReadableStream({
             pull:async (controller: ReadableStreamDefaultController)=>{
                 let chunk=await session.requestBody.queueBlockShift();
+                console.info('#1 new chunk',chunk.length)
                 if(chunk.length>0){
                     controller.enqueue(chunk);
                 }else{
@@ -76,12 +78,13 @@ defaultFuncMap[__name__+'.newHttpSession']=new RpcExtendServerCallable(async (re
             }
         });
     }
-    let req=new Request(url,{headers,method,body});
+    let req=new Request(url,{headers,method,body,duplex: 'half'} as RequestInit);
     session.request=req;
     return session
 }).typedecl('b->o')
 defaultFuncMap[__name__+'.writeHttpRequestBody']=new RpcExtendServerCallable(async (session:HttpSession,data:Uint8Array)=>{
     if(session.protocol==='http'){
+        console.info('#2 push chunk ',data.length)
         session.requestBody.queueSignalPush(data);
     }else if(session.protocol==='ws'){
         session.websocketRecv.queueSignalPush(data);
@@ -118,7 +121,7 @@ defaultFuncMap[__name__+'.readHttpResponseBody']=new RpcExtendServerCallable(asy
 }).typedecl('o->b');
 
 
-export class HttpOnRpcFunction{
+export class HttpRequestForwardOnRpc{
     constructor(public client1:RpcExtendClient1){}
     async fetch(req:Request):Promise<Response>{
         let {url,method,headers:headers2}=req;
@@ -136,10 +139,12 @@ export class HttpOnRpcFunction{
                     for(let readResult=await reader.read();!readResult.done;readResult=await reader.read()){
                         await writeHttpRequestBody!.call(httpSession,readResult.value);
                     }
+                    await writeHttpRequestBody!.call(httpSession,new Uint8Array(0));
                 })();
             }
             let fetchHttpResponse=await getRpcFunctionOn(this.client1,__name__+'.fetchHttpResponse','o->b');
             let readHttpResponseBody=await getRpcFunctionOn(this.client1,__name__+'.readHttpResponseBody','o->b');
+            
             let {status,statusText}=JSON.parse(utf8conv(await fetchHttpResponse!.call(httpSession) as Uint8Array));
             let resp2=new Response(new ReadableStream({
                 pull:async (controller: ReadableStreamDefaultController)=>{
@@ -193,5 +198,16 @@ export class HttpOnRpcFunction{
     }
 }
 
+export async function __serverHostForwardHttpRequestToRpcWorker(prefix:string,rpc:string|null){
+    if(rpc==null){
+        defaultRouter.setHandler(prefix,null);
+    }else{
+        defaultRouter.setHandler(prefix,new HttpRequestForwardOnRpc(await (await getPersistentRegistered(rpc))!.ensureConnected()));
+    }
+}
 
+export async function forwardHttpRequestToRpcWorker(prefix:string,rpc:string|null){
+    let httponrpc=await importRemoteModule(await (await getPersistentRegistered(ServerHostRpcName))!.ensureConnected(),__name__) as typeof import('./httponrpc');
+    httponrpc.__serverHostForwardHttpRequestToRpcWorker(prefix,rpc);
+}
 
