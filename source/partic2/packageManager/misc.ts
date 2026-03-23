@@ -1,9 +1,9 @@
-import { ArrayWrap2, assert, DateDiff, GetCurrentTime, logger, requirejs, sleep, throwIfAbortError } from 'partic2/jsutils1/base';
+import { ArrayWrap2, assert, DateDiff, future, GetCurrentTime, logger, mutex, requirejs, sleep, throwIfAbortError } from 'partic2/jsutils1/base';
 import { RemoteRunCodeContext } from 'partic2/CodeRunner/RemoteCodeContext';
 
 import { getPersistentRegistered, importRemoteModule, ServerHostRpcName, ServerHostWorker1RpcName } from 'partic2/pxprpcClient/registry'
 import { defaultHttpClient, GetPersistentConfig, getWWWRoot, SavePersistentConfig } from 'partic2/jsutils1/webutils';
-import { Singleton, utf8conv } from 'partic2/CodeRunner/jsutils2';
+import { DebounceCall, Singleton, utf8conv } from 'partic2/CodeRunner/jsutils2';
 import { buildTjs } from 'partic2/tjshelper/tjsbuilder';
 import { getNodeCompatApi } from 'pxseedBuildScript/util';
 import { defaultFileSystem, ensureDefaultFileSystem, getSimpleFileSysteNormalizedWWWRoot, simpleFileSystemHelper } from 'partic2/CodeRunner/JsEnviron';
@@ -11,16 +11,8 @@ import { defaultFileSystem, ensureDefaultFileSystem, getSimpleFileSysteNormalize
 
 export let __name__='partic2/packageManager/misc';
 
-let remoteModule={
-    misc:new Singleton(async ()=>{
-        return await importRemoteModule(
-            await (await getPersistentRegistered(ServerHostWorker1RpcName))!.ensureConnected(),'partic2/packageManager/misc') as typeof import('partic2/packageManager/misc');
-    })
-}
 
-export async function cleanWWW(dir?:string){
-    //Client side missing.
-
+export async function cleanWWW(dir:string|null){
     let {dirname,join} = await import('path')
     let {readdir,rm, rmdir}=await import('fs/promises')
 
@@ -54,94 +46,38 @@ export async function cleanWWW(dir?:string){
     return {emptyDir};
 }
 
-let config1:undefined|{
-    lastCodeUpateTime?:number
-}=undefined;
 
-export async function ensureCodeUpdated(opt:{reload?:boolean}){
-    if(globalThis.process?.versions?.node!=undefined){
-        let {dirname,join} = await import('path')
-        let { processDirectory } =await import('pxseedBuildScript/buildlib');
-        config1=await GetPersistentConfig(__name__);
-        if(config1!.lastCodeUpateTime==undefined){
-            config1!.lastCodeUpateTime=0;
-        }
-        if(DateDiff(GetCurrentTime(),new Date(config1!.lastCodeUpateTime),'second')>20){
-            let sourceDir=join(dirname(dirname(dirname(__dirname))),'source');
-            await processDirectory(sourceDir);
-            config1!.lastCodeUpateTime=GetCurrentTime().getTime();
-            await SavePersistentConfig(__name__);
-        }
-        if(opt.reload==true){
-            let serverConfig=await import('pxseedServer2023/pxseedhttpserver');
-            if(serverConfig.config.subprocessIndex!=undefined){
-                (async ()=>{
-                    await sleep(100);
-                    let clientFunc=await import('pxseedServer2023/clientFunction');
-                    clientFunc.restartSubprocessSelf()
-                })()
+export async function findPxseedPackageContainFile(file:string):Promise<{
+    sourceRoot:string,outputRoot:string,
+    pkgName:string|null,pkgPath:string|null
+}>{
+    let {fs,path,wwwroot}=await getNodeCompatApi()
+    let {dirname,join} = path;
+    let {access}=fs;
+    let { processDirectory } =await import('pxseedBuildScript/buildlib');
+    let sourceDir=join(dirname(dirname(dirname(__dirname))),'source');
+    let splitPath=file.split(/[\\\/]/);
+    let pkgPath:string|null=null;
+    for(let t1 of ArrayWrap2.IntSequence(splitPath.length,-1)){
+        try{
+            let testConfig=join(...splitPath.slice(0,t1),'pxseed.config.json');
+            if(wwwroot.startsWith('/')){
+                testConfig='/'+testConfig;
             }
-        }
-    }else{
-        let misc=await remoteModule.misc.get();
-        config1=await GetPersistentConfig(__name__);
-        if(config1!.lastCodeUpateTime==undefined){
-            config1!.lastCodeUpateTime=0;
-        }
-        if(DateDiff(GetCurrentTime(),new Date(config1!.lastCodeUpateTime),'second')>20){
-            await misc.ensureCodeUpdated(opt);
-            config1!.lastCodeUpateTime=GetCurrentTime().getTime();
-            await SavePersistentConfig(__name__);
-            if(opt.reload==true){
-                await sleep(300);
-                window.location.reload();
-            }
+            await access(testConfig);
+            pkgPath=join(testConfig,'..');
+            break;
+        }catch(e:any){
         }
     }
+    let pkgName=null;
+    if(pkgPath!=null){
+        pkgName=pkgPath.substring(sourceDir.length+1).replace(/\\/g,'/');
+    }
+    return {sourceRoot:sourceDir,outputRoot:join(dirname(sourceDir),'www'),pkgName,pkgPath};
 }
 
 
-export async function getServerWWWRoot():Promise<string>{
-    if(globalThis.location?.protocol==undefined || !globalThis.location.protocol.startsWith('http')){
-        return getWWWRoot()
-    }else{
-        let misc=await remoteModule.misc.get();
-        return await misc.getServerWWWRoot();
-    }
-}
-
-export async function processDirectoryContainFile(file:string):Promise<{sourceRoot:string,outputRoot:string,pkgName:string|null}>{
-    if(globalThis.process?.versions?.node!=undefined){
-        let {fs,path,wwwroot}=await getNodeCompatApi()
-        let {dirname,join} = path;
-        let {access}=fs;
-        let { processDirectory } =await import('pxseedBuildScript/buildlib');
-        let sourceDir=join(dirname(dirname(dirname(__dirname))),'source');
-        let splitPath=file.split(/[\\\/]/);
-        let pkgPath:string|null=null;
-        for(let t1 of ArrayWrap2.IntSequence(splitPath.length,-1)){
-            try{
-                let testConfig=join(...splitPath.slice(0,t1),'pxseed.config.json');
-                if(wwwroot.startsWith('/')){
-                    testConfig='/'+testConfig;
-                }
-                await access(testConfig);
-                pkgPath=join(testConfig,'..');
-                break;
-            }catch(e:any){
-            }
-        }
-        let pkgName=null;
-        if(pkgPath!=null){
-            await processDirectory(pkgPath);
-            pkgName=pkgPath.substring(sourceDir.length+1).replace(/\\/g,'/');
-        }
-        return {sourceRoot:sourceDir,outputRoot:join(dirname(sourceDir),'www'),pkgName};
-    }else{
-        let misc=await remoteModule.misc.get();
-        return await misc.processDirectoryContainFile(file);
-    }
-}
 
 
 async function findBrowserExecutableWin32():Promise<{type:'gecko'|'chromium',exePath:string}|null>{
@@ -210,6 +146,7 @@ export async function findBrowserExecutable():Promise<{type:'gecko'|'chromium',e
     }
 }
 
+
 export async function openUrlInBrowser(url:string,opts?:{appMode?:boolean}){
     let browser=await findBrowserExecutable();
     assert(browser!==null,"Can't found an available browser.");
@@ -224,14 +161,11 @@ export async function openUrlInBrowser(url:string,opts?:{appMode?:boolean}){
     tjs.spawn(args);
 }
 
+
 export async function serverConsoleLog(msg:string){
-    if(globalThis.location?.protocol==undefined || !globalThis.location.protocol.startsWith('http')){
-        console.info(msg);
-    }else{
-        let misc=await remoteModule.misc.get();
-        await misc.serverConsoleLog(msg);
-    }
+    console.info(msg);
 }
+
 
 async function addSystemStartupCommandWindows(name:string,cmd:string){
     let tjs1=await buildTjs();
@@ -264,6 +198,7 @@ async function addSystemStartupCommandLinux(name:string,cmd:string){
     }
     await tjs1.chmod(`${dir1}/pxseed-${name}.desktop`,0o777);
 }
+
 export async function addSystemStartupCommand(name:string,cmd:string){
     let tjs=await buildTjs();
     let platform=tjs.system.platform;
@@ -347,4 +282,65 @@ export async function generatePxseedServerFilesPatch(patchDir:string[]){
         await iterDir(pxseedHome+'/'+t1,30);
     }
     await fs.writeAll(pxseedHome+'/www/'+__name__+'/PxseedServerFilesPatch.json',utf8conv(JSON.stringify(patchIndex)))
+}
+
+let buildWatcher={
+    event:new future<Array<{event:string,pkgName:string}>>(),
+    fsw:null as null|{close:()=>void},
+    pendingBuildingTask:new Set<string>()
+}
+
+export async function processDirectoryAndNotify(pkgName:string){
+    let { processDirectory } =await import('pxseedBuildScript/buildlib');
+    let {path,wwwroot}=await getNodeCompatApi();
+    await processDirectory(path.join(wwwroot,'..','source',pkgName));
+    buildWatcher.event.setResult([{event:'build',pkgName}]);
+    buildWatcher.event=new future();
+}
+
+export async function processDirectoryContainFile(file:string):Promise<{
+    sourceRoot:string,outputRoot:string,
+    pkgName:string|null,pkgPath:string|null
+}>{
+    let r=await findPxseedPackageContainFile(file);
+    if(r.pkgName!=null){
+        await processDirectoryAndNotify(r.pkgName);
+    }
+    return r;
+}
+
+export async function waitBuildWatcherEvent(){
+    return buildWatcher.event.get();
+}
+
+let fileSystemWatcherAutoBuildDebounceCall=new DebounceCall(async ()=>{
+    let copy=Array.from(buildWatcher.pendingBuildingTask);
+    buildWatcher.pendingBuildingTask.clear();
+    for(let t1 of copy){
+        await processDirectoryAndNotify(t1);
+    }
+},1000);
+
+export async function startFileSystemWatcherAutoBuild(){
+    if(buildWatcher.fsw==null){
+        let nfs=await import('fs');
+        let {fs,path,wwwroot}=await getNodeCompatApi();
+        let sourceRoot=path.join(wwwroot,'..','source');
+        buildWatcher.fsw=nfs.watch(sourceRoot,{recursive:true},async (ev,fn)=>{
+            if(fn!=null && fn.match(/[\\\/]\./)==null){
+                let {pkgName}=await findPxseedPackageContainFile(path.join(sourceRoot,fn));
+                if(pkgName!=null){
+                    buildWatcher.pendingBuildingTask.add(pkgName);
+                    await fileSystemWatcherAutoBuildDebounceCall.call();
+                }
+            }
+        });
+    }
+}
+
+export async function stopFileSystemWatcherAutoBuild(){
+    if(buildWatcher.fsw!=null){
+        buildWatcher.fsw.close();
+        buildWatcher.fsw=null;
+    }
 }

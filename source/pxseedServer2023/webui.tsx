@@ -6,8 +6,8 @@ import {RegistryUI} from 'partic2/pxprpcClient/ui'
 import type {PxseedServer2023StartupConfig} from './pxseedhttpserver'
 import {TextEditor} from 'partic2/pComponentUi/texteditor'
 import { DomRootComponent, ReactRefEx,ReactRender,css } from 'partic2/pComponentUi/domui'
-import { alert,prompt } from 'partic2/pComponentUi/window'
-import { openNewWindow} from 'partic2/pComponentUi/workspace'
+import { alert,confirm,prompt } from 'partic2/pComponentUi/window'
+import { openNewWindow, setBaseWindowView} from 'partic2/pComponentUi/workspace'
 import { getAttachedRemoteRigstryFunction, getPersistentRegistered, ServerHostRpcName, ServerHostWorker1RpcName } from 'partic2/pxprpcClient/registry'
 import { PxseedServer2023Function } from './clientFunction'
 import { requirejs, sleep, throwIfAbortError } from 'partic2/jsutils1/base'
@@ -53,8 +53,12 @@ export class PxseedServerAdministrateTool extends React.Component<{},{
         await this.rpcFunc!.saveConfig(JSON.parse((await this.rref.configView.waitValid()).getPlainText()))
     }
     async buildEnviron(){
-        let resp=await this.rpcFunc!.buildEnviron();
-        prompt(<pre>{resp}</pre>);
+        await alertIfError(async()=>{
+            let ur=await confirm('build environ?');
+            if(ur=='cancel')return;
+            let resp=await this.rpcFunc!.buildEnviron();
+            prompt(<pre>{resp}</pre>);
+        });
     }
     async buildPackage(){
         await alertIfError(async()=>{
@@ -66,21 +70,26 @@ export class PxseedServerAdministrateTool extends React.Component<{},{
     }
     async forceRebuildPackages(){
         await alertIfError(async()=>{
+            let ur=await confirm('force rebuild package?');
+            if(ur=='cancel')return;
             let resp=await this.rpcFunc!.rebuildPackages();
             let wnd=await prompt(<pre>{resp}</pre>);
             await wnd.response.get();
             wnd.close();
         });
-        
     }
     async restartSubprocess(index:number){
         await alertIfError(async()=>{
+            let ur=await confirm('restart subprocess '+index+'?');
+            if(ur=='cancel')return;
             await this.rpcFunc!.subprocessRestart(index);
             await alert('restart done');
         });
     }
     async restartServerHostWorker1(){
         await alertIfError(async()=>{
+            let ur=await confirm('restart server host worker?');
+            if(ur=='cancel')return;
             let host1=await getPersistentRegistered(ServerHostWorker1RpcName);
             let client1=await host1!.ensureConnected();
             let funcs=await getAttachedRemoteRigstryFunction(client1);
@@ -178,6 +187,6 @@ export function *main(){
 
 ;(async ()=>{
     if(__name__==GetJsEntry()){
-        ReactRender(<PxseedServerAdministrateTool/>,DomRootComponent);
+        setBaseWindowView(<PxseedServerAdministrateTool/>);
     }
 })();
