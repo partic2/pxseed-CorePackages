@@ -192,16 +192,17 @@ export let pxseedBuiltinLoader={
                     input:[mod],
                     plugins,
                     external:(source: string, importer: string | undefined, isResolved: boolean):boolean|null => {
+                        let isExternal=false;
                         if(source!=mod && config.entryModules.includes(source)){
-                            return true;
+                            isExternal=true;
                         }
-                        if(source!=mod && !(source.startsWith('.') || source.startsWith('/')) && !config.noImplicitExternal?.includes(mod) && !config.bundle?.includes(source)){
+                        if(source!=mod && !(/^\.[\\\/]/.test(source) || source.startsWith('/') || /^[a-zA-Z]:[\\\/]/.test(source)) && !config.noImplicitExternal?.includes(mod) && !config.bundle?.includes(source)){
                             if(!config.entryModules.includes(source)){
                                 config.entryModules.push(source);
                             }
-                            return true;
+                            isExternal=true;
                         }
-                        return false;
+                        return isExternal;
                     }
                 });
                 await task.write({
