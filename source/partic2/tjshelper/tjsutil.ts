@@ -1,9 +1,11 @@
 /*jshint node:true */
 
-import { ArrayBufferConcat, ArrayWrap2, DateDiff, GetCurrentTime, assert, logger, requirejs } from "partic2/jsutils1/base";
+import { ArrayBufferConcat, ArrayWrap2, DateDiff, GetCurrentTime, assert, future, logger, requirejs, throwIfAbortError } from "partic2/jsutils1/base";
 import { Io, Serializer } from "pxprpc/base";
-import { RpcExtendClient1, RpcExtendClientCallable, RpcExtendClientObject } from "pxprpc/extend";
-import { getRpcFunctionOn } from "partic2/pxprpcBinding/utils";
+import {TjsTlsClient} from './tjsenv'
+import type { HttpClient } from "./httpprot";
+import { u8hexconv } from "partic2/CodeRunner/jsutils2";
+
 
 
 
@@ -72,54 +74,119 @@ export class PxprpcIoFromTjsStream implements Io{
 	
 }
 
-class CTxikijsPxprpcBinding{
-    rpc!:RpcExtendClient1;
-    protected remoteSslClientPopCipherSend:RpcExtendClientCallable|null=null;
-    protected remoteSslClientPushCipherRecv:RpcExtendClientCallable|null=null;
-    protected remoteSslClientWritePlain:RpcExtendClientCallable|null=null;
-    protected remoteSslClientReadPlain:RpcExtendClientCallable|null=null;
-	//Safe to call multitimes.
-	async init(){
-		if(this.rpc==undefined){
-			let {getRpc4RuntimeBridge0}=await import("partic2/pxprpcBinding/rpcregistry");
-			this.rpc=await getRpc4RuntimeBridge0();
+
+export class TlsStream{
+	protected plainReadBuffer!:ReadableStreamDefaultController<Uint8Array>
+	protected cipherReadQueue=new Array<Uint8Array>();
+	protected plainWriteQueue=new Array<Uint8Array>();
+	protected cipherWriteQueue=new Array<Uint8Array>();
+	protected tjstlsc:TjsTlsClient;
+	protected pumpSignal=new future<number>();
+	protected abortControl=new AbortController();
+	
+	r=new ReadableStream<Uint8Array>({
+		start:(ctl)=>{this.plainReadBuffer=ctl;}
+	});
+	w=new WritableStream<Uint8Array>({
+		write:async (chunk,ctl)=>{
+			this.plainWriteQueue.push(chunk);
+			this.pumpSignal.setResult(0);
+		}
+	});
+	constructor(protected underlying:{r:ReadableStream<Uint8Array>,w:WritableStream},public servername?:string){
+		this.tjstlsc=new TjsTlsClient(servername);
+		this.pump()
+	}
+	async pump(){
+		let w2=this.underlying.w.getWriter();
+		let r2=this.underlying.r.getReader();
+		this.abortControl.signal.addEventListener('abort',(ev)=>{
+			let err=new Error();
+			err.name='AbortError'
+			this.pumpSignal.setException(err);
+		});
+		;(async ()=>{
+			while(!this.abortControl.signal.aborted){
+				let next=await r2.read();
+				if(next.done)break;
+				this.cipherWriteQueue.push(next.value);
+				this.pumpSignal.setResult(0);
+			}
+		})().catch(()=>{}).finally(()=>{this.close()})
+		try{
+			while(!this.abortControl.signal.aborted){
+				let shouldWaitSignal=true;
+				let count=0;
+				if(this.plainWriteQueue.length>0){
+					let t1=this.plainWriteQueue.shift()!;
+					count=await this.tjstlsc.writePlain(t1);
+					if(count<t1.length){
+						t1=new Uint8Array(t1.buffer,t1.byteOffset+count,t1.length-count);
+						this.plainWriteQueue.unshift(t1);
+					}
+					if(count>0){
+						shouldWaitSignal=false;
+					}
+				}
+				let buf=new Uint8Array(4096);
+				count=await this.tjstlsc.readCipherSendBuffer(buf);
+				if(count>0){
+					await w2.write(new Uint8Array(buf.buffer,0,count));
+					shouldWaitSignal=false;
+				}
+				if(this.cipherWriteQueue.length>0){
+					let t1=this.cipherWriteQueue.shift()!;
+					count=await this.tjstlsc.writeCipherRecvBuffer(t1);
+					if(count<t1.length){
+						t1=new Uint8Array(t1.buffer,t1.byteOffset+count,t1.length-count);
+						this.cipherWriteQueue.unshift(t1);
+					}
+					if(count>0){
+						shouldWaitSignal=false;
+					}
+				}
+				count=await this.tjstlsc.readPlain(buf);
+				if(count>0){
+					this.plainReadBuffer.enqueue(new Uint8Array(buf.buffer,0,count));
+					shouldWaitSignal=false;
+				}
+				if(shouldWaitSignal){
+					await this.pumpSignal.get();
+					this.pumpSignal=new future();
+				}
+			}		
+		}finally{
+			this.close();
 		}
 	}
-    async NewSslClientContext(hostname:string){
-        return (await getRpcFunctionOn(this.rpc,'pxprpc_txikijs.NewSslClientContext','s->o'))!.call(hostname);        
-    }
-    async SslClientPopCipherSend(sslCtx:RpcExtendClientObject){
-        if(this.remoteSslClientPopCipherSend==null){
-            this.remoteSslClientPopCipherSend=await getRpcFunctionOn(this.rpc,'pxprpc_txikijs.SslClientPopCipherSend','o->b')
-        }
-        return await this.remoteSslClientPopCipherSend!.call(sslCtx) as Uint8Array;
-    }
-    async SslClientPushCipherRecv(sslCtx:RpcExtendClientObject,data:Uint8Array){
-        if(this.remoteSslClientPushCipherRecv==null){
-            this.remoteSslClientPushCipherRecv=await getRpcFunctionOn(this.rpc,'pxprpc_txikijs.SslClientPushCipherRecv','ob->')
-        }
-        return await this.remoteSslClientPushCipherRecv!.call(sslCtx,data);
-    }
-    async SslClientWritePlain(sslCtx:RpcExtendClientObject,data:Uint8Array){
-        if(this.remoteSslClientWritePlain==null){
-            this.remoteSslClientWritePlain=await getRpcFunctionOn(this.rpc,'pxprpc_txikijs.SslClientWritePlain','ob->i')
-        }
-        return await this.remoteSslClientWritePlain!.call(sslCtx,data) as number;
-    }
-    async SslClientReadPlain(sslCtx:RpcExtendClientObject){
-        if(this.remoteSslClientReadPlain==null){
-            this.remoteSslClientReadPlain=await getRpcFunctionOn(this.rpc,'pxprpc_txikijs.SslClientReadPlain','o->b')
-        }
-        return await this.remoteSslClientReadPlain!.call() as Uint8Array;
-    }
-    async NewRuntime(){
-        let param=new Serializer().prepareSerializing(8);
-        param.putInt(0);
-        return await (await getRpcFunctionOn(this.rpc,'pxprpc_txikijs.NewRuntime','b->o'))!.call(param.build()) as RpcExtendClientObject;
-    }
-    async RunJs(rt:RpcExtendClientObject,jsCode:string){
-        await (await getRpcFunctionOn(this.rpc,'pxprpc_txikijs.RunJs','os->'))!.call(rt,jsCode);
-    }
+	closed=false;
+	close(){
+		if(!this.closed){
+			this.closed=true;
+			this.abortControl.abort();
+			this.underlying.w.close();
+			this.underlying.r.cancel()
+			this.w.close();
+			this.plainReadBuffer.close();
+			this.tjstlsc.close();
+		}
+	}
 }
 
-export let txikijsPxprpc=new CTxikijsPxprpcBinding();
+
+let httpClient:HttpClient|null=null;
+export let polyfill={
+	fetch: async function(
+		input: string | URL | globalThis.Request,
+		init?: RequestInit,
+	): Promise<Response>{
+		if(httpClient==null){
+			let { buildTjs }=await import("./tjsbuilder");
+			let {HttpClient}=await import('./httpprot')
+			httpClient=new HttpClient();
+			httpClient.setConnectorTjs((await buildTjs()).connect);
+			httpClient.makeSsl=async (underlying,servername)=>new TlsStream(underlying,servername)
+		}
+		return httpClient.fetch(new Request(input,init))
+	}
+}
