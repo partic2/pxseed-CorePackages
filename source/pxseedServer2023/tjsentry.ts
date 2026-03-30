@@ -1,7 +1,6 @@
 import { assert, GetCurrentTime, requirejs, Task } from 'partic2/jsutils1/base';
 import { RpcExtendClient1, RpcExtendServer1, TableSerializer } from 'pxprpc/extend';
-import 'partic2/tjshelper/tjsenv'
-import {PxprpcRtbIo} from 'partic2/tjshelper/tjsenv'
+import {PxprpcRtbIo,__inited__ as tjsenvinited} from 'partic2/tjshelper/tjsenv'
 import { Client,Server as PxprpcBaseServer } from 'pxprpc/base';
 import { rpcWorkerInitModule } from 'partic2/pxprpcClient/registry';
 import { getRpcFunctionOn } from "partic2/pxprpcBinding/utils";
@@ -12,7 +11,6 @@ import { DirAsRootFS, TjsSfs } from 'partic2/CodeRunner/JsEnviron';
 import { getWWWRoot, path } from 'partic2/jsutils1/webutils';
 import {Invoker as rtbridgeInvoker} from 'partic2/pxprpcBinding/pxprpc_rtbridge'
 import * as pxseedhttpserver from './pxseedhttpserver';
-import { WebSocketIo } from 'pxprpc/backend';
 
 let __name__=requirejs.getLocalRequireModule(require);
 
@@ -26,6 +24,8 @@ export async function getLoaderInfo(): Promise<{pxseedLoaderDataDir:string,proce
 
 
 export let __inited__=(async ()=>{
+    await tjsenvinited;
+    
     assert(globalThis.__pxprpc4tjs__!=undefined);
     let io1=await PxprpcRtbIo.connect('/pxprpc/runtime_bridge/0');
     assert(io1!=null);

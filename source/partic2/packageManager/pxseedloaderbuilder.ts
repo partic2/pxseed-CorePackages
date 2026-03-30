@@ -223,7 +223,7 @@ export class PxseedLoaderBuilder{
         for(let currAbi of this.androidAbi){
             let flags=[this.cmake]
             flags.push(`-DANDROID_NATIVE_API_LEVEL=${this.androidBuildSdkVersion}`)
-            flags.push(`-DCMAKE_TOOLCHAIN_FILE=${this.AndroidNdk!}/build/cmake/android.toolchain.cmake`);
+            flags.push(`-DCMAKE_TOOLCHAIN_FILE=${this.AndroidNdk!.replace(/\\/g,'/')}/build/cmake/android.toolchain.cmake`);
             flags.push('-DCMAKE_BUILD_TYPE=RELEASE');
             flags.push(`-DANDROID_ABI=${currAbi}`)
             flags.push('-G',`${this.cmakeGenerator}`);
@@ -244,10 +244,15 @@ export class PxseedLoaderBuilder{
             }
             await tjsi.copyFile(builddir+'/build-pxprpc_rtbridge/libpxprpc_rtbridge.so',jniDir+'/libpxprpc_rtbridge.so');
             try{
-                await this.copyFilesNewer(this.pxseedLoaderSource+'/android-project/src/main/assets/res/tjs-initialize',builddir+'/build-txiki.js/tjs-initialize')
+                await this.copyFilesNewer(this.pxseedLoaderSource+'/android-project/src/main/assets/res/tjs-initialize',this.pxseedLoaderSource+'/deps/txiki.js/src/js')
             }catch(err){}
         }
-        await this.runCommand([this.pxseedLoaderSource+'/android-project/gradlew','assembleRelease'],[this.pxseedLoaderSource,'android-project'].join(pathsep));
+        if(tjsi.system.platform==='windows'){
+            await this.runCommand(['cmd','/c',this.pxseedLoaderSource+'/android-project/gradlew.bat','assembleRelease'],[this.pxseedLoaderSource,'android-project'].join(pathsep));
+        }else{
+            await this.runCommand([this.pxseedLoaderSource+'/android-project/gradlew','assembleRelease'],[this.pxseedLoaderSource,'android-project'].join(pathsep));
+        }
+        
         await tjsi.copyFile(this.pxseedLoaderSource+'/android-project/build/outputs/apk/release/xplatj-release.apk',this.pxseedLoaderSource+'/launcher/build/pxseedloader-release.apk')
     }
     async buildDesktopRelease(){
@@ -268,8 +273,8 @@ export class PxseedLoaderBuilder{
             try{
                 let flags=[this.cmake];
                 flags.push('-DCMAKE_BUILD_TYPE=RELEASE')
-                flags.push(`-DCMAKE_C_COMPILER=${buildToolchain.CC}`);
-                flags.push(`-DCMAKE_CXX_COMPILER=${buildToolchain.CXX}`);
+                flags.push(`-DCMAKE_C_COMPILER=${buildToolchain.CC.replace(/\\/g,'/')}`);
+                flags.push(`-DCMAKE_CXX_COMPILER=${buildToolchain.CXX.replace(/\\/g,'/')}`);
                 flags.push('-DXPLATJ_GUESS_TOOLCHAIN_VARIABLE=ON')
                 flags.push('-S',this.pxseedLoaderSource+'/launcher')
                 flags.push('-G',`${this.cmakeGenerator}`)
@@ -288,7 +293,7 @@ export class PxseedLoaderBuilder{
                     }catch(err){};
                 }
                 await this.copyFilesNewer(outdir,this.pxseedLoaderSource+'/commonj/src/main/assets')
-                await this.copyFilesNewer(outdir+'/res/tjs-initialize',builddir+'/build-txiki.js/tjs-initialize');
+                await this.copyFilesNewer(outdir+'/res/tjs-initialize',this.pxseedLoaderSource+'/deps/txiki.js/src/js');
                 
             }finally{
                 if(buildToolchain.APPENDENV!=undefined){

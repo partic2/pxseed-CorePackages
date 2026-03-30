@@ -1,7 +1,6 @@
 import { assert, GetCurrentTime, requirejs, Task } from 'partic2/jsutils1/base';
-import { RpcExtendClient1, RpcExtendClientCallable, RpcExtendClientObject, RpcExtendServer1, TableSerializer } from 'pxprpc/extend';
-import 'partic2/tjshelper/tjsenv'
-import {PxprpcRtbIo} from 'partic2/tjshelper/tjsenv'
+import { RpcExtendClient1, TableSerializer } from 'pxprpc/extend';
+import {PxprpcRtbIo,__inited__ as tjsenvinited} from 'partic2/tjshelper/tjsenv'
 import { Client,Server as PxprpcBaseServer, Serializer } from 'pxprpc/base';
 import { rpcWorkerInitModule } from 'partic2/pxprpcClient/registry';
 import { getRpcFunctionOn } from 'partic2/pxprpcBinding/utils';
@@ -54,6 +53,8 @@ export async function openWebviewForEntry(entryUrl:string){
 
 
 export let __inited__=(async ()=>{
+    await tjsenvinited;
+        
     assert(globalThis.__pxprpc4tjs__!=undefined);;
     pxprpcRuntimeBridgeClient=await getRpc4RuntimeBridge0();
 

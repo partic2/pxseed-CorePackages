@@ -3,7 +3,7 @@
 import { ArrayBufferConcat, DateDiff, future, GetCurrentTime, requirejs, WaitUntil} from 'partic2/jsutils1/base';
 import * as jsutils1base from 'partic2/jsutils1/base';
 import type {} from 'partic2/tjshelper/txikijs'
-import { Io } from 'pxprpc/base';
+import { Io, Serializer } from 'pxprpc/base';
 
 var __name__=requirejs.getLocalRequireModule(require);
 
@@ -13,7 +13,8 @@ import {BasicMessagePort, getWWWRoot, IKeyValueDb, IWorkerThread, lifecycle, pat
 import {__name__ as webutilsName} from 'partic2/jsutils1/webutils'
 
 import {setupImpl as kvdbInit} from 'partic2/nodehelper/kvdb'
-import { RpcExtendClientObject } from 'pxprpc/extend';
+import { RpcExtendClient1, RpcExtendClientCallable, RpcExtendClientObject } from 'pxprpc/extend';
+import { getRpcFunctionOn } from 'partic2/pxprpcBinding/utils';
 
 //txiki.js has bugly eventTarget, patch it before upstream fix it.
 Object.defineProperty(Event.prototype,'target',{get:function(){return this.currentTarget}})
@@ -110,6 +111,26 @@ class WebWorkerThread implements IWorkerThread{
     }
 }
 
+
+class CTxikijsPxprpcBinding{
+    rpc!:RpcExtendClient1;
+	//Safe to call multitimes.
+	async init(){
+		if(this.rpc==undefined){
+			let {getRpc4RuntimeBridge0}=await import("partic2/pxprpcBinding/rpcregistry");
+			this.rpc=await getRpc4RuntimeBridge0();
+		}
+	}
+    async NewRuntime(){
+        let param=new Serializer().prepareSerializing(8);
+        param.putInt(0);
+        return await (await getRpcFunctionOn(this.rpc,'pxprpc_txikijs.NewRuntime','b->o'))!.call(param.build()) as RpcExtendClientObject;
+    }
+    async RunJs(rt:RpcExtendClientObject,jsCode:string){
+        await (await getRpcFunctionOn(this.rpc,'pxprpc_txikijs.RunJs','os->'))!.call(rt,jsCode);
+    }
+}
+
 class PRtbWorkerMessagePort extends EventTarget{
     constructor(public wt:PRtbWorkerThread){super()};
     postMessage(message:any){
@@ -166,7 +187,6 @@ class PRtbWorkerThread implements IWorkerThread{
             PRtbWorkerThread.serveAsWorkerParent();
             await WaitUntil(()=>PRtbWorkerThread.pipeServer!==null,16,2000);
         }
-        let {txikijsPxprpc}=await import('./tjsutil');
         await txikijsPxprpc.init();
         let rt1=await txikijsPxprpc.NewRuntime();
         if(PRtbWorkerThread.childrenWorkerConnected[this.workerId]==undefined){
@@ -271,7 +291,7 @@ class PRtbWorkerThread implements IWorkerThread{
     
 }
 
-export function setupImpl(){
+export async function setupImpl(){
     kvdbInit();
     if(globalThis.__pxprpc4tjs__==undefined){
         setWorkerThreadImplementation(WebWorkerThread)
@@ -313,6 +333,9 @@ export function setupImpl(){
             return (tjs.engine as any).base64ToBuffer(b64buf).buffer;
         };
     }
+    let {polyfill}=await import('partic2/tjshelper/tjsutil');
+    globalThis.fetch=polyfill.fetch;
+    globalThis.WebSocket=polyfill.WebSocket;
 }
 
 declare global {
@@ -322,6 +345,8 @@ declare global {
         ioReceive(pipe:BigInt,cb:(result:ArrayBuffer|string)=>void):void;
         ioClose(pipe:BigInt):void;
         accessMemory(base:BigInt,len:number):SharedArrayBuffer;
+        freeObjStore?:(index:number)=>void;
+        embedtlsSslFunc2026?:(...args:any[])=>any;
     }
 }
 
@@ -367,12 +392,56 @@ export class PxprpcRtbIo implements Io{
     }
 }
 
+let tjstlscleanup=new FinalizationRegistry((index:jsutils1base.Ref2<number>)=>{
+    if(index.get()>=0)__pxprpc4tjs__.freeObjStore!(index.get());
+});
 
-if(globalThis.tjs==undefined){
-    console.warn('This module is only used to initialize pxseed environment on txiki.js,'+
-        ' and has no effect on other platform.'+
-        'Also avoid to import this module on other platform.')
-}else{
-    setupImpl();
+export let txikijsPxprpc=new CTxikijsPxprpcBinding();
+
+export class TjsTlsClient{
+    index=new jsutils1base.Ref2<number>(-1);
+    constructor(servername?:string){
+        jsutils1base.assert(__pxprpc4tjs__.embedtlsSslFunc2026!=undefined);
+        jsutils1base.assert(__pxprpc4tjs__.embedtlsSslFunc2026(0)>=6);
+        this.index.set(__pxprpc4tjs__.embedtlsSslFunc2026(1,servername??''));
+        tjstlscleanup.register(this,this.index);
+    }
+    async readCipherSendBuffer(buf:Uint8Array):Promise<number>{
+        jsutils1base.assert(this.index.get()>=0);
+        let r= __pxprpc4tjs__.embedtlsSslFunc2026!(2,this.index.get(),buf);
+        return r;
+    }
+    async writeCipherRecvBuffer(buf:Uint8Array):Promise<number>{
+        jsutils1base.assert(this.index.get()>=0);
+        let r=__pxprpc4tjs__.embedtlsSslFunc2026!(3,this.index.get(),buf);
+        return r;
+    }
+    async writePlain(buf:Uint8Array):Promise<number>{
+        let r=__pxprpc4tjs__.embedtlsSslFunc2026!(4,this.index.get(),buf);
+        if(r<0)new Error('embedtls error:'+r); 
+        return r;
+    }
+    async readPlain(buf:Uint8Array):Promise<number>{
+        let r=__pxprpc4tjs__.embedtlsSslFunc2026!(5,this.index.get(),buf);
+        if(r<0)new Error('embedtls error:'+r);
+        return r;
+    }
+    async close(){
+        let index=this.index.get();
+        this.index.set(-1);
+        __pxprpc4tjs__.freeObjStore!(index);
+    }
 }
+
+export let __inited__=(async()=>{
+    if(globalThis.tjs==undefined){
+        console.warn('This module is only used to initialize pxseed environment on txiki.js,'+
+            ' and has no effect on other platform.'+
+            'Also avoid to import this module on other platform.')
+    }else{
+        await setupImpl();
+    }
+})();
+
+
 

@@ -124,8 +124,8 @@ let WebSocketOpcodeConst={ TEXT: 1, BINARY: 2, PING: 9, PONG: 10, CLOSE: 8 };
 
 class WebSocketStreamHandler{
 	constructor(public reader: ExtendStreamReader, public writer: WritableStreamDefaultWriter<Uint8Array>) {
-		if(typeof (WebSocket as any).__tjs_ws_fastXor==='function'){
-			this._payloadXor=(WebSocket as any).__tjs_ws_fastXor;
+		if(typeof (globalThis as any).tjs?.misc?.__wsFastXor==='function'){
+			this._payloadXor=(globalThis as any).tjs.misc.__wsFastXor;
 		}
 		this.startProcessWebSocketStream();
 	}
@@ -672,18 +672,21 @@ export class HttpClient{
 		this.connector=connector;
 		return this;
 	}
+	makeSsl:((underlying:{r:ReadableStream,w:WritableStream},servername:string)=>Promise<{r:ReadableStream,w:WritableStream}>)|null=null;
 	setConnectorTjs(tjsConn?:typeof tjs.connect){
 		return this.setConnector(async (url:URL)=>{
 			let target={
 				host:url.hostname,
 				port:0
 			}
+			let isSsl=false;
 			if(url.port===''){
 				if(['http:','ws:'].includes(url.protocol)){
 					target.port=80
 				}else if(['https:','wss:'].includes(url.protocol)){
 					target.port=443
-					//TODO: SSL support
+					isSsl=true;
+					assert(this.makeSsl!=null);
 				}
 			}else{
 				target.port=Number.parseInt(url.port);
@@ -693,9 +696,16 @@ export class HttpClient{
 				tjsConn=(await buildTjs()).connect;
 			}
 			let c=await tjsConn('tcp',target.host,target.port) as tjs.Connection;
+			let t1={
+				r:new ReadableStream(new TjsReaderDataSource(c)),
+				w:new WritableStream(new TjsWriterDataSink(c))
+			}
+			if(isSsl){
+				t1=await this.makeSsl!(t1,target.host);
+			}
 			return {
-				r:new ExtendStreamReader(new ReadableStream(new TjsReaderDataSource(c)).getReader()),
-				w:new WritableStream(new TjsWriterDataSink(c)).getWriter()
+				r:new ExtendStreamReader(t1.r.getReader()),
+				w:t1.w.getWriter()
 			}
 		})
 	}
@@ -731,6 +741,7 @@ export class HttpClient{
 			Promise.race([newConn.w.closed,newConn.r.closed]).then(()=>{delete this.connections[cid]});
 		}
 		req.headers.set('Upgrade','websocket');
+		req.headers.set('Connection','Upgrade')
 		req.headers.set('Sec-WebSocket-Key','dGhlIHNhbXBsZSBub25jZQ==');
 		req.headers.set('Sec-WebSocket-Version','13')
 		await this.pWriteRequest(w,req)

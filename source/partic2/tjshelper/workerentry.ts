@@ -1,9 +1,8 @@
 
 
-import { RpcExtendServer1 } from 'pxprpc/extend'
-import './tjsenv'
-import { PxprpcRtbIo } from './tjsenv'
-import { Server } from 'pxprpc/base'
+
+import { PxprpcRtbIo,__inited__ } from './tjsenv'
+
 
 
 declare var define:any
@@ -30,7 +29,7 @@ function afterPostMessageSetup(){
             workerClose();
         })
     }
-    globalThis.postMessage({[WorkerThreadMessageMark]:true,type:'ready'});
+    __inited__.then(()=>globalThis.postMessage({[WorkerThreadMessageMark]:true,type:'ready'}));
 }
 (function(){
     (self as any).globalThis=self;
