@@ -1,7 +1,7 @@
 
-import { GenerateRandomString ,Base64ToArrayBuffer,ArrayBufferToBase64, requirejs, logger} from 'partic2/jsutils1/base';
-import {Serializer} from 'pxprpc/base'
-import {CKeyValueDb, getWWWRoot, IKeyValueDb, setKvStoreBackend} from 'partic2/jsutils1/webutils'
+import { GenerateRandomString ,Base64ToArrayBuffer,ArrayBufferToBase64, requirejs, logger, GetCurrentTime, mutex, future, assert} from 'partic2/jsutils1/base';
+import {Client, Io, Serializer, Server} from 'pxprpc/base'
+import {BasicMessagePort, CKeyValueDb, getWWWRoot, IKeyValueDb, kvStore, setKvStoreBackend} from 'partic2/jsutils1/webutils'
 
 var __name__=requirejs.getLocalRequireModule(require);
 
@@ -71,48 +71,71 @@ async function tjsWriteFile(path:string,data:Uint8Array){
     }
 }
 
-//TODO: concurrent read/write support?
+
 export class FsBasedKvDbV1 implements IKeyValueDb{
     baseDir:string=''
     config?:{
-        version:1,
+        version:number,
+        time:number,
         fileList:{[key:string]:{fileName:string}},
+        lastError?:string
     }
     tjs1:null|typeof tjs=null;
+    mtx=new mutex();
+    protected async readLatestConfig(){
+        try{
+            let data=await this.tjs1!.readFile(this.baseDir+'/config.json')
+            this.config=JSON.parse(new TextDecoder().decode(data));
+            if(this.config?.version!==1){
+                log.warning('Invalid kvdb file, ignored.',this.baseDir+'/config.json')
+                this.config={version:1,time:GetCurrentTime().getTime(),fileList:{}}
+            }
+        }catch(e:any){
+            this.config={version:1,fileList:{},time:GetCurrentTime().getTime(),lastError:e.toString()+e.stack}
+            await tjsWriteFile(this.baseDir+'/config.json',new TextEncoder().encode(JSON.stringify(this.config)))
+        }
+    }
+    protected async saveConfigToFile(){
+        await tjsWriteFile(this.baseDir+'/config.json',new TextEncoder().encode(JSON.stringify(this.config)));
+    }
     async init(baseDir:string){
         this.baseDir=baseDir;
         this.tjs1=await buildTjs();
-        try{
-            let data=await this.tjs1.readFile(baseDir+'/config.json')
-            this.config=JSON.parse(new TextDecoder().decode(data));
-            if(this.config?.version!==1){
-                log.warning('Invalid kvdb file, ignored.',baseDir+'/config.json')
-                this.config={version:1,fileList:{}}
-            }
-        }catch(e){
-            this.config={version:1,fileList:{}}
-        }
-        
+        await this.readLatestConfig();
     }
     async setItem(key: string, val: any): Promise<void> {
-        if(!(key in this.config!.fileList)){
-            this.config!.fileList[key]={fileName:GenerateRandomString()}
-        }
-        let {fileName}=this.config!.fileList[key];
-        await tjsWriteFile(`${this.baseDir}/${fileName}`,serializableObject(val))
-        await tjsWriteFile(this.baseDir+'/config.json',new TextEncoder().encode(JSON.stringify(this.config)))
+        this.setItemRaw(key,serializableObject(val));
+    }
+    async setItemRaw(key:string,val:Uint8Array): Promise<void> {
+        this.mtx.exec(async ()=>{
+            if(!(key in this.config!.fileList)){
+                this.config!.fileList[key]={fileName:GenerateRandomString()}
+            }
+            let {fileName}=this.config!.fileList[key];
+            await tjsWriteFile(`${this.baseDir}/${fileName}`,val);
+            await this.saveConfigToFile();
+        })
     }
     async getItem(key: string): Promise<any> {
-        if(this.config!.fileList[key]==undefined){
-            return undefined;
-        }
-        let {fileName}=this.config!.fileList[key];
-        try{
-            return await unserializableObject(await this.tjs1!.readFile(`${this.baseDir}/${fileName}`))
-        }catch(e){
-            delete this.config!.fileList[key]
-            return undefined
-        }
+        let r=await this.getItemRaw(key);
+        if(r.length===0)return null;
+        return unserializableObject(r);
+    }
+    async getItemRaw(key:string):Promise<Uint8Array>{
+        return this.mtx.exec(async ()=>{
+            if(this.config!.fileList[key]==undefined){
+                return new Uint8Array(0);
+            }
+            let {fileName}=this.config!.fileList[key];
+            try{
+                return await this.tjs1!.readFile(`${this.baseDir}/${fileName}`)
+            }catch(e:any){
+                delete this.config!.fileList[key]
+                this.config!.lastError=e!.toString()+e.stack;
+                await this.saveConfigToFile();
+                return new Uint8Array(0);
+            }
+        })
     }
     getAllKeys(onKey: (key: string | null) => { stop?: boolean | undefined }, onErr?: ((err: Error) => void) | undefined): void {
         for(let file in this.config!.fileList){
@@ -124,15 +147,17 @@ export class FsBasedKvDbV1 implements IKeyValueDb{
         onKey(null);
     }
     async delete(key: string): Promise<void> {
-        let {fileName}=this.config!.fileList[key];
-        await this.tjs1!.remove(this.baseDir+'/'+fileName);
-        delete this.config!.fileList[key]
-        await tjsWriteFile(this.baseDir+'/config.json',new TextEncoder().encode(JSON.stringify(this.config)))
+        this.mtx.exec(async ()=>{
+            let {fileName}=this.config!.fileList[key];
+            await this.tjs1!.remove(this.baseDir+'/'+fileName);
+            delete this.config!.fileList[key]
+            await this.saveConfigToFile();
+        });
     }
     async close(): Promise<void> {
-        await tjsWriteFile(this.baseDir+'/config.json',new TextEncoder().encode(JSON.stringify(this.config)))
     }
 }
+
 
 let pathSep=getWWWRoot().includes('\\')?'\\':'/';
 
@@ -152,29 +177,72 @@ function pathJoin(...args:string[]){
     return parts.join(pathSep);
 }
 
-let dbDir=pathJoin(getWWWRoot(),__name__,'..')
+let dbDir=pathJoin(getWWWRoot(),__name__,'..');
+
+let kvStoreBackendMutex=new mutex();
+
+
+export async function MessagePortProxyHandler(dbname:string,method:string,args:any[]){
+    return await (await kvStore(dbname) as any)[method](...args);
+}
+
+export class MessagePortProxyKvDbV1 implements IKeyValueDb{
+    constructor(public remoteProxy:(dbname:string,method:string,args:any[])=>Promise<any>,public dbname:string){}
+    async setItem(key: string, val: any): Promise<void> {
+        return await this.remoteProxy(this.dbname,'setItem',[key,val]);
+    }
+    async getItem(key: string): Promise<any> {
+        return await this.remoteProxy(this.dbname,'getItem',[key]);
+    }
+    async getAllKeys(onKey: (key: string | null) => { stop?: boolean; }, onErr?: (err: Error) => void) {
+        try{
+            let keys:string[]=await this.remoteProxy(this.dbname,'getAllKeysArray',[])
+            for(let t1 of keys){
+                if(onKey(t1).stop)break;
+            }
+            onKey(null);
+        }catch(err:any){
+            onErr?.(err);
+        }
+    }
+    async delete(key: string): Promise<void> {
+        return await this.remoteProxy(this.dbname,'delete',[key]);
+    }
+    async close(): Promise<void> {
+        await this.remoteProxy(this.dbname,'close',[]);
+    }
+}
+
+
 
 export function setupImpl(){
     setKvStoreBackend(async (dbname)=>{
-        let dbMap:Record<string,string>={};
-        //deprecate base64 to be filesystem independent.
-        let filename:string|null=null;
-        let tjs1=await buildTjs();
-        await tjs1.makeDir(pathJoin(dbDir,'data'),{recursive:true});
-        try{
-            dbMap=JSON.parse(new TextDecoder().decode(await tjs1.readFile(pathJoin(dbDir,'data','meta-dbMap'))));
-        }catch(e){};
-        if(dbMap[dbname]!=undefined){
-            filename=dbMap[dbname];
-        }else{
-            filename=GenerateRandomString();
-            dbMap[dbname]=filename;
-            await tjs1.makeDir(pathJoin(dbDir,'data',filename),{recursive:true});
-        }
-        await tjsWriteFile(pathJoin(dbDir,'data','meta-dbMap'),new TextEncoder().encode(JSON.stringify(dbMap)));
-        let db=new FsBasedKvDbV1();
-        await tjs1.makeDir(pathJoin(dbDir,'data',filename),{recursive:true});
-        await db.init(pathJoin(dbDir,'data',filename));
-        return db;
+        return kvStoreBackendMutex.exec(async ()=>{
+            if((globalThis as any).__workerId!=undefined && globalThis.postMessage!=undefined && globalThis.addEventListener!=undefined){
+                let spawnCall=(await import('partic2/jsutils1/workerentry')).spawnerCall;
+                assert(spawnCall!=null);
+                return new MessagePortProxyKvDbV1((dbname,method,args)=>spawnCall(__name__,'MessagePortProxyHandler',[dbname,method,args]),dbname);
+            }else{
+                let dbMap:Record<string,string>={};
+                let filename:string|null=null;
+                let tjs1=await buildTjs();
+                await tjs1.makeDir(pathJoin(dbDir,'data'),{recursive:true});
+                try{
+                    dbMap=JSON.parse(new TextDecoder().decode(await tjs1.readFile(pathJoin(dbDir,'data','meta-dbMap'))));
+                }catch(e){};
+                if(dbMap[dbname]!=undefined){
+                    filename=dbMap[dbname];
+                }else{
+                    filename=GenerateRandomString();
+                    dbMap[dbname]=filename;
+                    await tjs1.makeDir(pathJoin(dbDir,'data',filename),{recursive:true});
+                }
+                await tjsWriteFile(pathJoin(dbDir,'data','meta-dbMap'),new TextEncoder().encode(JSON.stringify(dbMap)));
+                let db=new FsBasedKvDbV1();
+                await tjs1.makeDir(pathJoin(dbDir,'data',filename),{recursive:true});
+                await db.init(pathJoin(dbDir,'data',filename));
+                return db;
+            }
+        })
     });
 };

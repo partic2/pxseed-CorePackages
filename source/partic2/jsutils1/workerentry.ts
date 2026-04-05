@@ -1,44 +1,36 @@
-/*This file MUST get from the same origin to access storage api on web ,
-Due to same-origin-policy.  That mean, dataurl is unavailable. */
 
-declare var define:any
-declare var require:any
+import {FunctionCallOverMessagePort, lifecycle, WorkerThreadMessageMark} from 'partic2/jsutils1/webutils'
 
-declare var __pxseedInit:any
 
-(function(){
-    const WorkerThreadMessageMark='__messageMark_WorkerThread';
-    (self as any).globalThis=self;
-    addEventListener('message',function(msg){
-        if(typeof msg.data==='object' && msg.data[WorkerThreadMessageMark]){
-            let type=msg.data.type;
-            let scriptId=msg.data.scriptId;
-            switch(type){
-                case 'run':
-                    new Function('resolve','reject',msg.data.script)((result:any)=>{
-                        (msg.source??globalThis).postMessage({[WorkerThreadMessageMark]:true,type:'onScriptResolve',result,scriptId});
-                    },(reason:any)=>{
-                        (msg.source??globalThis).postMessage({[WorkerThreadMessageMark]:true,type:'onScriptRejecte',reason,scriptId});
-                    });
-                    break;
-            }
+export let spawnerCall:((module:string,func:string,args:any[])=>Promise<any>)|null=null;
+
+
+if('postMessage' in globalThis){
+    if('close' in globalThis){
+        let workerClose=globalThis.close.bind(globalThis);
+        globalThis.close=function(){
+            lifecycle.dispatchEvent(new Event('exit'));
+            globalThis.postMessage({[WorkerThreadMessageMark]:'closing'});
+            workerClose();
         }
-    });
+    }
+    let spawnerFunctionCall=new FunctionCallOverMessagePort(globalThis);
+    spawnerCall=(module:string,func:string,args:any[])=>{
+        return spawnerFunctionCall.call(module,func,args);
+    }
+    globalThis.postMessage({[WorkerThreadMessageMark]:'ready'});
+}
 
-    if('postMessage' in globalThis){
-        if('close' in globalThis){
-            let workerClose=globalThis.close.bind(globalThis);
-            globalThis.close=function(){
-                require(['partic2/jsutils1/webutils'],function(webutils:typeof import('partic2/jsutils1/webutils')){
-                    webutils.lifecycle.dispatchEvent(new Event('exit'));
-                    globalThis.postMessage({[WorkerThreadMessageMark]:true,type:'closing'});
-                    workerClose();
-                },function(){
-                    globalThis.postMessage({[WorkerThreadMessageMark]:true,type:'closing'});
-                    workerClose();
-                })
-            }
-        }
-        globalThis.postMessage({[WorkerThreadMessageMark]:true,type:'ready'});
-    }    
-})()
+
+export async function setWorkerInfo(id:string){
+    (globalThis as any).__workerId=id
+    return id;
+}
+
+export async function dispatchWorkerLifecycle(ev:string){
+    lifecycle.dispatchEvent(new Event(ev));
+}
+
+export async function requestExit(){
+    globalThis.close();
+}

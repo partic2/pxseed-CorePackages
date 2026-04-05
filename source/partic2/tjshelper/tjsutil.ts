@@ -2,7 +2,7 @@
 
 import { ArrayBufferConcat, ArrayWrap2, DateDiff, GetCurrentTime, assert, future, logger, requirejs, throwIfAbortError } from "partic2/jsutils1/base";
 import { Io, Serializer } from "pxprpc/base";
-import {TjsTlsClient} from './tjsenv'
+import type {TjsTlsClient} from './tjsenv'
 import type { HttpClient, WebSocketClientStreamHandler } from "./httpprot";
 
 
@@ -79,7 +79,7 @@ export class TlsStream{
 	protected cipherReadQueue=new Array<Uint8Array>();
 	protected plainWriteQueue=new Array<Uint8Array>();
 	protected cipherWriteQueue=new Array<Uint8Array>();
-	protected tjstlsc:TjsTlsClient;
+	protected tjstlsc?:TjsTlsClient;
 	protected pumpSignal=new future<number>();
 	protected abortControl=new AbortController();
 	
@@ -93,10 +93,11 @@ export class TlsStream{
 		}
 	});
 	constructor(protected underlying:{r:ReadableStream<Uint8Array>,w:WritableStream},public servername?:string){
-		this.tjstlsc=new TjsTlsClient(servername);
 		this.pump()
 	}
 	async pump(){
+		let {TjsTlsClient}=await import('./tjsenv');
+		this.tjstlsc=new TjsTlsClient(this.servername);
 		let w2=this.underlying.w.getWriter();
 		let r2=this.underlying.r.getReader();
 		this.abortControl.signal.addEventListener('abort',(ev)=>{
@@ -167,7 +168,7 @@ export class TlsStream{
 			this.underlying.r.cancel()
 			this.w.close();
 			this.plainReadBuffer.close();
-			this.tjstlsc.close();
+			this.tjstlsc?.close();
 		}
 	}
 }

@@ -1,12 +1,11 @@
 import { setupImpl as kvdbInit } from "./kvdb";
 import { setupImpl as workerInit } from "./worker";
-import {setup as jseioInit} from './jseio'
+import {__inited__ as jseioinited} from './jseio'
 
 
 function setupImpl(){
     kvdbInit()
     workerInit()
-    jseioInit()
     if(globalThis.open==undefined){
         globalThis.open=(async (url:string,target?:string)=>{
             let jscode:string='';
@@ -38,5 +37,6 @@ export let __inited__=(async ()=>{
             'Also avoid to import this module on other platform.')
     }else{
         setupImpl();
+        await jseioinited;
     }    
 })()

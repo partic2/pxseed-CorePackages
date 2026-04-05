@@ -9,7 +9,7 @@ var __name__=requirejs.getLocalRequireModule(require);
 
 import { GenerateRandomString } from 'partic2/jsutils1/base';
 
-import {BasicMessagePort, getWWWRoot, IKeyValueDb, IWorkerThread, lifecycle, path, setKvStoreBackend, setWorkerThreadImplementation} from 'partic2/jsutils1/webutils'
+import {BasicMessagePort, getWWWRoot, setWorkerThreadImplementation, WebWorkerThread} from 'partic2/jsutils1/webutils'
 import {__name__ as webutilsName} from 'partic2/jsutils1/webutils'
 
 import {setupImpl as kvdbInit} from 'partic2/nodehelper/kvdb'
@@ -26,88 +26,11 @@ let workerEntryUrl=function(){
     }catch(e){};
     return '';
 }()
-let WorkerThreadMessageMark='__messageMark_WorkerThread'
 
 
-class WebWorkerThread implements IWorkerThread{
-    port?:BasicMessagePort
-    workerId='';
-    waitReady=new future<number>();
-    tjsWorker?:Worker
-    onExit?:()=>void;
-    constructor(workerId?:string){
-        this.workerId=workerId??GenerateRandomString();
-    };
-    exitListener=()=>{
-        this.runScript(`require(['${webutilsName}'],function(webutils){
-            webutils.lifecycle.dispatchEvent(new Event('exit'));
-        })`);
-    };
-    async start(){
-        this.tjsWorker=new Worker(workerEntryUrl);
-        this.port=this.tjsWorker;
-        this.port!.addEventListener('message',(msg:MessageEvent)=>{
-            if(typeof msg.data==='object' && msg.data[WorkerThreadMessageMark]){
-                let {type,scriptId}=msg.data as {type:string,scriptId?:string};
-                switch(type){
-                    case 'run':
-                        this.onHostRunScript(msg.data.script)
-                        break;
-                    case 'onScriptResolve':
-                        this.onScriptResult(msg.data.result,scriptId)
-                        break;
-                    case 'onScriptReject':
-                        this.onScriptReject(msg.data.reason,scriptId);
-                        break;
-                    case 'ready':
-                        this.waitReady.setResult(0);
-                        break;
-                    case 'closing':
-                        lifecycle.removeEventListener('exit',this.exitListener);
-                        this.onExit?.();
-                        break;
-                    case 'tjs-close':
-                        this.tjsWorker?.terminate();
-                        break;
-                }
-            }
-        });
-        await this.waitReady.get();
-        await this.runScript(`this.__workerId='${this.workerId}'`);
-        lifecycle.addEventListener('exit',this.exitListener);
-    }
-    onHostRunScript(script:string){
-        (new Function('workerThread',script))(this);
-    }
-    processingScript={} as {[scriptId:string]:future<any>}
-    async runScript(script:string,getResult?:boolean){
-        let scriptId='';
-        if(getResult===true){
-            scriptId=GenerateRandomString();
-            this.processingScript[scriptId]=new future<any>();
-        }
-            this.port?.postMessage({[WorkerThreadMessageMark]:true,type:'run',script,scriptId})
-        if(getResult===true){
-            return await this.processingScript[scriptId].get();            
-        }
-    }
-    onScriptResult(result:any,scriptId?:string){
-        if(scriptId!==undefined && scriptId in this.processingScript){
-            let fut=this.processingScript[scriptId];
-            delete this.processingScript[scriptId];
-            fut.setResult(result);
-        }
-    }
-    onScriptReject(reason:any,scriptId?:string){
-        if(scriptId!==undefined && scriptId in this.processingScript){
-            let fut=this.processingScript[scriptId];
-            delete this.processingScript[scriptId];
-            fut.setException(new Error(reason));
-            
-        }
-    }
-    requestExit(){
-        this.runScript('globalThis.close()');
+class TjsDefaultWebWorkerThread extends WebWorkerThread{
+    protected async _createWorker(): Promise<BasicMessagePort> {
+        return new Worker(workerEntryUrl);
     }
 }
 
@@ -137,21 +60,12 @@ class PRtbWorkerMessagePort extends EventTarget{
         this.wt.conn!.send([tjs.engine.serialize(message)])
     }
 }
+
 //Pxprpc runtime bridge based worker
-class PRtbWorkerThread implements IWorkerThread{
+class PRtbWorkerThread extends WebWorkerThread{
     static thisPipeServerId='/pxprpc/txikijs/worker/'+GenerateRandomString();
     static pipeServer:RpcExtendClientObject|null=null;
     static childrenWorkerConnected:Record<string,((io:Io)=>void)|Io|undefined>={};
-    port?: BasicMessagePort | undefined;
-    workerId: string='';
-    conn?:Io
-    constructor(workerId?:string){
-        if(workerId==undefined){
-            this.workerId=GenerateRandomString()
-        }else{
-            this.workerId=workerId;
-        }
-    }
     static async serveAsWorkerParent(){
         let rtb=await import('partic2/pxprpcBinding/pxprpc_rtbridge')
         await rtb.ensureDefaultInvoker();
@@ -179,10 +93,9 @@ class PRtbWorkerThread implements IWorkerThread{
             }
         }
     }
-    running=false;
-    async start(): Promise<void> {
-        if(this.running)return;
-        this.running=true;
+    conn?:Io
+    running=true;
+    protected async _createWorker(): Promise<BasicMessagePort> {
         if(PRtbWorkerThread.pipeServer===null){
             PRtbWorkerThread.serveAsWorkerParent();
             await WaitUntil(()=>PRtbWorkerThread.pipeServer!==null,16,2000);
@@ -201,8 +114,6 @@ class PRtbWorkerThread implements IWorkerThread{
             })()`
             txikijsPxprpc.RunJs(rt1,jsCode);
             this.conn=await childConnected;
-            this.port=new PRtbWorkerMessagePort(this) as any;
-            this.startStep2();
             (async ()=>{
                 while(this.running){
                     let msg=await this.conn!.receive();
@@ -210,113 +121,27 @@ class PRtbWorkerThread implements IWorkerThread{
                     (this.port as any as PRtbWorkerMessagePort).dispatchEvent(
                         new MessageEvent('message',{data})
                     )
-                    
                 }
             })();
+            return new PRtbWorkerMessagePort(this) as any;
         }else{
             throw new Error('Worker with same name is created.');
         }
-        
     }
-    exitListener=()=>{
-        this.runScript(`require(['${webutilsName}'],function(webutils){
-            webutils.lifecycle.dispatchEvent(new Event('exit'));
-        })`);
-    };
-    waitReady=new future<number>();
-    onExit?:()=>void;
-    async startStep2(){
-        this.port!.addEventListener('message',(msg:MessageEvent)=>{
-            if(typeof msg.data==='object' && msg.data[WorkerThreadMessageMark]){
-                let {type,scriptId}=msg.data as {type:string,scriptId?:string};
-                switch(type){
-                    case 'run':
-                        this.onHostRunScript(msg.data.script)
-                        break;
-                    case 'onScriptResolve':
-                        this.onScriptResult(msg.data.result,scriptId)
-                        break;
-                    case 'onScriptReject':
-                        this.onScriptReject(msg.data.reason,scriptId);
-                        break;
-                    case 'ready':
-                        this.waitReady.setResult(0);
-                        break;
-                    case 'closing':
-                        lifecycle.removeEventListener('exit',this.exitListener);
-                        this.onExit?.();
-                        break;
-                    case 'tjs-close':
-                        break;
-                }
-            }
-        });
-        await this.waitReady.get();
-        await this.runScript(`this.__workerId='${this.workerId}'`);
-        lifecycle.addEventListener('exit',this.exitListener);
-    }
-    onHostRunScript(script:string){
-        (new Function('workerThread',script))(this);
-    }
-    processingScript={} as {[scriptId:string]:future<any>}
-    async runScript(script:string,getResult?:boolean){
-        let scriptId='';
-        if(getResult===true){
-            scriptId=GenerateRandomString();
-            this.processingScript[scriptId]=new future<any>();
-        }
-            this.port?.postMessage({[WorkerThreadMessageMark]:true,type:'run',script,scriptId})
-        if(getResult===true){
-            return await this.processingScript[scriptId].get();            
-        }
-    }
-    onScriptResult(result:any,scriptId?:string){
-        if(scriptId!==undefined && scriptId in this.processingScript){
-            let fut=this.processingScript[scriptId];
-            delete this.processingScript[scriptId];
-            fut.setResult(result);
-        }
-    }
-    onScriptReject(reason:any,scriptId?:string){
-        if(scriptId!==undefined && scriptId in this.processingScript){
-            let fut=this.processingScript[scriptId];
-            delete this.processingScript[scriptId];
-            fut.setException(new Error(reason));
-            
-        }
-    }
-    requestExit(){
-        this.runScript('globalThis.close()');
-    }
-    
 }
+
 
 export async function setupImpl(){
     kvdbInit();
     if(globalThis.__pxprpc4tjs__==undefined){
-        setWorkerThreadImplementation(WebWorkerThread)
+        setWorkerThreadImplementation(TjsDefaultWebWorkerThread)
     }else{
         setWorkerThreadImplementation(PRtbWorkerThread)
     }
-    if(globalThis.open==undefined){
-        globalThis.open=(async (url:string,target?:string)=>{
-            let jscode:string='';
-            if(url.startsWith('http://') || url.startsWith('https://')){
-                let resp=await fetch(url);
-                if(resp.ok){
-                    jscode=await resp.text();
-                }else{
-                    throw new Error(await resp.text())
-                }
-            }else if(url.startsWith('file://')){
-                let path=url.substring(7);
-                if(tjs.system.platform=='windows'){
-                    path=path.substring(1);
-                }
-                jscode=new TextDecoder().decode(await tjs.readFile(path));
-            }
-            new Function(jscode)();
-        }) as any
+    if(globalThis.close==undefined){
+        globalThis.close=()=>{
+            (globalThis as any)[Symbol.for('tjs.internal.core')]?.tjsClose?.();
+        }
     }
     if((tjs.engine as any).bufferToBase64!=undefined){
         (jsutils1base as any).ArrayBufferToBase64=function(buffer: ArrayBuffer|Uint8Array): string{

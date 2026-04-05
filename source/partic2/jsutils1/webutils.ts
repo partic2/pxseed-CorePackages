@@ -80,7 +80,6 @@ export interface IKeyValueDb{
     //NOTE: only number,string,boolean,Uint8Array,Int8Array,ArrayBuffer,Array or Object with only above member are promised can store as value.
     setItem(key: string, val: any):Promise<void>
     getItem(key: string):Promise<any>
-    //onKey(null) if all key consumed.
     getAllKeys(onKey:(key:string|null)=>{stop?:boolean},onErr?:(err:Error)=>void):void
     delete(key: string):Promise<void>
     close():Promise<void>
@@ -128,7 +127,7 @@ class IndexedDbAdapter4Kvdb implements IKeyValueDb{
         })
     }
     //do NOT use AsyncIterator. indexedDb will close cursor automatically if no further request in one TICK.
-    getAllKeys(onKey:(key:string|null)=>{stop?:boolean},onErr?:(err:Error)=>void) {
+    async getAllKeys(onKey:(key:string|null)=>{stop?:boolean},onErr?:(err:Error)=>void) {
         var trans = this.db!.beginTranscation();
         var store = trans!.objectStore('KeyValueMap');
         var req = store.openKeyCursor();
@@ -167,10 +166,7 @@ class IndexedDbAdapter4Kvdb implements IKeyValueDb{
 }
 
 export class CKeyValueDb implements IKeyValueDb {
-    impl?:IKeyValueDb;
-    async use(impl:IKeyValueDb){
-        this.impl=impl;
-    }
+    constructor(public dbName:string,public impl:IKeyValueDb){}
     //NOTE: only number,string,boolean,Uint8Array,Int8Array,ArrayBuffer,Array or Object with only above member are promised can store as value.
     setItem(key: string, val: any): Promise<void> {
         return this.impl!.setItem(key,val);
@@ -185,12 +181,8 @@ export class CKeyValueDb implements IKeyValueDb {
         return this.impl!.delete(key);
     }
     close(): Promise<void> {
+        delete kvdbmap[this.dbName];
         return this.impl!.close();
-    }
-    async useIndexedDb(dbName: string) {
-        let impl=new IndexedDbAdapter4Kvdb();
-        await impl.init(dbName);
-        await this.use(impl);
     }
     async getAllKeysArray(){
         let keys=[] as string[]
@@ -202,7 +194,7 @@ export class CKeyValueDb implements IKeyValueDb {
                     resolve(keys);
                 }
                 return {};
-            })
+            },(err)=>reject(err))
         })
     }
     async *getAllItems(){
@@ -331,14 +323,13 @@ export class CDynamicPageCSSManager{
 export var DynamicPageCSSManager=new CDynamicPageCSSManager();
 var kvdbmap={} as {[dbname:string]:CKeyValueDb}
 var kvdbinitmutex=new mutex();
-var kvStoreBackend=async (dbname:string)=>{
-    let db=new CKeyValueDb();
-    await db.useIndexedDb(dbname);
-    return db.impl!;
+var kvStoreBackend:(dbname:string)=>Promise<IKeyValueDb>=async (dbname:string)=>{
+    let impl=new IndexedDbAdapter4Kvdb();
+    await impl.init(dbname);
+    return impl;
 }
 export async function kvStore(dbname?:string){
-    await kvdbinitmutex.lock();
-    try{
+    return kvdbinitmutex.exec(async ()=>{
         if(dbname==undefined){
             dbname=config.defaultStorePrefix+'/kv-1';
         }
@@ -357,13 +348,11 @@ export async function kvStore(dbname?:string){
         }
         if(!(dbname in kvdbmap)){
             let impl=await kvStoreBackend(dbname);
-            kvdbmap[dbname]=new CKeyValueDb();
-            await kvdbmap[dbname].use(impl)
+            kvdbmap[dbname]=new CKeyValueDb(dbname,impl);
+            
         }
         return kvdbmap[dbname]!;
-    }finally{
-        await kvdbinitmutex.unlock();
-    }
+    })
 }
 export function setKvStoreBackend(backend:(dbname:string)=>Promise<IKeyValueDb>){
     kvStoreBackend=backend;
@@ -392,13 +381,14 @@ export async function useKvStorePrefix(wwwroot?:string,prefix?:string){
 var cachedPersistentConfig:{[modname:string]:any}={};
 export async function GetPersistentConfig(modname:string){
     if(cachedPersistentConfig[modname]==undefined){
-        let kvs=await kvStore();
-        cachedPersistentConfig[modname]=await kvs.getItem(modname+'/config');
-    }
-    if(cachedPersistentConfig[modname]==undefined){
         cachedPersistentConfig[modname]={};
     }
-    return cachedPersistentConfig[modname];
+    let kvs=await kvStore();
+    let cfg=await kvs.getItem(modname+'/config');
+    let ccfg=cachedPersistentConfig[modname];
+    for(let t1 in ccfg){delete ccfg[t1]};
+    Object.assign(ccfg,cfg)
+    return ccfg;
     
 }
 export async function SavePersistentConfig(modname:string){
@@ -409,7 +399,7 @@ export async function SavePersistentConfig(modname:string){
 }
 
 //WorkerThread feature require a custom AMD loader https://github.com/partic2/partic2-iamdee
-const WorkerThreadMessageMark='__messageMark_WorkerThread'
+export const WorkerThreadMessageMark='__messageMark_WorkerThread'
 
 /*workerentry.js MUST put into the same origin to access storage api on web ,
 Due to same-origin-policy. That mean, dataurl is unavailable.
@@ -432,91 +422,87 @@ export interface BasicMessagePort {
 export interface IWorkerThread{
     port?:BasicMessagePort
     workerId:string;
-    start():Promise<void>
-    runScript(script:string,getResult?:boolean):Promise<any>
-    requestExit():void
-    onExit?:()=>void
+    start():Promise<void>;
+    call(module:string,func:string,args:any[]):Promise<any>
+    onExit:Set<()=>void>
 }
 
-class WebWorkerThread implements IWorkerThread{
+export class FunctionCallOverMessagePort{
+    callRequest:Record<string,future<any>>={};
+    onMessage=(msg:MessageEvent)=>{
+        if(typeof msg.data==='object'){
+            if(msg.data[WorkerThreadMessageMark]==='return'){
+                let {id,res,err}=msg.data
+                if(this.callRequest[id]!=undefined){
+                    if(err!=undefined){
+                        this.callRequest[id].setException(err);
+                    }else{
+                        this.callRequest[id].setResult(res);
+                    }
+                    delete this.callRequest[id];
+                }
+            }else if(msg.data[WorkerThreadMessageMark]==='call'){
+                let {id,module,func,args}=msg.data;
+                import(module).then((mod)=>mod[func](...args,this)).then(
+                    (res)=>{(msg.source??this.port).postMessage({[WorkerThreadMessageMark]:'return',id,res})},
+                    (err)=>{(msg.source??this.port).postMessage({[WorkerThreadMessageMark]:'return',id,err})}
+                )
+            }
+        }
+    }
+    constructor(public port:BasicMessagePort){
+        this.port.addEventListener('message',this.onMessage);
+    };
+    async call(module:string,func:string,args:any[]):Promise<any>{
+        let id=GenerateRandomString();
+        let fut=new future<any>();
+        this.callRequest[id]=fut
+        this.port.postMessage({[WorkerThreadMessageMark]:'call',id,module,func,args});
+        return fut.get();
+    }
+}
+
+export class WebWorkerThread implements IWorkerThread{
     //XXX:Chrome for android don't support SharedWorker.
-    port?:Worker;
+    port?:BasicMessagePort;
     workerId='';
-    waitReady=new future<number>();
-    onExit?:()=>void;
+    protected waitReady=new future<number>();
+    protected funcCall?:FunctionCallOverMessagePort;
+    onExit=new Set<()=>void>()
     constructor(workerId?:string){
         this.workerId=workerId??GenerateRandomString();
     };
-    exitListener=()=>{
-        this.runScript(`require(['${__name__}'],function(webutils){
-            webutils.lifecycle.dispatchEvent(new Event('exit'));
-        })`);
-    };
+    protected _forwardLifecycle=(msg:Event)=>{
+        this.call('partic2/jsutils1/workerentry','dispatchWorkerLifecycle',[msg.type]);
+    }
+    protected async _createWorker():Promise<BasicMessagePort>{
+        return new Worker(workerEntryUrl);
+    }
     async start(){
-        this.port=new Worker(workerEntryUrl);
-        this.port=this.port;
-        this.port.addEventListener('message',(msg:MessageEvent)=>{
-            if(typeof msg.data==='object' && msg.data[WorkerThreadMessageMark]){
-                let {type,scriptId}=msg.data as {type:string,scriptId?:string};
-                switch(type){
-                    case 'run':
-                        this.onHostRunScript(msg.data.script)
-                        break;
-                    case 'onScriptResolve':
-                        this.onScriptResult(msg.data.result,scriptId)
-                        break;
-                    case 'onScriptReject':
-                        this.onScriptReject(msg.data.reason,scriptId);
-                        break;
-                    case 'ready':
-                        this.waitReady.setResult(0);
-                        break;
-                    case 'closing':
-                        lifecycle.removeEventListener('exit',this.exitListener);
-                        this.onExit?.();
-                        break;
+        this.port=await this._createWorker();
+        let cb=(msg:MessageEvent)=>{
+            if(typeof msg.data==='object'){
+                if(msg.data[WorkerThreadMessageMark]==='ready'){
+                    this.waitReady.setResult(0);
+                }else if(msg.data[WorkerThreadMessageMark]==='closing'){
+                    this.onExit.forEach(cb=>cb());
                 }
             }
-        });
+        };
+        this.port.addEventListener('message',cb);
         await this.waitReady.get();
-        await this.runScript(`this.__workerId='${this.workerId}'`);
-        lifecycle.addEventListener('exit',this.exitListener);
+        this.funcCall=new FunctionCallOverMessagePort(this.port);
+        await this.call('partic2/jsutils1/workerentry','setWorkerInfo',[this.workerId]);
+        lifecycle.addEventListener('exit',this._forwardLifecycle);
+        this.onExit.add(()=>lifecycle.removeEventListener('exit',this._forwardLifecycle));
     }
-    onHostRunScript(script:string){
-        (new Function('workerThread',script))(this);
-    }
-    processingScript={} as {[scriptId:string]:future<any>}
-    async runScript(script:string,getResult?:boolean){
-        let scriptId='';
-        if(getResult===true){
-            scriptId=GenerateRandomString();
-            this.processingScript[scriptId]=new future<any>();
-        }
-            this.port?.postMessage({[WorkerThreadMessageMark]:true,type:'run',script,scriptId})
-        if(getResult===true){
-            return await this.processingScript[scriptId].get();            
-        }
-    }
-    onScriptResult(result:any,scriptId?:string){
-        if(scriptId!==undefined && scriptId in this.processingScript){
-            let fut=this.processingScript[scriptId];
-            delete this.processingScript[scriptId];
-            fut.setResult(result);
-        }
-    }
-    onScriptReject(reason:any,scriptId?:string){
-        if(scriptId!==undefined && scriptId in this.processingScript){
-            let fut=this.processingScript[scriptId];
-            delete this.processingScript[scriptId];
-            fut.setException(new Error(reason));
-            
-        }
+    async call(module:string,funcName:string,args:any[]):Promise<any>{
+        return await this.funcCall!.call(module,funcName,args)
     }
     requestExit(){
-        this.runScript('globalThis.close()');
+        this.call('partic2/jsutils1/workerentry','requestExit',[]);
     }
 }
-
 
 var defaultWorkerThreadImpl:{new(workerId?:string):IWorkerThread}=WebWorkerThread;
 export function CreateWorkerThread(workerId?:string):IWorkerThread{
@@ -682,18 +668,22 @@ export class GlobalInputStateTracer{
     pressingKey=new Set<string>();
     mouseState={x:0,y:0,left:false,right:false,center:false};
     touchsPosition=new Array<{x:number,y:number,id:number}>();
+    onStateChange=new Set<()=>void>();
     protected keyDownHandler=(ev:KeyboardEvent)=>{
         this.pressingKey.add(ev.key);
+        this.onStateChange.forEach((cb)=>cb());
     }
     protected keyUpHandler=(ev:KeyboardEvent)=>{
         this.pressingKey.delete(ev.key);
+        this.onStateChange.forEach((cb)=>cb());
     }
     protected mouseHandler=(ev:MouseEvent)=>{
         this.mouseState.x=ev.clientX;
         this.mouseState.y=ev.clientY;
         this.mouseState.left=(ev.buttons&1)!=0;
         this.mouseState.right=(ev.buttons&2)!=0;
-        this.mouseState.center=(ev.buttons&3)!=0;
+        this.mouseState.center=(ev.buttons&3)!=0
+        this.onStateChange.forEach((cb)=>cb());;
     }
     protected touchHandler=(ev:TouchEvent)=>{
         ev.touches.item(0)
@@ -702,10 +692,12 @@ export class GlobalInputStateTracer{
             let t2=ev.touches.item(t1)!;
             this.touchsPosition.push({x:t2.clientX,y:t2.clientY,id:t2.identifier});
         }
+        this.onStateChange.forEach((cb)=>cb());
     }
     enabled=false;
     enable(){
-        if(!this.enabled){
+        if(!this.enabled && globalThis.window!=undefined){
+            let {window}=globalThis;
             this.enabled=true;
             window.addEventListener('keydown',this.keyDownHandler);
             window.addEventListener('keyup',this.keyUpHandler);

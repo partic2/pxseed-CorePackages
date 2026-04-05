@@ -5,6 +5,7 @@ import { RpcExtendClient1, RpcExtendServer1, RpcExtendServerCallable, defaultFun
 
 //Avoid to static import any module other than '"pxprpc" and "partic2/jsutils1"', To avoid incorrect call before workerInitModule imported.
 import { assert, future, GenerateRandomString, Ref2, requirejs, sleep } from "partic2/jsutils1/base";
+import { lifecycle } from "../jsutils1/webutils";
 
 const __name__=requirejs.getLocalRequireModule(require);
 //Security Vulnerable?. this value can be use to communicate cross-origin.
@@ -61,9 +62,15 @@ async function savedAsBootModules(){
     });
 }
 
+let servingConn=new Set<Io>();
+
 export let __internal__={
-    savedAsBootModules,initRpcWorker,
-    rpcServer:new WebMessage.Server((conn)=> new RpcExtendServer1(new Server(conn)).serve().catch(()=>{}))
+    savedAsBootModules,
+    rpcServer:new WebMessage.Server((conn)=> {
+        servingConn.add(conn);
+        new RpcExtendServer1(new Server(conn)).serve()
+            .catch(()=>{}).finally(()=>servingConn.delete(conn))
+    })
 }
 
 __internal__.rpcServer.listen(rpcId.get());
@@ -76,18 +83,20 @@ rpcId.watch((r,prev)=>{
 //Almost only used by './registry'
 let rpcWorkerInited=false;
 let workerParentRpcId='';
-async function initRpcWorker(workerInitModule:string[],workerParentRpcIdIn?:string){
-    if(!rpcWorkerInited){
-        rpcWorkerInited=true;      
-        await Promise.allSettled(workerInitModule.map(v=>import(v)));
-        let {rpcWorkerInitModule}=await import('./registry');
-        rpcWorkerInitModule.push(...workerInitModule);
-        await savedAsBootModules();
-    }
+export async function __internalInitRpcWorker(workerInitModule:string[],workerParentRpcIdIn?:string){
     if(workerParentRpcIdIn!=undefined){
         workerParentRpcId=workerParentRpcIdIn;
         let {__internal__}=await import('./registry');
         __internal__.isPxseedWorker=true;
+    }
+    if(!rpcWorkerInited){
+        rpcWorkerInited=true;
+        lifecycle.addEventListener('exit',()=>servingConn.forEach((io)=>io.close()));    
+        await Promise.allSettled(workerInitModule.map(v=>import(v)));
+        let {rpcWorkerInitModule}=await import('./registry');
+        rpcWorkerInitModule.push(...workerInitModule);
+        await savedAsBootModules();
+        
     }
 }
 

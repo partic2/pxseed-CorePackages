@@ -36,7 +36,8 @@ let i18n={
     upgradeCorePackages:'upgrade pxseed core',
     packageManager:"package manager",
     done:'done',
-    cleanPackageInstallCache:'clean install cache'
+    cleanPackageInstallCache:'clean install cache',
+    updatePackageIndex:'update package index'
 }
 
 if(navigator.language.split('-').includes('zh')){
@@ -54,12 +55,17 @@ if(navigator.language.split('-').includes('zh')){
     i18n.packageManager='包管理'
     i18n.done='完成'
     i18n.cleanPackageInstallCache='清除安装缓存'
+    i18n.updatePackageIndex='更新目录'
 }
 
 let remoteModule={
     registry:new Singleton(async ()=>{
         return await importRemoteModule(
             await (await getPersistentRegistered(ServerHostWorker1RpcName))!.ensureConnected(),'partic2/packageManager/registry') as typeof import('partic2/packageManager/registry');
+    }),
+    misc:new Singleton(async ()=>{
+        return await importRemoteModule(
+            await (await getPersistentRegistered(ServerHostWorker1RpcName))!.ensureConnected(),'partic2/packageManager/misc') as typeof import('partic2/packageManager/misc');
     })
 }
 
@@ -68,7 +74,6 @@ import { ReactDragController } from 'partic2/pComponentUi/transform'
 import { RpcExtendServer1 } from 'pxprpc/extend'
 import { Server } from 'pxprpc/base'
 import { rpcId } from 'partic2/pxprpcClient/rpcworker'
-import { serverConsoleLog } from './misc'
 
 let resourceManager=getResourceManager(__name__);
 
@@ -505,6 +510,18 @@ import2env('partic2/packageManager/registry');`,
             this.setState({statusText:''});
         }
     }
+    async updatePackageIndex(){
+        let registry=await remoteModule.registry.get();
+        this.setState({statusText:'updating...'});
+        try{
+            await registry.updatePackagesDatabase();
+        }catch(err:any){
+            throwIfAbortError(err);
+            alert('Failed:'+err.message+err.remoteStack);
+        }finally{
+            this.setState({statusText:''})
+        }
+    }
     lastWindow?:NewWindowHandle
     render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChild {
         return [
@@ -524,6 +541,7 @@ import2env('partic2/packageManager/registry');`,
                     <SimpleButton onClick={()=>this.importPackagesInstallation()} >{i18n.importInstallation}</SimpleButton>
                     <SimpleButton onClick={()=>this.upgradeCorePackages()} >{i18n.upgradeCorePackages}</SimpleButton>
                     <SimpleButton onClick={()=>this.cleanPackageInstallCache()} >{i18n.cleanPackageInstallCache}</SimpleButton>
+                    <SimpleButton onClick={()=>this.updatePackageIndex()} >{i18n.updatePackageIndex}</SimpleButton>
                     <SimpleButton onClick={()=>this.openNotebook()} >notebook</SimpleButton>
                     <div style={{display:'inline-block',color:'red'}}>{this.state.statusText}</div>
                 </div>
@@ -568,7 +586,8 @@ export async function openPackageMainWindow(appInfo:{pkgName:string,beforeUnload
             }
             let registry=await remoteModule.registry.get();
             await registry.unloadPackageModules(appInfo.pkgName);
-            await registry.buildPackage(appInfo.pkgName)
+
+            await registry.buildPackageAndNotfiy(appInfo.pkgName)
             startWebuiForPackage(appInfo.pkgName);
         }
     })

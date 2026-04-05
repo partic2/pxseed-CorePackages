@@ -87,6 +87,9 @@ export class ExtendHttpResponse extends Response{
 		if(init?.status!=undefined && (init?.status<200 || init?.status>599)){
 			init.status=200;
 		}
+		if([204,304].includes(init?.status??0)){
+			body=null;
+		}
 		super(body,init);
 		this.pStatus=savedStatus??200;
 	}

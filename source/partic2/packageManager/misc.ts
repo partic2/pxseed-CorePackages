@@ -1,12 +1,12 @@
 import { ArrayWrap2, assert, DateDiff, future, GetCurrentTime, logger, mutex, requirejs, sleep, throwIfAbortError } from 'partic2/jsutils1/base';
 import { RemoteRunCodeContext } from 'partic2/CodeRunner/RemoteCodeContext';
 
-import { getPersistentRegistered, importRemoteModule, ServerHostRpcName, ServerHostWorker1RpcName } from 'partic2/pxprpcClient/registry'
 import { defaultHttpClient, GetPersistentConfig, getWWWRoot, SavePersistentConfig } from 'partic2/jsutils1/webutils';
 import { DebounceCall, Singleton, utf8conv } from 'partic2/CodeRunner/jsutils2';
 import { buildTjs } from 'partic2/tjshelper/tjsbuilder';
-import { getNodeCompatApi } from 'pxseedBuildScript/util';
+import { getNodeCompatApi, withConsole } from 'pxseedBuildScript/util';
 import { defaultFileSystem, ensureDefaultFileSystem, getSimpleFileSysteNormalizedWWWRoot, simpleFileSystemHelper } from 'partic2/CodeRunner/JsEnviron';
+import { buildPackageAndNotfiy, listener } from './registry';
 
 
 export let __name__='partic2/packageManager/misc';
@@ -290,26 +290,27 @@ let buildWatcher={
     pendingBuildingTask:new Set<string>()
 }
 
-export async function processDirectoryAndNotify(pkgName:string){
-    let { processDirectory } =await import('pxseedBuildScript/buildlib');
-    let {path,wwwroot}=await getNodeCompatApi();
-    await processDirectory(path.join(wwwroot,'..','source',pkgName));
-    buildWatcher.event.setResult([{event:'build',pkgName}]);
-    buildWatcher.event=new future();
-}
 
-export async function processDirectoryContainFile(file:string):Promise<{
+export async function buildPackageContainFile(file:string):Promise<{
     sourceRoot:string,outputRoot:string,
     pkgName:string|null,pkgPath:string|null
 }>{
     let r=await findPxseedPackageContainFile(file);
     if(r.pkgName!=null){
-        await processDirectoryAndNotify(r.pkgName);
+        await buildPackageAndNotfiy(r.pkgName);
     }
     return r;
 }
 
+export function __miscBuildFunctionEventListener(pkgName:string){
+    buildWatcher.event.setResult([{event:'build',pkgName}]);
+    buildWatcher.event=new future();
+}
+
 export async function waitBuildWatcherEvent(){
+    if(listener.onBuild.find(t1=>t1.module===__name__)==undefined){
+        listener.onBuild.push({module:__name__,function:'__miscBuildFunctionEventListener'})
+    }
     return buildWatcher.event.get();
 }
 
@@ -317,7 +318,7 @@ let fileSystemWatcherAutoBuildDebounceCall=new DebounceCall(async ()=>{
     let copy=Array.from(buildWatcher.pendingBuildingTask);
     buildWatcher.pendingBuildingTask.clear();
     for(let t1 of copy){
-        await processDirectoryAndNotify(t1);
+        await buildPackageAndNotfiy(t1);
     }
 },1000);
 

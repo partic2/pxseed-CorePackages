@@ -1,5 +1,5 @@
 import { requirejs } from "./base";
-import { getWWWRoot, kvStore, GetUrlQueryVariable2, GetPersistentConfig } from "./webutils";
+import { getWWWRoot, kvStore, GetUrlQueryVariable2, GetPersistentConfig, FunctionCallOverMessagePort } from "./webutils";
 
 
 const __name__='partic2/jsutils1/serviceworker';
@@ -13,30 +13,42 @@ export const ServiceWorkerId='service worker 1';
 
 declare var __pxseedInit:any;
 
-(function(){
-    const WorkerThreadMessageMark='__messageMark_WorkerThread';
-    (self as any).globalThis=self;
-    __pxseedInit.onmessage=function(msg:MessageEvent){
-        if(typeof msg.data==='object' && msg.data[WorkerThreadMessageMark]){
-            let type=msg.data.type;
-            let scriptId=msg.data.scriptId;
-            switch(type){
-                case 'run':
-                    new Function('resolve','reject',msg.data.script)((result:any)=>{
-                        (msg.source??globalThis).postMessage({[WorkerThreadMessageMark]:true,type:'onScriptResolve',result,scriptId});
-                    },(reason:any)=>{
-                        (msg.source??globalThis).postMessage({[WorkerThreadMessageMark]:true,type:'onScriptRejecte',reason,scriptId});
-                    });
-                    break;
-            }
-        }
-    };
 
-    if('postMessage' in globalThis){
-        globalThis.postMessage({[WorkerThreadMessageMark]:true,type:'ready'});
+export let proxyMessageEventTarget=new EventTarget();
+
+class MessageEventWithSource extends MessageEvent<any>{
+    _source:any
+    get source(){
+        return this._source
     }
-    
-})()
+    constructor(type:string,eventInit:any){
+        super(type,eventInit);
+    }
+}
+
+__pxseedInit.onmessage=function(msg:MessageEvent){
+    let ev=new MessageEventWithSource(msg.type,{data:msg.data});
+    ev._source=msg.source;
+    proxyMessageEventTarget.dispatchEvent(ev);
+};
+
+let spawnerFunctionCall=new FunctionCallOverMessagePort({
+    postMessage:()=>{},
+    addEventListener:proxyMessageEventTarget.addEventListener.bind(proxyMessageEventTarget) as any,
+    removeEventListener:proxyMessageEventTarget.addEventListener.bind(removeEventListener) as any,
+});
+
+export async function setWorkerInfo(id:string){
+    (globalThis as any).__workerId=id
+    return id;
+}
+
+export let __internal__={spawnerFunctionCall}
+
+export async function requestExit(){
+    globalThis.close();
+}
+
 
 
 async function kvStoreOnFetch(dbName:string,varName:string,queryStat?:string){

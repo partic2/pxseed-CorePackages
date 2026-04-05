@@ -12,47 +12,14 @@ declare var __pxseedInit:any
 
 const WorkerThreadMessageMark='__messageMark_WorkerThread';
 
-function afterPostMessageSetup(){
-    let workerClose:()=>void;
-    if('close' in globalThis){
-        workerClose=globalThis.close.bind(globalThis);
-    }else{
-        workerClose=()=>globalThis.postMessage({[WorkerThreadMessageMark]:true,type:'tjs-close'});
+async function afterPostMessageSetup(){
+    if(!('close' in globalThis)){
+        globalThis.close=()=>{throw new Error('Not implemented')};
     }
-    globalThis.close=function(){
-        require(['partic2/jsutils1/webutils'],function(webutils:typeof import('partic2/jsutils1/webutils')){
-            webutils.lifecycle.dispatchEvent(new Event('exit'));
-            globalThis.postMessage({[WorkerThreadMessageMark]:true,type:'closing'});
-            workerClose();
-        },function(){
-            globalThis.postMessage({[WorkerThreadMessageMark]:true,type:'closing'});;
-            workerClose();
-        })
-    }
-    __inited__.then(()=>globalThis.postMessage({[WorkerThreadMessageMark]:true,type:'ready'}));
+    await __inited__;
+    await import('partic2/jsutils1/workerentry');
 }
-(function(){
-    (self as any).globalThis=self;
-    addEventListener('message',function(msg){
-        if(typeof msg.data==='object' && msg.data[WorkerThreadMessageMark]){
-            let type=msg.data.type;
-            let scriptId=msg.data.scriptId;
-            switch(type){
-                case 'run':
-                    new Function('resolve','reject',msg.data.script)((result:any)=>{
-                        (msg.source??globalThis).postMessage({[WorkerThreadMessageMark]:true,type:'onScriptResolve',result,scriptId});
-                    },(reason:any)=>{
-                        (msg.source??globalThis).postMessage({[WorkerThreadMessageMark]:true,type:'onScriptRejecte',reason,scriptId});
-                    });
-                    break;
-            }
-        }
-    });
 
-    if('postMessage' in globalThis){
-        afterPostMessageSetup();
-    }
-})()
 
 if((globalThis as any).__PRTBParentPipeServerId!=undefined){
     let parentPipeId=(globalThis as any).__PRTBParentPipeServerId;
@@ -78,6 +45,8 @@ if((globalThis as any).__PRTBParentPipeServerId!=undefined){
         }catch(err:any){
         }
     })()
+}else if(globalThis.postMessage!=undefined){
+    afterPostMessageSetup();
 }
 
 

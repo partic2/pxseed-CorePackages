@@ -1,11 +1,9 @@
 import { GenerateRandomString, amdContext, future, requirejs } from "partic2/jsutils1/base";
-import { BasicMessagePort, IWorkerThread, getWWWRoot, lifecycle, setWorkerThreadImplementation } from "partic2/jsutils1/webutils";
+import { BasicMessagePort, FunctionCallOverMessagePort, IWorkerThread, WebWorkerThread, getWWWRoot, lifecycle, setWorkerThreadImplementation } from "partic2/jsutils1/webutils";
 import { MessagePort} from "worker_threads";
-import {Worker} from 'worker_threads'
+import {Worker as NWorker} from 'worker_threads'
 
-import {__name__ as webutilsName} from 'partic2/jsutils1/webutils'
 import path from "path";
-const WorkerThreadMessageMark='__messageMark_WorkerThread'
 
 
 
@@ -79,85 +77,15 @@ export class MessagePortForNodeWorker implements BasicMessagePort{
     }
 }
 
-class NodeWorkerThread implements IWorkerThread{
-    nodeWorker?:Worker;
-    workerId='';
-    port?:BasicMessagePort
-    waitReady=new future<number>();
-    constructor(workerId?:string){
-        this.workerId=workerId??GenerateRandomString();
-    }
-    onExit?:()=>void;
-    exitListener=()=>{
-        this.runScript(`require(['${webutilsName}'],function(webutils){
-            webutils.lifecycle.dispatchEvent(new Event('exit'));
-        })`);
-    };
-    async start(){
-        //Program started with noderun.js
-        this.nodeWorker=new Worker(path.join(getWWWRoot(),'noderun.js'),{workerData:{entryModule:'partic2/nodehelper/workerentry'}});
-        this.nodeWorker.on('message',(msgdata)=>{
-            let msg={data:msgdata};
-            if(typeof msg.data==='object' && msg.data[WorkerThreadMessageMark]){
-                let {type,scriptId}=msg.data as {type:string,scriptId?:string};
-                switch(type){
-                    case 'run':
-                        this.onHostRunScript(msg.data.script)
-                        break;
-                    case 'onScriptResolve':
-                        this.onScriptResult(msg.data.result,scriptId)
-                        break;
-                    case 'onScriptReject':
-                        this.onScriptReject(msg.data.reason,scriptId);
-                        break;
-                    case 'ready':
-                        this.waitReady.setResult(0);
-                        break;
-                    case 'closing':
-                        lifecycle.removeEventListener('exit',this.exitListener);
-                        this.onExit?.();
-                        break;
-                }
-            }
-        });
-        await this.waitReady.get();
-        await this.runScript(`global.__workerId='${this.workerId}'`)
-        lifecycle.addEventListener('exit',this.exitListener);
-        this.port=new MessagePortForNodeWorker(this.nodeWorker!)
-    }
-    onHostRunScript(script:string){
-        (new Function('workerThread',script))(this);
-    }
-    processingScript={} as {[scriptId:string]:future<any>}
-    async runScript(script:string,getResult?:boolean){
-        let scriptId='';
-        if(getResult===true){
-            scriptId=GenerateRandomString();
-            this.processingScript[scriptId]=new future<any>();
-        }
-            this.nodeWorker?.postMessage({[WorkerThreadMessageMark]:true,type:'run',script,scriptId})
-        if(getResult===true){
-            return await this.processingScript[scriptId].get();            
-        }
-    }
-    onScriptResult(result:any,scriptId?:string){
-        if(scriptId!==undefined && scriptId in this.processingScript){
-            let fut=this.processingScript[scriptId];
-            delete this.processingScript[scriptId];
-            fut.setResult(result);
-        }
-    }
-    onScriptReject(reason:any,scriptId?:string){
-        if(scriptId!==undefined && scriptId in this.processingScript){
-            let fut=this.processingScript[scriptId];
-            delete this.processingScript[scriptId];
-            fut.setException(new Error(reason));
-        }
-    }
-    requestExit(): void {
-        this.runScript('globalThis.close()');
+
+class NodeWorkerThread extends WebWorkerThread{
+    nodeWorker?:NWorker;
+    protected async _createWorker(): Promise<BasicMessagePort> {
+        this.nodeWorker=new NWorker(path.join(getWWWRoot(),'noderun.js'),{workerData:{entryModule:'partic2/nodehelper/workerentry'}});
+        return new MessagePortForNodeWorker(this.nodeWorker!);
     }
 }
+
 
 var implSetuped=false;
 export function setupImpl(){

@@ -19,7 +19,6 @@ import { getRpcClientConnectWorkerParent } from 'partic2/pxprpcClient/rpcworker'
 
 if(!rpcWorkerInitModule.includes(__name__)){
     rpcWorkerInitModule.push(__name__);
-    rpcWorkerInitModule.push(path.join(__name__,'..','httponrpc'));
 }
 
 export let subprocessMagic='--subprocessrnd197izpzgbvbhglw0w';

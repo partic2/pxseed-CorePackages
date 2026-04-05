@@ -4,10 +4,11 @@ import { defaultFuncMap, RpcExtendClient1, RpcExtendClientCallable, RpcExtendCli
 import {defaultHttpHandler, defaultRouter} from './pxseedhttpserver'
 import { utf8conv } from "partic2/CodeRunner/jsutils2";
 import { getRpcFunctionOn } from "partic2/pxprpcBinding/utils";
-import { WebSocketServerConnection } from "partic2/tjshelper/httpprot";
+import { ExtendHttpResponse, WebSocketServerConnection } from "partic2/tjshelper/httpprot";
 import { getPersistentRegistered, importRemoteModule, ServerHostRpcName } from "partic2/pxprpcClient/registry";
 
 let __name__=requirejs.getLocalRequireModule(require);
+
 
 
 class HttpSession{
@@ -41,7 +42,8 @@ class HttpSession{
                     },
                     receive:async ()=>{
                         if(this.closed)throw new Error('Websocket closed.');
-                        return await this.websocketRecv.queueBlockShift();
+                        let r1=await this.websocketRecv.queueBlockShift();
+                        return r1;
                     },
                     close:()=>{
                         this.closed=true;
@@ -69,7 +71,6 @@ defaultFuncMap[__name__+'.newHttpSession']=new RpcExtendServerCallable(async (re
         body=new ReadableStream({
             pull:async (controller: ReadableStreamDefaultController)=>{
                 let chunk=await session.requestBody.queueBlockShift();
-                console.info('#1 new chunk',chunk.length)
                 if(chunk.length>0){
                     controller.enqueue(chunk);
                 }else{
@@ -84,10 +85,11 @@ defaultFuncMap[__name__+'.newHttpSession']=new RpcExtendServerCallable(async (re
 }).typedecl('b->o')
 defaultFuncMap[__name__+'.writeHttpRequestBody']=new RpcExtendServerCallable(async (session:HttpSession,data:Uint8Array)=>{
     if(session.protocol==='http'){
-        console.info('#2 push chunk ',data.length)
         session.requestBody.queueSignalPush(data);
     }else if(session.protocol==='ws'){
         session.websocketRecv.queueSignalPush(data);
+    }else{
+        throw new Error('Unknown protocol:'+session.protocol)
     }
 }).typedecl('ob->');
 defaultFuncMap[__name__+'.fetchHttpResponse']=new RpcExtendServerCallable(async (session:HttpSession)=>{
@@ -98,11 +100,13 @@ defaultFuncMap[__name__+'.fetchHttpResponse']=new RpcExtendServerCallable(async 
         header2.forEach((v,k)=>{
             headers[k]=v;
         });
-        return utf8conv(JSON.stringify({status,statusText,headers}));
+        return utf8conv(JSON.stringify({status,statusText,headers,hasBody:session.response?.body!=null}));
     }else if(session.protocol==='ws'){
         await session.doWebsocket();
         return utf8conv(JSON.stringify({websocketAccepted:session.websocketAccepted}));
-    }        
+    }else{
+        throw new Error('Unknown protocol:'+session)
+    }
 }).typedecl('o->b');
 defaultFuncMap[__name__+'.readHttpResponseBody']=new RpcExtendServerCallable(async (session:HttpSession)=>{
     if(session.protocol==='http'){
@@ -117,9 +121,12 @@ defaultFuncMap[__name__+'.readHttpResponseBody']=new RpcExtendServerCallable(asy
         }
     }else if(session.protocol==='ws'){
         return await session.websocketSend.queueBlockShift();
+    }else{
+        throw new Error('Unknown protocol:'+session.protocol)
     }
 }).typedecl('o->b');
 
+let rpcObjectFree=new FinalizationRegistry((session:RpcExtendClientObject)=>session.free())
 
 export class HttpRequestForwardOnRpc{
     constructor(public client1:RpcExtendClient1){}
@@ -131,6 +138,7 @@ export class HttpRequestForwardOnRpc{
         })
         let newHttpSession=await getRpcFunctionOn(this.client1,__name__+'.newHttpSession','b->o');
         let httpSession=await newHttpSession!.call(utf8conv(JSON.stringify({url,method,headers,protocol:'http'}))) as RpcExtendClientObject;
+        let abortCtl=new AbortController();
         try{
             if(req.body!=null){
                 let writeHttpRequestBody=await getRpcFunctionOn(this.client1,__name__+'.writeHttpRequestBody','ob->');
@@ -145,9 +153,10 @@ export class HttpRequestForwardOnRpc{
             let fetchHttpResponse=await getRpcFunctionOn(this.client1,__name__+'.fetchHttpResponse','o->b');
             let readHttpResponseBody=await getRpcFunctionOn(this.client1,__name__+'.readHttpResponseBody','o->b');
             
-            let {status,statusText}=JSON.parse(utf8conv(await fetchHttpResponse!.call(httpSession) as Uint8Array));
-            let resp2=new Response(new ReadableStream({
+            let {status,statusText,headers}=JSON.parse(utf8conv(await fetchHttpResponse!.call(httpSession) as Uint8Array));
+            let resp2=new ExtendHttpResponse(new ReadableStream({
                 pull:async (controller: ReadableStreamDefaultController)=>{
+                    abortCtl.signal.throwIfAborted();
                     let chunk=await readHttpResponseBody!.call(httpSession) as Uint8Array;
                     if(chunk.length>0){
                         controller.enqueue(chunk);
@@ -156,10 +165,11 @@ export class HttpRequestForwardOnRpc{
                         httpSession.free();
                     }
                 }
-            }),{status,statusText});
-            new FinalizationRegistry((session:RpcExtendClientObject)=>session.free()).register(resp2,httpSession);
+            }),{status,statusText,headers});
+            rpcObjectFree.register(resp2,httpSession);
             return resp2;
         }catch(err){
+            abortCtl.abort();
             httpSession.free();
             throw err;
         }
@@ -191,8 +201,10 @@ export class HttpRequestForwardOnRpc{
                     let chunk=await readHttpResponseBody!.call(httpSession);
                     await conn.send(chunk);
                 }
-            })()]).finally(()=>{
+            })()]).catch((err)=>{
+            }).finally(()=>{
                 httpSession.free();
+                conn.close();
             })
         }
     }
@@ -207,7 +219,7 @@ export async function __serverHostForwardHttpRequestToRpcWorker(prefix:string,rp
 }
 
 export async function forwardHttpRequestToRpcWorker(prefix:string,rpc:string|null){
-    let httponrpc=await importRemoteModule(await (await getPersistentRegistered(ServerHostRpcName))!.ensureConnected(),__name__) as typeof import('./httponrpc');
-    httponrpc.__serverHostForwardHttpRequestToRpcWorker(prefix,rpc);
+    let httpforward=await importRemoteModule(await (await getPersistentRegistered(ServerHostRpcName))!.ensureConnected(),__name__) as typeof import('./httpforward');
+    httpforward.__serverHostForwardHttpRequestToRpcWorker(prefix,rpc);
 }
 

@@ -2,7 +2,7 @@
 //(https://developer.mozilla.org/en-US/docs/Web/API/Service_Worker_API)
 
 import { future, GenerateRandomString, WaitUntil, sleep, requirejs, throwIfAbortError } from "./base";
-import { BasicMessagePort, GetPersistentConfig, IWorkerThread, SavePersistentConfig, config as utilsconfig, getWWWRoot, kvStore } from "./webutils";
+import { BasicMessagePort, GetPersistentConfig, IWorkerThread, SavePersistentConfig, config as utilsconfig, getWWWRoot, kvStore, FunctionCallOverMessagePort } from "./webutils";
 
 const __name__=requirejs.getLocalRequireModule(require);
 
@@ -24,12 +24,20 @@ export const ServiceWorkerId='service worker 1';
 //WorkerThread feature require a custom AMD loader https://github.com/partic2/partic2-iamdee
 const WorkerThreadMessageMark='__messageMark_WorkerThread'
 
+
 class ServiceWorkerThread implements IWorkerThread{
+    //XXX:Chrome for android don't support SharedWorker.
     port?:BasicMessagePort;
     workerId='';
+    protected waitReady=new future<number>();
+    protected funcCall?:FunctionCallOverMessagePort;
+    onExit=new Set<()=>void>()
     constructor(workerId?:string){
         this.workerId=workerId??GenerateRandomString();
     };
+    protected _forwardLifecycle=(msg:Event)=>{
+        this.call('partic2/jsutils1/workerentry','dispatchWorkerLifecycle',[msg.type]);
+    }
     async start(){
         let serviceWorker:ServiceWorker;
         if(navigator.serviceWorker.controller!=undefined){
@@ -50,64 +58,26 @@ class ServiceWorkerThread implements IWorkerThread{
                 serviceWorker.postMessage(data,opt);
             }
         }
-        this.port.addEventListener('message',(msg:MessageEvent)=>{
-            if(typeof msg.data==='object' && msg.data[WorkerThreadMessageMark]){
-                let {type,scriptId}=msg.data as {type:string,scriptId?:string};
-                switch(type){
-                    case 'run':
-                        this.onHostRunScript(msg.data.script)
-                        break;
-                    case 'onScriptResolve':
-                        this.onScriptResult(msg.data.result,scriptId)
-                        break;
-                    case 'onScriptReject':
-                        this.onScriptReject(msg.data.reason,scriptId);
-                        break;
+        let cb=(msg:MessageEvent)=>{
+            if(typeof msg.data==='object'){
+                if(msg.data[WorkerThreadMessageMark]==='closing'){
+                    this.onExit.forEach(cb=>cb());
                 }
             }
-        });
-        let workerReady=false;
-        for(let t1=0;t1<50&&!workerReady;t1++){
-            await Promise.race([
-                this.runScript(`resolve('ok')`,true).then(()=>workerReady=true),
-                sleep(200,'pending')])
+        };
+        this.port.addEventListener('message',cb);
+        this.funcCall=new FunctionCallOverMessagePort(this.port);
+        for(let t1=0;t1<50&&!this.waitReady.done;t1++){
+            this.call('partic2/jsutils1/serviceworker','setWorkerInfo',[this.workerId]).then(()=>this.waitReady.setResult(0));
+            await Promise.race([this.waitReady.get(),sleep(200)]);
         }
-        if(!workerReady){
-            throw new Error('Timeout waiting for service worker ready.')
-        }
-        await this.runScript(`this.__workerId='${this.workerId}'`);
+        if(!this.waitReady.done)throw new Error('Timeout waiting for service worker ready.')
     }
-    onHostRunScript(script:string){
-        (new Function('workerThread',script))(this);
-    }
-    processingScript={} as {[scriptId:string]:future<any>}
-    async runScript(script:string,getResult?:boolean){
-        let scriptId='';
-        if(getResult===true){
-            scriptId=GenerateRandomString();
-            this.processingScript[scriptId]=new future<any>();
-        }
-            this.port?.postMessage({[WorkerThreadMessageMark]:true,type:'run',script,scriptId})
-        if(getResult===true){
-            return await this.processingScript[scriptId].get();            
-        }
-    }
-    onScriptResult(result:any,scriptId?:string){
-        if(scriptId!==undefined && scriptId in this.processingScript){
-            let fut=this.processingScript[scriptId];
-            delete this.processingScript[scriptId];
-            fut.setResult(result);
-        }
-    }
-    onScriptReject(reason:any,scriptId?:string){
-        if(scriptId!==undefined && scriptId in this.processingScript){
-            let fut=this.processingScript[scriptId];
-            delete this.processingScript[scriptId];
-            fut.setException(new Error(reason));
-        }
+    async call(module:string,funcName:string,args:any[]):Promise<any>{
+        return await this.funcCall!.call(module,funcName,args)
     }
     requestExit(){
-        this.runScript('globalThis.close()');
+        this.call('partic2/jsutils1/serviceworker','requestExit',[]);
     }
 }
 
@@ -165,9 +135,7 @@ export async function registerServiceWorkerStartupModule(s:string){
     startupModules.add(s);
     swconfig.startupModules=Array.from(startupModules);
     await SavePersistentConfig(serviceworkerName);
-    worker.runScript(`require(['${serviceworkerName}'],function(sw){
-        sw.loadServiceWorkerModule('${s}')
-    })`)
+    worker.call(serviceworkerName,'loadServiceWorkerModule',[s])
 }
 
 
@@ -317,9 +285,7 @@ export let SimpleGETCache={
             }
         }else{
             let sw=await ensureServiceWorkerInstalled();
-            sw.runScript(`require(['${__name__}'],function(thismod){
-                thismod.SimpleGETCache.reloadConfig().then(resolve)
-            })`)
+            sw.call(__name__,'SimpleGETCacheReloadConfig',[]);
         }
     },
     //path is relative the wwwroot
@@ -345,4 +311,7 @@ export let SimpleGETCache={
     clearCache:async function(){
         await caches.delete(cacheName)
     }
+}
+export async function SimpleGETCacheReloadConfig(){
+    return await SimpleGETCache.reloadConfig()
 }

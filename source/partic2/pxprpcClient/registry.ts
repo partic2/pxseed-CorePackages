@@ -219,9 +219,7 @@ export class RpcWorker{
                     this.wt=CreateWorkerThread(this.workerId);
                     await this.wt!.start();
                     WebMessage.bind(this.wt!.port!)
-                    await this.wt!.runScript(`require(['partic2/pxprpcClient/rpcworker'],function(workerInit){
-                        workerInit.__internal__.initRpcWorker(${JSON.stringify(rpcWorkerInitModule)},'${rpcId.get()}').then(resolve,reject);
-                    },reject)`,true);
+                    await this.wt!.call('partic2/pxprpcClient/rpcworker','__internalInitRpcWorker',[rpcWorkerInitModule,rpcId.get()])
                     this.conn= await new WebMessage.Connection().connect(this.wt!.workerId,500);
                 }
             }
@@ -567,9 +565,7 @@ export async function getConnectionFromUrl(url:string):Promise<Io|null>{
         let swu=await import('partic2/jsutils1/webutilssw');
         let worker=await swu.ensureServiceWorkerInstalled();
         WebMessage.bind(worker!.port!)
-        await worker!.runScript(`require(['partic2/pxprpcClient/rpcworker'],function(workerInit){
-            workerInit.__internal__.initRpcWorker(${JSON.stringify(rpcWorkerInitModule)}).then(resolve,reject);
-        },reject)`,true);
+        await worker!.call('partic2/pxprpcClient/rpcworker','__internalInitRpcWorker',[rpcWorkerInitModule])
         return await new WebMessage.Connection().connect(worker!.workerId,300);
     }else if(url2.protocol=='pxseedjs:'){
         //For user custom connection factory.

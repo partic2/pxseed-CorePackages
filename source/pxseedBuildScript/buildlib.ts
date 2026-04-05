@@ -44,6 +44,7 @@ function makeDefaultStatus():PxseedStatus{
 
 export async function processDirectory(dir:string){
     await inited;
+    let startTime=new Date().getTime();
     const {fs,path}=await getNodeCompatApi();
     console.info(`enter ${dir}`);
     let children=await fs.readdir(dir,{withFileTypes:true});
@@ -107,7 +108,7 @@ export async function processDirectory(dir:string){
             //Don't save ".subpackages" to file.
             pstat.subpackages=[];
         }
-        pstat.lastBuildTime=new Date().getTime();
+        pstat.lastBuildTime=startTime;
         pstat.lastBuildError=pstat.currentBuildError;
         if(pstat.lastBuildError.length==0){
             pstat.lastSuccessBuildTime=pstat.lastBuildTime;

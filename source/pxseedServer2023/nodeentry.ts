@@ -3,7 +3,7 @@ import 'partic2/nodehelper/env'
 
 import { config, defaultRouter, loadConfig, pxseedRunStartupModules, rootConfig, saveConfig, serverCommand, serverCommandRegistry, setupHttpServerHandler, subprocessMagic } from './pxseedhttpserver';
 
-export let __name__='pxseedServer2023/nodeentry';
+export let __name__=requirejs.getLocalRequireModule(require);
 
 import { ArrayBufferConcat, ArrayWrap2, future, Ref2, requirejs, sleep, Task } from 'partic2/jsutils1/base';
 import {Client, Io} from 'pxprpc/base'
@@ -15,7 +15,7 @@ import { GetUrlQueryVariable2, getWWWRoot, lifecycle } from 'partic2/jsutils1/we
 import { ChildProcess, spawn } from 'child_process';
 import {WebSocketServer } from 'ws'
 import { NodeReadableDataSource, NodeWsConnectionAdapter2 } from 'partic2/nodehelper/nodeio';
-import { createIoPipe } from 'partic2/pxprpcClient/registry';
+import { createIoPipe, isServerHost } from 'partic2/pxprpcClient/registry';
 import { RpcExtendClient1 } from 'pxprpc/extend';
 import { WebSocketIo } from 'pxprpc/backend';
 
@@ -240,10 +240,9 @@ export async function startServer(){
 }
 
 export let __inited__=(async ()=>{
-    if(!('__workerId' in globalThis)){
-        await startServer();
-        ensureInit.setResult(0);
-    }
+
+    await startServer();
+
     serverCommandRegistry.buildEnviron=async ()=>{
         return runCommand(`${process.execPath} ${pathJoin(getWWWRoot(),'..','script','buildEnviron.js')}`)
     }
@@ -251,7 +250,10 @@ export let __inited__=(async ()=>{
         return doExit();
     }
     await setupHttpServerHandler()
+
     pxseedRunStartupModules()
+    ensureInit.setResult(0);
+
 })();
 
 
