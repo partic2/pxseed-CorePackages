@@ -2,7 +2,7 @@
 import * as React from 'preact'
 var ReactDOM=React
 
-import {ArrayWrap2, GenerateRandomString, GetBlobArrayBufferContent, GetCurrentTime} from 'partic2/jsutils1/base'
+import {ArrayWrap2, GenerateRandomString, GetBlobArrayBufferContent, GetCurrentTime, mutex} from 'partic2/jsutils1/base'
 import {CKeyValueDb, DynamicPageCSSManager,getResourceManager,path,selectFile} from 'partic2/jsutils1/webutils'
 import { ReactRefEx, ReactRender, css } from 'partic2/pComponentUi/domui'
 import { SimpleFileSystem } from 'partic2/CodeRunner/JsEnviron'
@@ -87,8 +87,11 @@ class FileBrowserComponent<P extends {fs:SimpleFileSystem}={fs:SimpleFileSystem}
             return this.state.currPath!.substring(0,delim);
         }
     }
+    protected _latestOpeningFile:string='';
     async DoFileOpen(path:string,opt?:{noHistory?:boolean}){
+        this._latestOpeningFile=path;
         let filetype=await this.props.fs.filetype(path);
+        if(this._latestOpeningFile!=path)return;
         if(filetype=='dir'){
             let newPath=path;
             let children
@@ -98,6 +101,7 @@ class FileBrowserComponent<P extends {fs:SimpleFileSystem}={fs:SimpleFileSystem}
                 newPath='';
                 children=await this.props.fs.listdir(newPath);
             }
+            if(this._latestOpeningFile!=path)return;
             children.sort((a,b)=>{
                 let a1=(a.type==='dir'?100:200);
                 let b1=(b.type==='dir'?100:200);
@@ -106,6 +110,7 @@ class FileBrowserComponent<P extends {fs:SimpleFileSystem}={fs:SimpleFileSystem}
                 if(c1<0)c1=-1;
                 return a1-b1+c1;
             });
+            if(this._latestOpeningFile!=path)return;
             this.state.selectedFiles.clear();
             if(opt?.noHistory!==true){
                 if(this.state.currPathHistory.at(-1)!=this.state.currPath && this.state.currPath!=undefined){
@@ -115,9 +120,11 @@ class FileBrowserComponent<P extends {fs:SimpleFileSystem}={fs:SimpleFileSystem}
                     }
                 }
             }
+            if(this._latestOpeningFile!=path)return;
             if(this.state.currPath!=newPath){
                 this.onFilterChange('');
             }
+            if(this._latestOpeningFile!=path)return;
             this.setState({
                 currPath:newPath,
                 childrenFile:children,

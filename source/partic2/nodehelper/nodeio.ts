@@ -179,26 +179,8 @@ const __name__=requirejs.getLocalRequireModule(require);
 
 
 export async function createIoPxseedJsUrl(url:string){
-    let type=GetUrlQueryVariable2(url,'type')??'tcp';
-    if(type==='tcp'){
-        let io=new PxprpcIoFromSocket();
-        let host=GetUrlQueryVariable2(url,'host')??'127.0.0.1';
-        let port=Number(GetUrlQueryVariable2(url,'port')!);
-        await io.connect({host,port});
-        return io;
-    }else if(type=='pipe'){
-        let io=new PxprpcIoFromSocket();
-        let path=GetUrlQueryVariable2(url,'pipe');
-        assert(path!=null);
-        await io.connect({path});
-        return io;
-    }else if(type==='ws'){
-        let target=GetUrlQueryVariable2(url,'target');
-        assert(target!=null);
-        let io=await new WebSocketIo().connect(target);
-        return io;
-    }
-    throw new Error(`Unsupported type ${type}`)
+    let bus=await import('partic2/pxprpcClient/bus')
+    return bus.createIoPxseedJsUrl(url);
 }
 
 

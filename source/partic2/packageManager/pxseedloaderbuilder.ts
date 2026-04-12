@@ -10,6 +10,37 @@ let __name__=requirejs.getLocalRequireModule(require);
 
 let pathsep=getWWWRoot().includes('\\')?'\\':'/';
 
+function onlyJsFilesFilter(p:string){
+    return p.endsWith('.js')
+}
+
+let corePackOutputs=[
+    {path:['www','index.html']},
+    {path:['www','noderun.js']},
+    {path:['www','pxseedInit.js']},
+    {path:['www','require.js']},
+    {path:['www','txikirun.js']},
+    {path:['www','acorn-walk.js']},
+    {path:['www','acorn.js']},
+    {path:['www','buffer.js']},
+    {path:['www','isomorphic-git.js']},
+    {path:['www','preact.js']},
+    {path:['www','pxseedBuildScript'],filter:onlyJsFilesFilter},
+    {path:['www','pxseedServer2023'],filter:onlyJsFilesFilter},
+    {path:['www','pxprpc'],filter:onlyJsFilesFilter},
+    {path:['www','partic2','CodeRunner'],filter:onlyJsFilesFilter},
+    {path:['www','partic2','JsNotebook'],filter:onlyJsFilesFilter},
+    {path:['www','partic2','jsutils1'],filter:onlyJsFilesFilter},
+    {path:['www','partic2','nodehelper'],filter:onlyJsFilesFilter},
+    {path:['www','partic2','pComponentUi'],filter:onlyJsFilesFilter},
+    {path:['www','partic2','packageManager'],filter:onlyJsFilesFilter},
+    {path:['www','partic2','pxprpcBinding'],filter:onlyJsFilesFilter},
+    {path:['www','partic2','pxprpcClient'],filter:onlyJsFilesFilter},
+    {path:['www','partic2','pxseedMedia1']},
+    {path:['www','partic2','tjshelper'],filter:onlyJsFilesFilter}
+];
+
+
 export class PxseedLoaderBuilder{
     git='git';
     cmake='cmake'
@@ -69,44 +100,35 @@ export class PxseedLoaderBuilder{
     dirname(path:string){
         return path.split(/[\\\/]/g).slice(0,-1).join(pathsep);
     }
-    async copyFilesNewer(destDir:string,srcDir:string,ignore?:(name:string,path:string)=>boolean,maxDepth?:number){
+    async copyFilesNewer(dest:string,src:string,ignore?:(path:string)=>boolean,maxDepth?:number){
         let tjsi=await this.ensureTjsi();
-        if(maxDepth==undefined){
-            maxDepth=30;
-        }
-        if(maxDepth==0){
-            return;
-        }
-        await tjsi.makeDir(destDir,{recursive:true});
-        let children=await this.listDir(srcDir);
-        try{
-            await tjsi.stat(destDir)
-        }catch(e){
-            await tjsi.makeDir(destDir,{recursive:true});
-        }
-        for(let t1 of children){
-            if(ignore!=undefined && ignore(t1.name,srcDir+'/'+t1.name)){
-                continue;
-            }
-            if(t1.type=='dir'){
-                await this.copyFilesNewer([destDir,t1.name].join(pathsep),[srcDir,t1.name].join(pathsep),ignore,maxDepth-1);
-            }else{
-                let dest=[destDir,t1.name].join(pathsep);
-                let src=[srcDir,t1.name].join(pathsep);
-                let needCopy=false;
-                try{
-                    let dfile=await tjsi.stat(dest);
-                    let sfile2=await tjsi.stat(src);
-                    if(dfile.mtim.getTime()<sfile2.mtim.getTime()){
-                        needCopy=true;
-                    }
-                }catch(e){
+        if(maxDepth==undefined){maxDepth=30;}
+        if(maxDepth==0){return;}
+        let statSrc=await tjsi.stat(src);
+        if(statSrc.isFile){
+            if(ignore!=undefined && ignore(src)){return;}
+            let needCopy=false;
+            try{
+                let dfile=await tjsi.stat(dest);
+                let sfile2=statSrc
+                if(dfile.mtim.getTime()<sfile2.mtim.getTime()){
                     needCopy=true;
                 }
-                if(needCopy){
+            }catch(e){
+                needCopy=true;
+            }
+            if(needCopy){
+                try{
                     await tjsi.makeDir(this.dirname(dest),{recursive:true});
                     await tjsi.copyFile(src,dest);
+                }catch(err){
+                    console.warn(err);
                 }
+            }
+        }else if(statSrc.isDirectory){
+            let children=await this.listDir(src);
+            for(let t1 of children){
+                await this.copyFilesNewer([dest,t1.name].join(pathsep),[src,t1.name].join(pathsep),ignore,maxDepth-1);
             }
         }
     }
@@ -151,7 +173,7 @@ export class PxseedLoaderBuilder{
             await tjsi.stat([dir,'deps','pull_deps.py'].join(pathsep));
             let pullList=new Array<{name:string,url:string,branch:string}>();
             let pullStats=utf8conv(await tjsi.readFile([dir,'deps','pull_deps.py'].join(pathsep))).match(/pull\(.+\)/g)!.slice(1);
-            pullStats.forEach(t1=>new Function('pull',t1)((name:string,url:string,branch:string)=>pullList.push({name,url,branch})))
+            pullStats.forEach(t1=>new Function('pull',t1)((name:string,url:string,branch:string)=>pullList.push({name,url,branch})));
             for(let t1 of pullList){
                 let targetDir=[this.depsSourceDirs,t1.name].join(pathsep);
                 let existed=false;
@@ -182,10 +204,10 @@ export class PxseedLoaderBuilder{
         if(this.depsSourceDirs!=tjsi.env.DEPS_SOURCE_DIRS){
             tjsi.env.DEPS_SOURCE_DIRS=this.depsSourceDirs;
         }
-        if(this.androidBuild==null){
-            if(this.AndroidHome==null){
-                this.AndroidHome=tjsi.env.ANDROID_HOME;
-            }
+        if(this.AndroidHome==null && tjsi.env.ANDROID_HOME!=undefined){
+            this.AndroidHome=tjsi.env.ANDROID_HOME;
+        }
+        if(this.androidBuild===null){
             this.androidBuild=this.AndroidHome!=null;
         }
         if(this.androidBuild && this.AndroidNdk==null){
@@ -218,8 +240,24 @@ export class PxseedLoaderBuilder{
             await this.pullDeps(this.pxseedLoaderSource!);
         }
     }
+    async preparePxseedJsCoreEnviron(){
+        try{
+            await this.copyFilesNewer(this.pxseedLoaderSource+'/commonj/src/main/assets/res/tjs-initialize',this.pxseedLoaderSource+'/deps/txiki.js/src/js')
+        }catch(err){}
+        let pxseedRoot=this.dirname(getWWWRoot());
+        for(let t1 of corePackOutputs){
+            let sourcePath=[pxseedRoot,...t1.path].join(pathsep);
+            let destPath=this.pxseedLoaderSource+'/commonj/src/main/assets/res/pxseed/'+t1.path.join(pathsep);
+            let filter=t1.filter;
+            await this.copyFilesNewer(destPath,sourcePath,(path)=>{
+                if(filter==undefined)return false;
+                return !filter(path);
+            })
+        }
+    }
     async buildAndroidRelease(){
         let tjsi=await this.ensureTjsi();
+        await this.preparePxseedJsCoreEnviron()
         for(let currAbi of this.androidAbi){
             let flags=[this.cmake]
             flags.push(`-DANDROID_NATIVE_API_LEVEL=${this.androidBuildSdkVersion}`)
@@ -243,17 +281,16 @@ export class PxseedLoaderBuilder{
                 }
             }
             await tjsi.copyFile(builddir+'/build-pxprpc_rtbridge/libpxprpc_rtbridge.so',jniDir+'/libpxprpc_rtbridge.so');
-            try{
-                await this.copyFilesNewer(this.pxseedLoaderSource+'/android-project/src/main/assets/res/tjs-initialize',this.pxseedLoaderSource+'/deps/txiki.js/src/js')
-            }catch(err){}
         }
         if(tjsi.system.platform==='windows'){
             await this.runCommand(['cmd','/c',this.pxseedLoaderSource+'/android-project/gradlew.bat','assembleRelease'],[this.pxseedLoaderSource,'android-project'].join(pathsep));
         }else{
             await this.runCommand([this.pxseedLoaderSource+'/android-project/gradlew','assembleRelease'],[this.pxseedLoaderSource,'android-project'].join(pathsep));
         }
-        
-        await tjsi.copyFile(this.pxseedLoaderSource+'/android-project/build/outputs/apk/release/xplatj-release.apk',this.pxseedLoaderSource+'/launcher/build/pxseedloader-release.apk')
+        for(let t1 of this.androidAbi){
+            await tjsi.copyFile(this.pxseedLoaderSource+`/android-project/build/outputs/apk/release/xplatj-${t1}-release.apk`,this.pxseedLoaderSource+`/launcher/build/pxseedloader-${t1}-release.apk`)
+        }
+        await tjsi.copyFile(this.pxseedLoaderSource+`/android-project/build/outputs/apk/release/xplatj-universal-release.apk`,this.pxseedLoaderSource+`/launcher/build/pxseedloader-universal-release.apk`)
     }
     async buildDesktopRelease(){
         let tjsi=await this.ensureTjsi();
@@ -293,7 +330,6 @@ export class PxseedLoaderBuilder{
                     }catch(err){};
                 }
                 await this.copyFilesNewer(outdir,this.pxseedLoaderSource+'/commonj/src/main/assets')
-                await this.copyFilesNewer(outdir+'/res/tjs-initialize',this.pxseedLoaderSource+'/deps/txiki.js/src/js');
                 
             }finally{
                 if(buildToolchain.APPENDENV!=undefined){

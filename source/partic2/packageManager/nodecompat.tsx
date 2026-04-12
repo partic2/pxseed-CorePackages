@@ -149,6 +149,11 @@ export let pathCompat={
   }
 }
 
+pathCompat.join=pathCompat.join.bind(pathCompat);
+pathCompat.dirname=pathCompat.dirname.bind(pathCompat);
+pathCompat.basename=pathCompat.basename.bind(pathCompat);
+
+
 export async function buildNodeCompatApiTjs(){
   const {buildTjs}=await import('partic2/tjshelper/tjsbuilder');
   const tjs=await buildTjs();

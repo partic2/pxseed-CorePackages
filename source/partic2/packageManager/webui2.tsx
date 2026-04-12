@@ -623,13 +623,11 @@ export let webuiStartupExecuteFunction={
     }
 }
 
-let __inited__=(async ()=>{
-    if(GetJsEntry()==__name__){
-        document.body.style.overflow='hidden';
+
+
+export async function main(cmd:string){
+    if(cmd=='webui'){
         renderPackagePanel();
-        RemotePxseedJsIoServer.serve(`/pxprpc/pxseed_webui/${__name__.replace(/\//g,'.')}/${rpcId.get()}`,{
-            onConnect:(io)=>new RpcExtendServer1(new Server(io))
-        }).catch((err:any)=>console.warn(err.message,err.stack));
         config=await GetPersistentConfig(__name__);
         for(let t1 of await webuiStartupExecuteFunction.iter()){
             import(t1[1].module).then(mod=>mod[t1[1].functionName](...(t1[1].arguments??[]))).catch(()=>{});
@@ -638,10 +636,5 @@ let __inited__=(async ()=>{
             }
         }
     }
-})();
-
-export async function then(resolve:any){
-    delete exports.then;
-    await __inited__;
-    resolve(exports);
 }
+

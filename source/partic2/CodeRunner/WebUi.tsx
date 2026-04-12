@@ -178,6 +178,8 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
             ev.preventDefault();
             await new Promise(requestAnimationFrame)
             this.ensureCandidateScroll.call();
+        }else if(ev.code=='Escape' && this.state.codeCompleteCandidate!=null){
+            this.resetTooltips();
         }
     }
     protected onCellInput(editor:TextEditor,inputData: { char: string | null; text: string | null; type:string}){
@@ -210,7 +212,7 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
         this.rref.codeInput.current!.setPlainText(input);
     }
     setCellOutput(output:any,resultVariable?:string|null){
-        this.setState({cellOutput:output,resultVariable});
+        this.setState({cellOutput:output,resultVariable,errorCatched:null});
     }
     protected resetTooltips(){
         this.setState({focusingCompletionCandidate:0,codeCompleteCandidate:null,extraTooltips:null});
@@ -301,7 +303,7 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
                 }
             }}}
             onInput={(target,inputData)=>this.onCellInput(target,inputData)} divClass={[css.inputCell,...(this.props.inputClass??[])]} />
-            {this.state.focusin?<div style={{position:'relative',display:'flex',justifyContent:'end'}}>
+            {this.state.focusin?<div style={{position:'relative',display:'flex',flexDirection:'row-reverse'}}>
                 <div style={{position:'absolute',backgroundColor:'white',maxWidth:'50%',wordBreak:'break-all'}}>
                 <div>{this.renderActionButton()}</div>
             </div></div>:null}
@@ -442,7 +444,11 @@ export class DefaultCodeCellList extends React.Component<
                     {label:'Del',cb:()=>this.deleteCell(v.key)}
                 ]} onClearOutputs={()=>this.clearConsoleOutput(v.key)}
                     onRun={async ()=>{
-                        this.lastRunCellKey=v.key;this.props.onRun?.(v.key);
+                        this.props.onRun?.(v.key);
+                        this.lastRunCellKey=v.key;
+                        if(v.key==this.state.list.at(-1)?.key){
+                            this.newCell(v.key);
+                        }
                     }}
                     onFocusChange={(focusin)=>{
                         if(focusin){

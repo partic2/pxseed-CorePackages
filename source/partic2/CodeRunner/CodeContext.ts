@@ -107,8 +107,7 @@ export class LocalRunCodeContext implements RunCodeContext{
         event:this.event,
         CodeContextEvent,
         Task:jsutils1.Task,
-        TaskLocalRef,
-        TaskLocalEnv,
+        tasks:{} as Record<string,jsutils1.Task<any>>,
         //Will be close when LocalRunCodeContext is closing.
         autoClosable:{} as Record<string,{close?:()=>void}>,
         close:()=>{
@@ -304,12 +303,19 @@ export class LocalRunCodeContext implements RunCodeContext{
     async runCodeInScope(source:string){
         let withBlockBegin='with(_ENV){';
         let code=new Function('_ENV',withBlockBegin+
-        'return (async ()=>{'+source+'\n})();}');
-        
+        'return (async ()=>{Promise.__onAsyncEnter();try{\n'+source+'\n}finally{Promise.__onAsyncExit();}})();}');
         let that=this;
+        let taskName=__name__+'.task-'+jsutils1.GenerateRandomString();
         let r=jsutils1.Task.fork(function*(){
+            let curtask=jsutils1.Task.currentTask!;
+            curtask.name=taskName;
+            that.localScope.tasks[taskName]=curtask;
             TaskLocalEnv.set(that.localScope);
-            return (yield code(that.localScopeProxy)) as any;
+            try{
+                return (yield code(that.localScopeProxy)) as any;
+            }finally{
+                delete that.localScope.tasks[taskName];
+            }
         }).run();
         return await r;
     }

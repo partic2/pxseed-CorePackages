@@ -9,33 +9,29 @@ import { defaultFileSystem, ensureDefaultFileSystem, getSimpleFileSysteNormalize
 import { buildPackageAndNotfiy, listener } from './registry';
 
 
-export let __name__='partic2/packageManager/misc';
+export let __name__=requirejs.getLocalRequireModule(require);
 
+let log=logger.getLogger(__name__)
 
 export async function cleanWWW(dir:string|null){
-    let {dirname,join} = await import('path')
-    let {readdir,rm, rmdir}=await import('fs/promises')
+    let {fs,path,wwwroot}=await getNodeCompatApi()
 
-
-    let log=logger.getLogger(__name__);
-
-    let wwwDir=join(dirname(dirname(dirname(__dirname))),'www');
-    let sourceDir=join(dirname(dirname(dirname(__dirname))),'source');
+    let wwwDir=wwwroot;
 
 
     //clean .js .d.ts .tsbuildinfo .js.map and empty directory
     dir=dir??wwwDir;
-    let children=await readdir(dir,{withFileTypes:true});
+    let children=await fs.readdir(dir,{withFileTypes:true});
     let emptyDir=true;
     for(let t1 of children){
         if(t1.name.endsWith('.js') || t1.name.endsWith('.d.ts') || t1.name.endsWith('.tsbuildinfo') || t1.name.endsWith('.js.map')){
-            log.debug(`delete ${join(dir,t1.name)}`)
-            await rm(join(dir,t1.name))
+            log.debug(`delete ${path.join(dir,t1.name)}`)
+            await fs.rm(path.join(dir,t1.name))
         }else if(t1.isDirectory()){
-            let r1=await cleanWWW(join(dir,t1.name));
+            let r1=await cleanWWW(path.join(dir,t1.name));
             if(r1.emptyDir){
-                log.debug(`delete ${join(dir,t1.name)}`)
-                await rmdir(join(dir,t1.name))
+                log.debug(`delete ${path.join(dir,t1.name)}`)
+                await fs.rmdir(path.join(dir,t1.name))
             }else{
                 emptyDir=false;
             }
@@ -54,8 +50,7 @@ export async function findPxseedPackageContainFile(file:string):Promise<{
     let {fs,path,wwwroot}=await getNodeCompatApi()
     let {dirname,join} = path;
     let {access}=fs;
-    let { processDirectory } =await import('pxseedBuildScript/buildlib');
-    let sourceDir=join(dirname(dirname(dirname(__dirname))),'source');
+    let sourceDir=join(dirname(wwwroot),'source');
     let splitPath=file.split(/[\\\/]/);
     let pkgPath:string|null=null;
     for(let t1 of ArrayWrap2.IntSequence(splitPath.length,-1)){
@@ -309,18 +304,23 @@ export function __miscBuildFunctionEventListener(pkgName:string){
 
 export async function waitBuildWatcherEvent(){
     if(listener.onBuild.find(t1=>t1.module===__name__)==undefined){
-        listener.onBuild.push({module:__name__,function:'__miscBuildFunctionEventListener'})
+        listener.onBuild.push({module:__name__,func:'__miscBuildFunctionEventListener'})
     }
     return buildWatcher.event.get();
 }
 
-let fileSystemWatcherAutoBuildDebounceCall=new DebounceCall(async ()=>{
+let __buildingMutex=new mutex();
+
+let fileSystemWatcherAutoBuildDebounceCall=new DebounceCall(async ()=>__buildingMutex.exec(async ()=>{
     let copy=Array.from(buildWatcher.pendingBuildingTask);
     buildWatcher.pendingBuildingTask.clear();
     for(let t1 of copy){
-        await buildPackageAndNotfiy(t1);
+        log.info('building package:',t1);
+        let consoleContent=await buildPackageAndNotfiy(t1);
+        log.info('built package:',t1);
+        log.info('outputs:',consoleContent);
     }
-},1000);
+}),1000);
 
 export async function startFileSystemWatcherAutoBuild(){
     if(buildWatcher.fsw==null){
@@ -332,7 +332,7 @@ export async function startFileSystemWatcherAutoBuild(){
                 let {pkgName}=await findPxseedPackageContainFile(path.join(sourceRoot,fn));
                 if(pkgName!=null){
                     buildWatcher.pendingBuildingTask.add(pkgName);
-                    await fileSystemWatcherAutoBuildDebounceCall.call();
+                    __buildingMutex.exec(async ()=>{fileSystemWatcherAutoBuildDebounceCall.call()});
                 }
             }
         });

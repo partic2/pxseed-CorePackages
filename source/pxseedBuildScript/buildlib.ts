@@ -42,8 +42,10 @@ function makeDefaultStatus():PxseedStatus{
 
 
 
-export async function processDirectory(dir:string){
+export async function processDirectory(dir:string,context?:any){
     await inited;
+    context=context??{};
+    context._ensuredPackages=context._ensuredPackages??new Set<string>();
     let startTime=new Date().getTime();
     const {fs,path}=await getNodeCompatApi();
     console.info(`enter ${dir}`);
@@ -57,7 +59,7 @@ export async function processDirectory(dir:string){
         for(let child of children){
             if(child.isDirectory()){
                 try{
-                    await processDirectory(path.join(dir,child.name));
+                    await processDirectory(path.join(dir,child.name),context);
                 }catch(err:any){
                     console.warn('recursive pxseed process failed.'+err.toString()+'\n'+err.stack)
                 };
@@ -74,12 +76,14 @@ export async function processDirectory(dir:string){
         let loaders=pxseedConfig.loaders;
         for(let loaderConfig of loaders){
             try{
-                //Experimental.
                 if(loaderConfig.name==='ensure'){
                     let packages=loaderConfig.packages as string[]|undefined;
                     if(packages!=undefined){
                         for(let p1 of packages){
-                            await processDirectory(path.join(sourceDir,p1));
+                            if(!context._ensuredPackages.has(p1)){
+                                await processDirectory(path.join(sourceDir,p1),context);
+                                context._ensuredPackages.add(p1);
+                            }
                         }
                     }
                 }else if(loaderConfig.name.startsWith('pxseedjs:')){
@@ -103,7 +107,7 @@ export async function processDirectory(dir:string){
         }
         if(pstat.subpackages.length>0){
             for(let t1 of pstat.subpackages){
-                await processDirectory(path.join(dir,t1));
+                await processDirectory(path.join(dir,t1),context);
             }
             //Don't save ".subpackages" to file.
             pstat.subpackages=[];

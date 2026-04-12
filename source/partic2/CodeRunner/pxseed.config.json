@@ -8,6 +8,9 @@
         "acorn",
         "acorn-walk"
       ]
+    },{
+      "name":"ensure",
+      "packages":["partic2/pComponentUi","partic2/jsutils1","partic2/tjshelper","partic2/pxprpcClient","pxprpc"]
     }
   ],
   "name": "partic2/CodeRunner"

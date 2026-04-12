@@ -14,9 +14,9 @@ export let __name__=requirejs.getLocalRequireModule(require);
 let log=logger.getLogger(__name__);
 
 export let listener={
-    onBuild:new Array<{module:string,function:string}>(),
-    onInstall:new Array<{module:string,function:string}>(),
-    onUninstall:new Array<{module:string,function:string}>(),
+    onBuild:new Array<{module:string,func:string}>(),
+    onInstall:new Array<{module:string,func:string}>(),
+    onUninstall:new Array<{module:string,func:string}>(),
 }
 
 
@@ -202,23 +202,28 @@ export interface PackageManagerOption{
     onUpgrade?:{
         module:string,
         //type upgradeHandlerFunc=(moduleName:string,pkgDir:string)=>Promise<void>
-        function:string
+        func:string
     },
     //intercept the default publish action.
     onPublish?:{
         module:string,
         //type publishHandlerFunc=(moduleName:string,pkgDir:string)=>Promise<void>
-        function:string
+        func:string
     },
     onInstalled?:{
         module:string,
         //type installHandlerFunc=(moduleName:string)=>void
-        function:string
+        func:string
     },
     onServerStartup?:{
         module:string,
-        //type installHandlerFunc=(moduleName:string)=>void
-        function:string
+        //type serverStartupHandler=()=>void
+        func:string
+    },
+    onWebuiStartup?:{
+        module:string,
+        //type webuiStartupHandler=()=>void, this function will run in web scope.
+        func:string
     }
     dependencies?:string[],
     repositories?:{
@@ -365,11 +370,11 @@ export async function installLocalPackage(path2:string){
     if(pkgConfig!=null){
         if(pkgConfig.onInstalled!=undefined){
             try{
-                (await import(pkgConfig.onInstalled.module))[pkgConfig.onInstalled.function]();
+                (await import(pkgConfig.onInstalled.module))[pkgConfig.onInstalled.func]();
             }catch(e){};
         }
     }
-    listener.onInstall.forEach((l)=>import(l.module).then(m=>m[l.function](pkgname)).catch(()=>{}));
+    listener.onInstall.forEach((l)=>import(l.module).then(m=>m[l.func](pkgname)).catch(()=>{}));
 }
 
 
@@ -413,7 +418,7 @@ export async function buildPackageAndNotfiy(pkgName:string){
     wrapConsole.error=(...msg:any[])=>records.push(msg);
     let buildPath=await getSourceDirForPackage(pkgName);
     await withConsole(wrapConsole,()=>processDirectory(buildPath));
-    listener.onBuild.forEach((l)=>{import(l.module).then(m=>m[l.function](pkgName)).catch(()=>{})});
+    listener.onBuild.forEach((l)=>{import(l.module).then(m=>m[l.func](pkgName)).catch(()=>{})});
     try{
         await updatePackagesDatabase(pkgName);
     }catch(err){}
@@ -425,7 +430,7 @@ export async function uninstallPackage(pkgname:string){
     let dir1=await getSourceDirForPackage(pkgname);
     await cleanBuildStatus(dir1)
     await fs.rm(dir1,{recursive:true});
-    listener.onUninstall.forEach((l)=>import(l.module).then(m=>m[l.function](pkgname)));
+    listener.onUninstall.forEach((l)=>import(l.module).then(m=>m[l.func](pkgname)));
 }
 
 export async function getPxseedConfigForPackage(pkgname:string):Promise<PxseedConfig | null>{
@@ -499,7 +504,7 @@ export async function upgradePackage(pkgname:string){
     let pxseedConfig=await utilsi.readJson(path.join(pkgdir,'pxseed.config.json')) as PxseedConfig;
     let pmopt=getPMOptFromPcfg(pxseedConfig);
     if(pmopt?.onUpgrade!=undefined){
-        await (await import(pmopt.onUpgrade.module))[pmopt.onUpgrade.function](pkgname,pkgdir);
+        await (await import(pmopt.onUpgrade.module))[pmopt.onUpgrade.func](pkgname,pkgdir);
     }else{
         await fs.access(path.join(pkgdir,'.git'));
         await pkgfetcheri.upgradeGitPackage(pkgdir);
@@ -661,19 +666,24 @@ export async function cleanPackageInstallCache(){
     await fs.rm(path.join(wwwroot,...__name__.split('/'),'..','__temp'),{recursive:true});
 }
 
-export async function sendOnStartupEventForAllPackages(){
+export async function getPackageListeners(eventType:'onServerStartup'|'onWebuiStartup'):Promise<Array<{module:string,func:string}>>{
+    let result=new Array<{module:string,func:string}>()
     for await (let pkg of listPackages()){
         let pmopt=getPMOptFromPcfg(pkg);
         if(pmopt!=null){
-            if(pmopt.onServerStartup!=null){
+            if(pmopt[eventType]!=null){
                 try{
-                    (await import(pmopt.onServerStartup.module))[pmopt.onServerStartup.function]();
+                    result.push(pmopt[eventType]);
                 }catch(err){};
             }
         }
     }
+    return result;
+}
+
+export async function sendOnStartupEventForAllPackages(){
+    await Promise.allSettled((await getPackageListeners('onServerStartup')).map(t1=>import(t1.module).then(t2=>t2[t1.func]())));
     await ensureDefaultFileSystem();
-    
     let startupNotebook=getSimpleFileSysteNormalizedWWWRoot()+'/'+path.join(__name__,'..','notebook','startup.ijsnb');
     if(await defaultFileSystem!.filetype(startupNotebook)=='none'){
         let nbd=new NotebookFileData();
