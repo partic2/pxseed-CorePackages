@@ -1,4 +1,4 @@
-import { GenerateRandomString, amdContext, assert, future, mutex, requirejs, sleep } from "./base";
+import { GenerateRandomString, Task, amdContext, assert, future, mutex, requirejs, sleep } from "./base";
 
 
 export var __name__='partic2/jsutils1/webutils'
@@ -93,8 +93,7 @@ class IndexedDbAdapter4Kvdb implements IKeyValueDb{
         this.db = new CIndexedDb();
         var update = await this.db.connect(dbName);
         if (update && !new Set(this.db.getObjectStoreNames()).has('KeyValueMap')) {
-            var objStore = await this.db.createObjectStore('KeyValueMap', {
-            });
+            await this.db.createObjectStore('KeyValueMap', {});
             await this.db.close();
             await this.db.connect(dbName);
         }
@@ -238,7 +237,6 @@ export function AddUrlQueryVariable(url:string,vars:{[key:string]:string}):strin
     
 }
 
-
 export function RequestDownload(buff:ArrayBuffer|string|Uint8Array<ArrayBuffer>,fileName:string){
     let downloadAnchor = document.createElement('a');
     downloadAnchor.style.display = 'none';
@@ -265,12 +263,12 @@ export async function selectFile():Promise<FileList|null>{
     })
 }
 
-export function AddStyleSheetNode():CSSStyleSheet{
+export function AddStyleSheetNode(parentNode?:Node):CSSStyleSheet{
+    parentNode=parentNode??(document.head);
     let cssNode=document.createElement('style')
-    document.head.appendChild(cssNode);
-    return <CSSStyleSheet>cssNode.sheet
+    parentNode.appendChild(cssNode);
+    return cssNode.sheet as CSSStyleSheet
 }
-
 
 export function GetStyleRuleOfSelector(selector:string){
     var matched=new Array<CSSStyleRule>();
@@ -291,36 +289,43 @@ export function GetStyleRuleOfSelector(selector:string){
     return matched;
 }
 
-
 export class CDynamicPageCSSManager{
-    public CssNode?:CSSStyleSheet
-    public InsertedSelector=new Array<string>();
+    protected cssSheet:CSSStyleSheet
+    constructor(cssSheetIn?:CSSStyleSheet){
+        this.cssSheet=cssSheetIn??AddStyleSheetNode();
+    }
     public PutCss(selector:string,rules:string[]){
-        if(this.CssNode==undefined){
-            this.CssNode=AddStyleSheetNode();
+        let found=this.FindRuleFor(selector);
+        if(found!=undefined){
+            this.cssSheet!.deleteRule(found.index);
         }
-        let index=this.InsertedSelector.indexOf(selector);
-        if(index>=0){
-            //cssText is read only, Do not write it. 
-            this.CssNode.deleteRule(index);
-            this.InsertedSelector.splice(index,1);
+        this.cssSheet.insertRule(selector+'{'+rules.join(';')+'}',0);
+    }
+    public *IterCss(){
+        for(let t1=0;t1<this.cssSheet!.cssRules.length;t1++){
+            let rule=this.cssSheet!.cssRules.item(t1);
+            yield {index:t1,rule}
         }
-        this.CssNode.insertRule(selector+'{'+rules.join(';')+'}',0);
-        this.InsertedSelector.unshift(selector);
+    }
+    public FindRuleFor(selector:string){
+        for(let t1 of this.IterCss()){
+            if(t1.rule!=null && (t1.rule as CSSStyleRule).selectorText===selector){
+                return t1
+            }
+        }
     }
     public RemoveCss(selector:string){
-        if(this.CssNode==undefined){
-            this.CssNode=AddStyleSheetNode();
-        }
-        let index=this.InsertedSelector.indexOf(selector);
-        if(index>=0){
-            this.CssNode.deleteRule(index);
-            this.InsertedSelector.splice(index,1);
+        let found=this.FindRuleFor(selector);
+        if(found!=undefined){
+            this.cssSheet!.deleteRule(found.index);
         }
     }
 }
 
-export var DynamicPageCSSManager=new CDynamicPageCSSManager();
+export var DynamicPageCSSManager:CDynamicPageCSSManager=null as any;
+if(globalThis.document!=undefined){
+    DynamicPageCSSManager=new CDynamicPageCSSManager(AddStyleSheetNode())
+}
 var kvdbmap={} as {[dbname:string]:CKeyValueDb}
 var kvdbinitmutex=new mutex();
 var kvStoreBackend:(dbname:string)=>Promise<IKeyValueDb>=async (dbname:string)=>{
@@ -513,27 +518,42 @@ export function setWorkerThreadImplementation(impl:{new(workerId?:string):IWorke
     defaultWorkerThreadImpl=impl
 }
 
+declare global {
+  interface RequestInit {
+    duplex?: "half" | "full";  //To fix typescript issue
+  }
+}
+
+type HttpClientRequestHook=(req:{url:string,init?:RequestInit})=>Promise<void>
+type HttpClientResponseHook=(req:{url:string,init?:RequestInit},resp:Response)=>Promise<Response>
 export class HttpClient{
     async fetch(url:string,init?:RequestInit){
+        init=init??{};
         for(let hook of this.reqHooks){
             await hook({url,init});
         }
+        if(Task.currentTask!=undefined && init?.signal==undefined){
+            init.signal=Task.currentTask.getAbortSignal();
+        }
         let resp=await fetch(url,init);
         for(let hook of this.respHooks){
-            await hook({url,init},resp);
+            resp=await hook({url,init},resp);
         }
         return resp;
     }
-    protected reqHooks:((req:{url:string,init?:RequestInit})=>Promise<void>)[]=[];
-    protected respHooks:((req:{url:string,init?:RequestInit},resp:Response)=>Promise<void>)[]=[]
-    hookRequest(hook:((req:{url:string,init?:RequestInit})=>Promise<void>)){
-        this.reqHooks.push(hook);
+    protected reqHooks:HttpClientRequestHook[]=[];
+    protected respHooks:HttpClientResponseHook[]=[]
+    hookRequest(hook:HttpClientRequestHook){this.reqHooks.push(hook);}
+    removeRequestHook(hook:HttpClientRequestHook){
+        let foundIndex=this.reqHooks.indexOf(hook);
+        if(foundIndex>=0){this.reqHooks.splice(foundIndex,1);}
     }
-    hookResponse(hook:(req:{url:string,init?:RequestInit},resp:Response)=>Promise<void>){
-        this.respHooks.push(hook);
+    hookResponse(hook:HttpClientResponseHook){this.respHooks.push(hook);}
+    removeResponseHook(hook:HttpClientResponseHook){
+        let foundIndex=this.respHooks.indexOf(hook);
+        if(foundIndex>=0){this.respHooks.splice(foundIndex,1);}
     }
 }
-
 export var defaultHttpClient=new HttpClient();
 export function setDefaultHttpClient(client:HttpClient){
     defaultHttpClient=client;
