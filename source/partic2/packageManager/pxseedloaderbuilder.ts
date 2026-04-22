@@ -132,10 +132,15 @@ export class PxseedLoaderBuilder{
             }
         }
     }
-    async build(){
+    async ensurePxseedLoaderSource(){
         let tjsi=await this.ensureTjsi();
         if(this.pxseedLoaderSource===null){
-            this.pxseedLoaderSource=[getWWWRoot(),...__name__.split('/'),'pxseedloadersource'].join(pathsep);
+            if(tjsi.env.PXSEEDLOADER_SOURCE_DIR!=null && tjsi.env.PXSEEDLOADER_SOURCE_DIR!=''){
+                this.pxseedLoaderSource=tjsi.env.PXSEEDLOADER_SOURCE_DIR;
+            }
+        }
+        if(this.pxseedLoaderSource===null){
+            this.pxseedLoaderSource=[getWWWRoot(),'__data__',...__name__.split('/'),'pxseedloadersource'].join(pathsep);
             console.info(`pxseed loader source not defined, use ${this.pxseedLoaderSource}`)
         }
         try{
@@ -145,6 +150,16 @@ export class PxseedLoaderBuilder{
             await tjsi.makeDir(this.pxseedLoaderSource,{recursive:true});
             await this.runCommand([this.git,'clone','--depth=1','https://gitee.com/partic/xplatj2.git',this.pxseedLoaderSource])
         }
+    }
+    async build(){
+        if(this.pxseedLoaderSource==null){
+            await this.ensurePxseedLoaderSource();
+        }
+        let tjsi=await this.ensureTjsi();
+        try{
+            let configJs=new TextDecoder().decode(await tjsi.readFile(this.pxseedLoaderSource+'/launcher/build_config.txt'));
+            new Function('c',configJs)(this);
+        }catch(err){};
         await this.initializeEnviron();
         if(this.androidBuild)await this.buildAndroidRelease();
         await this.buildDesktopRelease();
@@ -346,19 +361,12 @@ export async function defaultBuild(configFile?:string){
     try{
         let buildConfig=new PxseedLoaderBuilder();
         let tjsi=await buildTjs();
-        if(tjsi.env.PXSEEDLOADER_SOURCE_DIR!=null && tjsi.env.PXSEEDLOADER_SOURCE_DIR!=''){
-            buildConfig.pxseedLoaderSource=tjsi.env.PXSEEDLOADER_SOURCE_DIR;
-        }
         let configJs='';
         if(configFile!=undefined){
             configJs=new TextDecoder().decode(await tjsi.readFile(configFile));
-            
-        }else{
-            try{
-                configJs=new TextDecoder().decode(await tjsi.readFile(buildConfig.pxseedLoaderSource+'/launcher/build_config.txt'));
-            }catch(err){};
-        }
+        }else{}
         if(configJs!='')new Function('c',configJs)(buildConfig);
+        await buildConfig.ensurePxseedLoaderSource();
         await buildConfig.build()
     }catch(err:any){
         console.error(err.message+'\n'+err.stack);
