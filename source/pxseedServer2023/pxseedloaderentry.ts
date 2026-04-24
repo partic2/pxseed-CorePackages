@@ -8,12 +8,13 @@ import {inited as jseiorpcserverinited} from 'partic2/tjshelper/jseiorpcserver'
 import { HttpServer, SimpleFileServer, SimpleHttpServerRouter, WebSocketServerConnection } from 'partic2/tjshelper/httpprot'
 import { buildTjs } from 'partic2/tjshelper/tjsbuilder';
 import { DirAsRootFS, TjsSfs } from 'partic2/CodeRunner/JsEnviron';
-import { getWWWRoot, path } from 'partic2/jsutils1/webutils';
+import { GetUrlQueryVariable2, getWWWRoot, path } from 'partic2/jsutils1/webutils';
 import {Invoker as rtbridgeInvoker} from 'partic2/pxprpcBinding/pxprpc_rtbridge'
 import * as pxseedhttpserver from './pxseedhttpserver';
 import { WebSocketIo } from 'pxprpc/backend';
 import {openUrlInBrowser} from 'partic2/packageManager/misc'
 import { getRpc4RuntimeBridge0 } from 'partic2/pxprpcBinding/rpcregistry';
+import { utf8conv } from 'partic2/CodeRunner/jsutils2';
 
 let __name__=requirejs.getLocalRequireModule(require);
 
@@ -80,10 +81,12 @@ export let __inited__=(async ()=>{
         console.warn('pxseedloader state detecting...');
         if(tjsState.listenOn!=undefined){
             console.warn('try to connect pxseedloader instance '+`ws://${tjsState.listenOn.host}:${tjsState.listenOn.port}${tjsState.pxseedBase}/pxprpc/runtime_bridge`);
-            let wsio1=await new WebSocketIo().connect(`ws://${tjsState.listenOn.host}:${tjsState.listenOn.port}${tjsState.pxseedBase}/pxprpc/runtime_bridge`)
+            let wsio1=await new WebSocketIo().connect(`ws://${tjsState.listenOn.host}:${tjsState.listenOn.port}${tjsState.pxseedBase}/pxprpc/runtime_bridge?key=${tjsState.pxprpcKey}`)
             console.warn(`connected...`);
-            await wsio1.send([new TextEncoder().encode('/pxprpc/runtime_bridge/0')]);
             try{
+                await wsio1.send([utf8conv('/pxprpc/runtime_bridge/0')]);
+                let result=utf8conv(await wsio1.receive());
+                assert(result=='connected');
                 let client1=await new RpcExtendClient1(new Client(wsio1)).init();
                 let invoker1=new rtbridgeInvoker();
                 await invoker1.useClient(client1);
@@ -107,8 +110,10 @@ export let __inited__=(async ()=>{
             let target=new TextDecoder().decode(await ws.receive() as Uint8Array);
             rtbc=await PxprpcRtbIo.connect(target);
             if(rtbc==null){
+                await ws.send(utf8conv('not found'));
                 ws.close();
             }else{
+                ws.send(utf8conv('connected'));
                 await Promise.race([(async ()=>{
                     while(true){
                         ws.send(await rtbc!.receive());
@@ -128,8 +133,10 @@ export let __inited__=(async ()=>{
     }
     pxseedhttpserver.defaultRouter.setHandler(pxseedBase+'/pxprpc/runtime_bridge',{
         websocket:async (ctl)=>{
-            let ws=await ctl.accept();
-            rtbtunnel(ws);
+            if((pxseedhttpserver.config.pxprpcKey==null) || (decodeURIComponent(GetUrlQueryVariable2(ctl.request.url??'','key')??'')===pxseedhttpserver.config.pxprpcKey)){
+                let ws=await ctl.accept();
+                rtbtunnel(ws);
+            }
         }
     })
     let ssoc:tjs.Listener|null=null;

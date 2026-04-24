@@ -11,12 +11,13 @@ import { openNewWindow, setBaseWindowView} from 'partic2/pComponentUi/workspace'
 import { getAttachedRemoteRigstryFunction, getPersistentRegistered, ServerHostRpcName, ServerHostWorker1RpcName } from 'partic2/pxprpcClient/registry'
 import { PxseedServer2023Function } from './clientFunction'
 import { requirejs, sleep, throwIfAbortError } from 'partic2/jsutils1/base'
-import { GetJsEntry, path } from 'partic2/jsutils1/webutils'
+import { GetJsEntry, GetPersistentConfig, path } from 'partic2/jsutils1/webutils'
 
 import {} from 'partic2/jsutils1/webutils'
 import { getPxseedUrl, updatePxseedServerConfig } from './webentry'
 import {openWorkspaceWithProfile} from 'partic2/JsNotebook/workspace'
 
+let __name__=requirejs.getLocalRequireModule(require);
 
 async function alertIfError<T>(p:()=>Promise<T>){
     try{
@@ -122,6 +123,7 @@ export class PxseedServerAdministrateTool extends React.Component<{},{
                     </a>
                 }):null}
                 <a href="javascript:;" onClick={()=>this.openNotebookWorkspace()}>notebook</a>
+                <a href="javascript:;" onClick={()=>this.clearPxprpcKey()}>clear pxprpc key</a>
             </div>
         </div>
     }
@@ -132,6 +134,9 @@ export class PxseedServerAdministrateTool extends React.Component<{},{
             notebookDirectory:path.join(__name__,'..','notebook')
         });
         wb.start();
+    }
+    async clearPxprpcKey(){
+        await updatePxseedServerConfig('')
     }
     async doLogin(){
         await updatePxseedServerConfig(this.state.pxprpcKey);
@@ -176,7 +181,6 @@ export class PxseedServerAdministrateTool extends React.Component<{},{
     }
 }
 
-let __name__=requirejs.getLocalRequireModule(require);
 
 
 export function *main(){

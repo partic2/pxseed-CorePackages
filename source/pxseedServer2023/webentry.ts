@@ -1,11 +1,12 @@
 import { GenerateRandomString, GetCurrentTime, Task, requirejs } from "partic2/jsutils1/base";
-import { BuildUrlFromJsEntryModule, GetJsEntry, GetUrlQueryVariable, GetUrlQueryVariable2 } from "partic2/jsutils1/webutils";
+import { BuildUrlFromJsEntryModule, GetJsEntry, GetPersistentConfig, GetUrlQueryVariable, GetUrlQueryVariable2, SavePersistentConfig } from "partic2/jsutils1/webutils";
 import { ServerHostRpcName, addClient, getPersistentRegistered, getRegistered, persistent, removeClient } from "partic2/pxprpcClient/registry";
 import { WebSocketIo } from "pxprpc/backend";
 import { Io, Serializer } from "pxprpc/base";
 
 
-export const __name__=requirejs.getLocalRequireModule(require);
+export const __name__='pxseedServer2023/webentry'
+
 
 export async function getPxseedUrl(){
     let pxseedBaseUrl=requirejs.getConfig().baseUrl as string;
@@ -23,7 +24,8 @@ export async function updatePxseedServerConfig(pxprpcKey?:string|null){
     if(pxprpcKey===undefined){
         pxprpcKey=GetUrlQueryVariable('__pxprpcKey')
     }
-    
+    (await GetPersistentConfig(__name__)).pxprpcKey=pxprpcKey;
+    await SavePersistentConfig(__name__);
     if(getRegistered(ServerHostRpcName)!=null){
         await removeClient(ServerHostRpcName);
     }
