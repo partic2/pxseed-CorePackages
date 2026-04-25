@@ -40,8 +40,6 @@ export interface PxseedServer2023StartupConfig{
     blockFilesMatch?:string[]
     //Usually used for source map
     serveSourceDirectory?:boolean
-    //COI mean crossOriginIsolated refer: https://developer.mozilla.org/en-US/docs/Web/API/Window/crossOriginIsolated
-    serveWwwRootWithCoi?:boolean
 };
 
 export let config:PxseedServer2023StartupConfig={
@@ -55,13 +53,12 @@ export let config:PxseedServer2023StartupConfig={
     },
     //pxprpcKey should be secret.
     blockFilesMatch:['^/+www/+pxseedServer2023/+config\\.json$'],
-    serveSourceDirectory:false,
-    serveWwwRootWithCoi:true
+    serveSourceDirectory:false
 };
 
 export let rootConfig={...config};
 
-
+let blockFileMatchRegex=new Array<RegExp>();
 
 export async function loadConfig(){
     let tjs=await buildTjs();
@@ -70,21 +67,8 @@ export async function loadConfig(){
         console.warn(`config file ${getWWWRoot()+'/pxseedServer2023/config.json'} found. `);
         let readinConfig=JSON.parse(new TextDecoder().decode(configData));
         rootConfig=Object.assign(readinConfig);
-        if(globalThis.process!=undefined){
-            let subprocessAt=process.argv.indexOf(subprocessMagic);
-            if(subprocessAt>=0 ){
-                //This is subprocee spawn by deamon.
-                let subprocessIndex=Number(process.argv[subprocessAt+1]);
-                Object.assign(config,rootConfig,rootConfig.deamonMode!.subprocessConfig[subprocessIndex]);
-                config.deamonMode!.enabled=false;
-                config.deamonMode!.subprocessConfig=[]
-                config.subprocessIndex=subprocessIndex;
-            }else{
-                Object.assign(config,rootConfig);
-            }
-        }else{
-            Object.assign(config,rootConfig);
-        }
+        Object.assign(config,rootConfig);
+        blockFileMatchRegex=config.blockFilesMatch?.map(t1=>new RegExp(t1))??[];
     }catch(e){
         console.warn(`config file not found, write to ${getWWWRoot()+'/pxseedServer2023/config.json'}`)
         config.pxprpcKey=GenerateRandomString(8);
@@ -186,7 +170,7 @@ export async function setupHttpServerHandler(){
     let wwwroot=getWWWRoot().replace(/\\/g,'/');
     let fileServer=new SimpleFileServer(new DirAsRootFS(tjsfs,wwwroot));
     fileServer.pathStartAt=(config.pxseedBase+'/www').length;
-    let blockFileMatchRegex=config.blockFilesMatch?.map(t1=>new RegExp(t1))??[];
+    
     fileServer.interceptor=async (path)=>{
         path='/www'+path;
         for(let t1 of blockFileMatchRegex){
@@ -203,17 +187,22 @@ export async function setupHttpServerHandler(){
             return {maxAge:86400}
         }
     };
-    if(config.serveWwwRootWithCoi){
-         let coiOnfetch=async (req:Request)=>{
-            let resp=await fileServer.onfetch(req);
-            resp.headers.append('Cross-Origin-Opener-Policy','same-origin');
-            resp.headers.append('Cross-Origin-Embedder-Policy','require-corp');
-            return resp;
+
+    let wwwOnFetch=async (req:Request)=>{
+        let resp=await fileServer.onfetch(req);
+        let pxseedserveropt=GetUrlQueryVariable2(req.url,'__pxseedserveropt')
+        if(pxseedserveropt!=null){
+            let opt=decodeURIComponent(pxseedserveropt).split(' ')
+            if(opt.includes('coi')){
+                //Cross Origin Isolation
+                resp.headers.append('Cross-Origin-Opener-Policy','same-origin');
+                resp.headers.append('Cross-Origin-Embedder-Policy','require-corp');
+            }
         }
-        defaultRouter.setHandler(config.pxseedBase+'/www',{fetch:coiOnfetch}); 
-    }else{
-        defaultRouter.setHandler(config.pxseedBase+'/www',{fetch:fileServer.onfetch});
+        return resp;
     }
+    defaultRouter.setHandler(config.pxseedBase+'/www',{fetch:wwwOnFetch}); 
+
     
     if(config.serveSourceDirectory){
         //For sourcemap
@@ -312,7 +301,7 @@ export let serverCommandRegistry:Record<string,(param:any)=>any>={
         await saveConfig(param);
         await loadConfig();
         return 'done'
-    }
+    },
 }
 
 export function pxseedRunStartupModules(){

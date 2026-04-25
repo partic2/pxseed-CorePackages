@@ -16,7 +16,7 @@ import {console} from './util'
             await processDirectory(sourceDir);
         }        
     }else if(command=='clean'){
-        await cleanBuildStatus(sourceDir)
+        await cleanBuildStatus(outputDir)
         if(process.argv.includes('--js')){
             await cleanJsFiles(outputDir);
         }

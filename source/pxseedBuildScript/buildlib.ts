@@ -4,22 +4,6 @@ import { getNodeCompatApi, __internal__ as utili,console } from './util';
 
 export {sourceDir,outputDir}
 
-export interface PxseedStatus{
-    lastBuildTime:number,
-    lastSuccessBuildTime:number,
-    lastBuildError:string[],
-    currentBuildError:string[],
-    subpackages:string[],
-    loadersData:Record<string,any>,
-}
-let PxseedStatusDefault:PxseedStatus={
-    lastBuildTime:1,
-    lastSuccessBuildTime:1,
-    lastBuildError:[],
-    currentBuildError:[],
-    subpackages:[],
-    loadersData:{},
-}
 
 
 export interface PxseedConfig{
@@ -34,10 +18,26 @@ export interface PxseedConfig{
     }
 }
 
-declare var requirejs:any
 
-function makeDefaultStatus():PxseedStatus{
-    return {...PxseedStatusDefault,lastBuildError:[],currentBuildError:[],subpackages:[],loadersData:{}}
+export interface PxseedStatus{
+    lastBuildTime:number,
+    lastSuccessBuildTime:number,
+    lastBuildError:string[],
+    currentBuildError:string[],
+    subpackages:string[],
+    loadersData:Record<string,any>,
+    pxseedConfig:PxseedConfig
+}
+
+function makeDefaultStatus():Partial<PxseedStatus>{
+    return {
+        lastBuildTime:1,
+        lastSuccessBuildTime:1,
+        lastBuildError:[],
+        currentBuildError:[],
+        subpackages:[],
+        loadersData:{}
+    }
 }
 
 
@@ -67,12 +67,11 @@ export async function processDirectory(dir:string,context?:any){
         }
     }else{
         let pxseedConfig=await utili.readJson(path.join(dir,'pxseed.config.json')) as PxseedConfig;
-        let pstat:PxseedStatus={...makeDefaultStatus()};
+        let pstat:PxseedStatus=makeDefaultStatus() as PxseedStatus;
         try{
-            if(children.find(v=>v.name=='.pxseed.status.json')){
-                Object.assign(pstat,await utili.readJson(path.join(dir,'.pxseed.status.json')))
-            }
+            Object.assign(pstat,await utili.readJson(path.join(outputDir,...pxseedConfig.name.split('/'),'.pxseed.status.json')))
         }catch(err){}
+        pstat.pxseedConfig=pxseedConfig;
         let loaders=pxseedConfig.loaders;
         for(let loaderConfig of loaders){
             try{
@@ -121,7 +120,8 @@ export async function processDirectory(dir:string,context?:any){
             console.info(pstat.lastBuildError)
         }
         pstat.currentBuildError=[];
-        await utili.writeJson(path.join(dir,'.pxseed.status.json'),pstat);
+        await fs.mkdir(path.join(outputDir,...pxseedConfig.name.split('/')),{recursive:true});
+        await utili.writeJson(path.join(outputDir,...pxseedConfig.name.split('/'),'.pxseed.status.json'),pstat);
     }
 }
 
@@ -135,7 +135,6 @@ export async function cleanBuildStatus(dir:string){
             await cleanBuildStatus(path.join(dir,t1.name))
         }else if(t1.name=='.pxseed.status.json'){
             try{
-                let pstat:PxseedStatus={...makeDefaultStatus(),...await utili.readJson(path.join(dir,t1.name))};
                 //How to clean unused file?
             }catch(err:any){
                 console.warn(err.toString(),err.stack);

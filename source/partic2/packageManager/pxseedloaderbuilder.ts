@@ -10,8 +10,8 @@ let __name__=requirejs.getLocalRequireModule(require);
 
 let pathsep=getWWWRoot().includes('\\')?'\\':'/';
 
-function onlyJsFilesFilter(p:string){
-    return p.endsWith('.js')
+function onlyJsFilesOrBuildInfoFilter(p:string){
+    return p.endsWith('.js')||p.endsWith('.pxseed.status.json')
 }
 
 let corePackOutputs=[
@@ -25,19 +25,19 @@ let corePackOutputs=[
     {path:['www','buffer.js']},
     {path:['www','isomorphic-git.js']},
     {path:['www','preact.js']},
-    {path:['www','pxseedBuildScript'],filter:onlyJsFilesFilter},
-    {path:['www','pxseedServer2023'],filter:onlyJsFilesFilter},
-    {path:['www','pxprpc'],filter:onlyJsFilesFilter},
-    {path:['www','partic2','CodeRunner'],filter:onlyJsFilesFilter},
-    {path:['www','partic2','JsNotebook'],filter:onlyJsFilesFilter},
-    {path:['www','partic2','jsutils1'],filter:onlyJsFilesFilter},
-    {path:['www','partic2','nodehelper'],filter:onlyJsFilesFilter},
-    {path:['www','partic2','pComponentUi'],filter:onlyJsFilesFilter},
-    {path:['www','partic2','packageManager'],filter:onlyJsFilesFilter},
-    {path:['www','partic2','pxprpcBinding'],filter:onlyJsFilesFilter},
-    {path:['www','partic2','pxprpcClient'],filter:onlyJsFilesFilter},
+    {path:['www','pxseedBuildScript'],filter:onlyJsFilesOrBuildInfoFilter},
+    {path:['www','pxseedServer2023'],filter:onlyJsFilesOrBuildInfoFilter},
+    {path:['www','pxprpc'],filter:onlyJsFilesOrBuildInfoFilter},
+    {path:['www','partic2','CodeRunner'],filter:onlyJsFilesOrBuildInfoFilter},
+    {path:['www','partic2','JsNotebook'],filter:onlyJsFilesOrBuildInfoFilter},
+    {path:['www','partic2','jsutils1'],filter:onlyJsFilesOrBuildInfoFilter},
+    {path:['www','partic2','nodehelper'],filter:onlyJsFilesOrBuildInfoFilter},
+    {path:['www','partic2','pComponentUi'],filter:onlyJsFilesOrBuildInfoFilter},
+    {path:['www','partic2','packageManager'],filter:onlyJsFilesOrBuildInfoFilter},
+    {path:['www','partic2','pxprpcBinding'],filter:onlyJsFilesOrBuildInfoFilter},
+    {path:['www','partic2','pxprpcClient'],filter:onlyJsFilesOrBuildInfoFilter},
     {path:['www','partic2','pxseedMedia1']},
-    {path:['www','partic2','tjshelper'],filter:onlyJsFilesFilter}
+    {path:['www','partic2','tjshelper'],filter:onlyJsFilesOrBuildInfoFilter}
 ];
 
 

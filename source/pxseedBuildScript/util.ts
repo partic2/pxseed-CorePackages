@@ -41,7 +41,7 @@ async function readJson(path:string){
 async function writeJson(path:string,obj:any){
     const {fs}=await getNodeCompatApi();
     const {readFile, writeFile}=fs
-    await writeFile(path,new TextEncoder().encode(JSON.stringify(obj,undefined,2)));
+    await writeFile(path,new TextEncoder().encode(JSON.stringify(obj)));
 }
 
 async function runBuild(){

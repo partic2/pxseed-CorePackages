@@ -1,5 +1,5 @@
 
-import {PxseedConfig, cleanBuildStatus, processDirectory, sourceDir} from 'pxseedBuildScript/buildlib'
+import {PxseedConfig, PxseedStatus, cleanBuildStatus, processDirectory, sourceDir} from 'pxseedBuildScript/buildlib'
 import {defaultHttpClient, getWWWRoot, kvStore, path} from 'partic2/jsutils1/webutils'
 import {ArrayBufferConcat, ArrayWrap2, GenerateRandomString, assert, logger, requirejs, throwIfAbortError} from 'partic2/jsutils1/base'
 import { getNodeCompatApi, __internal__ as utilsi, withConsole } from 'pxseedBuildScript/util';
@@ -304,10 +304,9 @@ let RepositoriesRegistry={
 export async function updatePackagesDatabase(pkgNameOrPxseedConfig?:string|PxseedConfig){
     const {fs,path,wwwroot}=await getNodeCompatApi();
     if(pkgNameOrPxseedConfig==undefined){
-        for await(let pkg of listPackagesInDirectory(path.join(wwwroot,'..','source'))){
+        for await(let pkg of listPackages()){
             try{
-                assert(pkg.config!=undefined);
-                await updatePackagesDatabase(pkg.config);
+                await updatePackagesDatabase(pkg);
             }catch(err:any){
                 log.error(err.toString()+err.stack)
             }
@@ -315,7 +314,7 @@ export async function updatePackagesDatabase(pkgNameOrPxseedConfig?:string|Pxsee
     }else{
         let pxseedConfig:PxseedConfig;
         if(typeof pkgNameOrPxseedConfig==='string'){
-            pxseedConfig=await utilsi.readJson(path.join(await getSourceDirForPackage(pkgNameOrPxseedConfig),'pxseed.config.json'))
+            pxseedConfig=(await getPxseedConfigForPackage(pkgNameOrPxseedConfig))!;
         }else{
             pxseedConfig=pkgNameOrPxseedConfig;
         }
@@ -341,6 +340,11 @@ export async function updatePackagesDatabase(pkgNameOrPxseedConfig?:string|Pxsee
 async function getSourceDirForPackage(pkgname:string){
     const {fs,path,wwwroot}=await getNodeCompatApi();
     return path.join(wwwroot,'..','source',...pkgname.split('/'))
+}
+
+async function getOutputDirForPakcage(pkgname:string){
+    const {fs,path,wwwroot}=await getNodeCompatApi();
+    return path.join(wwwroot,...pkgname.split('/'))
 }
 
 export async function installLocalPackage(path2:string){
@@ -435,10 +439,10 @@ export async function uninstallPackage(pkgname:string){
 
 export async function getPxseedConfigForPackage(pkgname:string):Promise<PxseedConfig | null>{
     const {fs,path,wwwroot}=await getNodeCompatApi();
-    let configFile=path.join(await getSourceDirForPackage(pkgname),'pxseed.config.json');
+    let statusFile=path.join(await getOutputDirForPakcage(pkgname),'.pxseed.status.json');
     try{
-        await fs.access(configFile);
-        return await utilsi.readJson(configFile) as PxseedConfig;
+        await fs.access(statusFile);
+        return (await utilsi.readJson(statusFile) as PxseedStatus).pxseedConfig;
     }catch(e){
         return null;
     }
@@ -447,8 +451,8 @@ export async function getPxseedConfigForPackage(pkgname:string):Promise<PxseedCo
 async function *listPackagesInDirectory(dir:string):AsyncGenerator<{path:string,config:PxseedConfig}>{
     const {fs,path,wwwroot}=await getNodeCompatApi();
     let children=await fs.readdir(dir,{withFileTypes:true});
-    if(children.find(t1=>t1.name=='pxseed.config.json')){
-        yield {path:dir,config:await utilsi.readJson(path.join(dir,'pxseed.config.json'))};
+    if(children.find(t1=>t1.name=='.pxseed.status.json')){
+        yield {path:dir,config:(await utilsi.readJson(path.join(dir,'.pxseed.status.json'))).pxseedConfig};
     }else{
         for(let t1 of children){
             if(t1.isDirectory()){
@@ -461,7 +465,7 @@ async function *listPackagesInDirectory(dir:string):AsyncGenerator<{path:string,
 
 export async function *listPackages():AsyncGenerator<PxseedConfig>{
     const {fs,path,wwwroot}=await getNodeCompatApi();
-    for await(let t1 of listPackagesInDirectory(path.join(wwwroot,'..','source'))){
+    for await(let t1 of listPackagesInDirectory(wwwroot)){
         yield t1.config;
     }
 }
