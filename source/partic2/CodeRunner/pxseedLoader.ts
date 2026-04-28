@@ -3,7 +3,7 @@
 
 import * as acorn from 'acorn'
 import {ancestor} from 'acorn-walk'
-import { Task, assert, requirejs, throwIfAbortError } from 'partic2/jsutils1/base';
+import { GetCurrentTime, Task, assert, requirejs, throwIfAbortError } from 'partic2/jsutils1/base';
 import type { PxseedStatus } from 'pxseedBuildScript/buildlib';
 
 const __name__=requirejs.getLocalRequireModule(require);
@@ -124,10 +124,11 @@ export async function addAsyncHookPxseedLoader(dir:string,config:{include?:strin
         config.include=['**/*.js']
     }
     const { simpleGlob } =await import('pxseedBuildScript/util');
+    let lastCompleteTime=status.loadersData[__name__+'.addAsyncHookPxseedLoader']?.completeTime??1
     for(let file1 of await simpleGlob(config.include,{cwd:packageOutput})){
         let fpath=path.join(packageOutput,file1);
         let finfo=await fs.stat(fpath);
-        if(finfo.mtime.getTime()>status.lastSuccessBuildTime){
+        if(finfo.mtime.getTime()>lastCompleteTime){
             console.info('addAsyncHook:',file1);
             let source=new TextDecoder().decode(await fs.readFile(fpath));
             let replacePlan=new JsSourceReplacePlan(source);
@@ -137,5 +138,6 @@ export async function addAsyncHookPxseedLoader(dir:string,config:{include?:strin
             await fs.writeFile(fpath,new TextEncoder().encode(modified));
         }
     }
+    status.loadersData[__name__+'.addAsyncHookPxseedLoader']={completeTime:GetCurrentTime().getTime()}
 }
 
