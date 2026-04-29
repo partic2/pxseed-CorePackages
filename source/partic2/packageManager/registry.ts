@@ -215,6 +215,11 @@ export interface PackageManagerOption{
         //type installHandlerFunc=(moduleName:string)=>void
         func:string
     },
+    onUninstalling?:{
+        module:string,
+        //type installHandlerFunc=(moduleName:string)=>void
+        func:string
+    },
     onServerStartup?:{
         module:string,
         //type serverStartupHandler=()=>void
@@ -431,9 +436,20 @@ export async function buildPackageAndNotfiy(pkgName:string){
 
 export async function uninstallPackage(pkgname:string){
     const {fs,path,wwwroot}=await getNodeCompatApi();
+    let pkgcfg=await getPxseedConfigForPackage(pkgname);
+    if(pkgcfg!=null){
+        let pmopt=getPMOptFromPcfg(pkgcfg);
+        if(pmopt!=null && pmopt.onUninstalling!=undefined){
+            try{
+                await (await import(pmopt.onUninstalling.module))[pmopt.onUninstalling.func]?.();
+            }catch(err){};
+        }
+    }
     let dir1=await getSourceDirForPackage(pkgname);
-    await cleanBuildStatus(dir1)
-    await fs.rm(dir1,{recursive:true});
+    await fs.rm(dir1,{recursive:true}).catch(_=>{})
+    dir1=await getOutputDirForPakcage(pkgname);
+    await cleanBuildStatus(dir1).catch(_=>{})
+    await fs.rm(dir1,{recursive:true}).catch(_=>{})
     listener.onUninstall.forEach((l)=>import(l.module).then(m=>m[l.func](pkgname)));
 }
 
