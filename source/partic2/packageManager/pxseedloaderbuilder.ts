@@ -10,8 +10,8 @@ let __name__=requirejs.getLocalRequireModule(require);
 
 let pathsep=getWWWRoot().includes('\\')?'\\':'/';
 
-function onlyJsFilesOrBuildInfoFilter(p:string){
-    return p.endsWith('.js')||p.endsWith('.pxseed.status.json')
+function onlyJsCssBuildInfoFilesFilter(p:string){
+    return p.endsWith('.js')||p.endsWith('.pxseed.status.json')||p.endsWith('.css')
 }
 
 let corePackOutputs=[
@@ -25,19 +25,19 @@ let corePackOutputs=[
     {path:['www','buffer.js']},
     {path:['www','isomorphic-git.js']},
     {path:['www','preact.js']},
-    {path:['www','pxseedBuildScript'],filter:onlyJsFilesOrBuildInfoFilter},
-    {path:['www','pxseedServer2023'],filter:onlyJsFilesOrBuildInfoFilter},
-    {path:['www','pxprpc'],filter:onlyJsFilesOrBuildInfoFilter},
-    {path:['www','partic2','CodeRunner'],filter:onlyJsFilesOrBuildInfoFilter},
-    {path:['www','partic2','JsNotebook'],filter:onlyJsFilesOrBuildInfoFilter},
-    {path:['www','partic2','jsutils1'],filter:onlyJsFilesOrBuildInfoFilter},
-    {path:['www','partic2','nodehelper'],filter:onlyJsFilesOrBuildInfoFilter},
-    {path:['www','partic2','pComponentUi'],filter:onlyJsFilesOrBuildInfoFilter},
-    {path:['www','partic2','packageManager'],filter:onlyJsFilesOrBuildInfoFilter},
-    {path:['www','partic2','pxprpcBinding'],filter:onlyJsFilesOrBuildInfoFilter},
-    {path:['www','partic2','pxprpcClient'],filter:onlyJsFilesOrBuildInfoFilter},
+    {path:['www','pxseedBuildScript'],filter:onlyJsCssBuildInfoFilesFilter},
+    {path:['www','pxseedServer2023'],filter:onlyJsCssBuildInfoFilesFilter},
+    {path:['www','pxprpc'],filter:onlyJsCssBuildInfoFilesFilter},
+    {path:['www','partic2','CodeRunner'],filter:onlyJsCssBuildInfoFilesFilter},
+    {path:['www','partic2','JsNotebook'],filter:onlyJsCssBuildInfoFilesFilter},
+    {path:['www','partic2','jsutils1'],filter:onlyJsCssBuildInfoFilesFilter},
+    {path:['www','partic2','nodehelper'],filter:onlyJsCssBuildInfoFilesFilter},
+    {path:['www','partic2','pComponentUi'],filter:onlyJsCssBuildInfoFilesFilter},
+    {path:['www','partic2','packageManager'],filter:onlyJsCssBuildInfoFilesFilter},
+    {path:['www','partic2','pxprpcBinding'],filter:onlyJsCssBuildInfoFilesFilter},
+    {path:['www','partic2','pxprpcClient'],filter:onlyJsCssBuildInfoFilesFilter},
     {path:['www','partic2','pxseedMedia1']},
-    {path:['www','partic2','tjshelper'],filter:onlyJsFilesOrBuildInfoFilter}
+    {path:['www','partic2','tjshelper'],filter:onlyJsCssBuildInfoFilesFilter}
 ];
 
 
@@ -86,6 +86,7 @@ export class PxseedLoaderBuilder{
         let tjsi=await this.ensureTjsi();
         let proc=await tjsi.spawn(cmd,{stdout:'inherit',stderr:'inherit',cwd});
         let runstat=await proc.wait();
+        console.info('commmand done.')
         assert(runstat.exit_status==0,'process exit with code '+runstat.exit_status);
     }
     async listDir(dir:string){
