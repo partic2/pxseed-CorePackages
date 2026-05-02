@@ -318,16 +318,20 @@ export async function serverCommand(cmd:string,param:any){
 
 //For ServerHost access on Server side
 export async function getConnectionForServerHost(){
-    if((globalThis as any).__workerId==undefined){
+    let parent=await getRpcClientConnectWorkerParent();
+    if(parent==null){
         let [c2s,s2c]=createIoPipe();
         new RpcExtendServer1(new Server(s2c)).serve().catch(()=>{});
         return c2s;
     }else{
-        return await getRpcClientConnectWorkerParent()
+        return parent;
     }
 }
 
-addClient('pxseedjs:'+__name__+'.getConnectionForServerHost',ServerHostRpcName).catch(()=>{});
+;(async ()=>{
+    await addClient('pxseedjs:'+__name__+'.getConnectionForServerHost',ServerHostRpcName);
+    await addClient('webworker:partic2/pxprpcClient/registry/worker/1',ServerHostWorker1RpcName)
+})();
 
 export async function initNotebookCodeEnv(_ENV:any){
     Object.assign(_ENV,serverCommandRegistry);

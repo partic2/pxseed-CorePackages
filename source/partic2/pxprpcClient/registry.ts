@@ -514,7 +514,7 @@ export async function getAttachedRemoteRigstryFunction(client1:RpcExtendClient1)
 
 export let __internal__={
     isPxseedWorker:false,
-    isServerHost:new future<boolean>(),
+    isServingRpcName:{} as Record<string,future<boolean>>
 }
 
 export async function getConnectionFromUrl(url:string):Promise<Io|null>{
@@ -545,12 +545,16 @@ export async function getConnectionFromUrl(url:string):Promise<Io|null>{
         let firstSlash=url2.pathname.indexOf('/');
         let firstRpcName=decodeURIComponent(url2.pathname.substring(0,firstSlash));
         let restRpcPath=url2.pathname.substring(firstSlash+1);
-        let cinfo=await getPersistentRegistered(firstRpcName);
+        await persistent.load()
+        let cinfo=getRegistered(firstRpcName);
+        let rpcClient:RpcExtendClient1|null=null;
         if(cinfo==undefined){
-            cinfo=await addClient(firstRpcName,firstRpcName);
+            rpcClient=new RpcExtendClient1(new Client((await getConnectionFromUrl(firstRpcName))!));
+            await rpcClient.init();
+        }else{
+            rpcClient=await cinfo.ensureConnected();
         }
-        await cinfo.ensureConnected()
-        let fn=await getAttachedRemoteRigstryFunction(cinfo.client!);
+        let fn=await getAttachedRemoteRigstryFunction(rpcClient);
         if(restRpcPath.indexOf('/')>=0){
             restRpcPath='iooverpxprpc:'+restRpcPath;
         }else{
@@ -596,28 +600,51 @@ export function listRegistered(){
     return registered.entries();
 }
 
+//NOTE:this function will call addDefaultPxseedJsBuiltinRpcClient, which may connect ServerHost internal.
+//     So don't use this function directly when connecting to ServerHost, use persistent.load() instead.
 export async function getPersistentRegistered(name:string){
     await persistent.load();
-    await addPxseedJsBuiltinClient();
+    await addDefaultPxseedJsBuiltinRpcClient()
     return registered.get(name);
 }
 
-
+//See also getPersistentRegistered
 export async function listPersistentRegistered(){
     await persistent.load();
-    await addPxseedJsBuiltinClient();
+    await addDefaultPxseedJsBuiltinRpcClient()
     return Array.from(registered.entries());
 }
 
-export async function isServerHost(set?:{newValue:boolean,overwrite?:boolean}){
-    if(set!==undefined){
-        if(__internal__.isServerHost.done && set.overwrite){
-            __internal__.isServerHost=new future();
-        }
-        __internal__.isServerHost.setResult(set.newValue);
-        
+export async function setIsServingRpcName(name:string,isServing:boolean){
+    let f=__internal__.isServingRpcName[name];
+    if(f==undefined){
+        f=new future();
+        __internal__.isServingRpcName[name]=f;
     }
-    return await __internal__.isServerHost.get()
+    f.setResult(isServing);
+}
+
+export async function getIsServingRpcName(name:string){
+    if(__internal__.isServingRpcName[name]==undefined){
+        __internal__.isServingRpcName[name]=new future();
+    }
+    try{
+        await persistent.load()
+        let rpc=getRegistered(name);
+        if(rpc!=undefined){
+            await easyCallRemoteJsonFunction(await rpc.ensureConnected(),__name__,'setIsServingRpcName',[name,true])
+        }
+        if(!__internal__.isServingRpcName[name].done){
+            __internal__.isServingRpcName[name].setResult(false);
+        }
+    }catch(err){
+        __internal__.isServingRpcName[name].setResult(false);
+    };
+    return await __internal__.isServingRpcName[name].get();
+}
+
+export async function isServerHost(){
+    return getIsServingRpcName(ServerHostRpcName);
 }
 
 export async function addClient(url:string,name?:string):Promise<ClientInfo>{
@@ -653,27 +680,6 @@ export const ServerHostWorker1RpcName='server host worker 1';
 export const WebWorker1RpcName='webworker 1'
 export const ServiceWorker='service worker 1';
 
-
-async function addPxseedJsBuiltinClient(){
-    if(globalThis.location!=undefined && ['http:','https:'].includes(globalThis.location.protocol) 
-        && (globalThis as any).__pxseedInit!=undefined){
-        if(getRegistered(ServerHostRpcName)!=null && getRegistered(ServerHostWorker1RpcName)==null){
-            await addClient('iooverpxprpc:'+ServerHostRpcName+'/'+
-            encodeURIComponent('webworker:'+__name__+'/worker/1'),ServerHostWorker1RpcName)
-        }
-        if(getRegistered(ServiceWorker)==null){
-            await addClient('serviceworker:1',ServiceWorker);
-        }
-        if(getRegistered(WebWorker1RpcName)==null){
-            await addClient('webworker:'+__name__+'/worker/1',WebWorker1RpcName)
-        }
-    }else{
-        if(getRegistered(ServerHostWorker1RpcName)==null){
-            await addClient('webworker:'+__name__+'/worker/1',ServerHostWorker1RpcName)
-        }
-    }
-}
-
 export let persistent={
     save:async function(){
         let config=await GetPersistentConfig(__name__);
@@ -698,7 +704,7 @@ export let persistent={
     },
     pullFromServerHost:async function(){
         let rpc=getRegistered(ServerHostRpcName);
-        if(rpc!=undefined && !await __internal__.isServerHost.get()){
+        if(rpc!=undefined && !await isServerHost()){
             let result1=await easyCallRemoteJsonFunction(await rpc.ensureConnected(),__name__,'listPersistentRegistered',[]);
             for(let t1 of result1){
                 if(t1[0]==ServerHostRpcName)continue;
@@ -712,7 +718,7 @@ export let persistent={
     },
     pushToServerHost:async function(){
         let rpc=getRegistered(ServerHostRpcName);
-        if(rpc!=undefined && !await __internal__.isServerHost.get()){
+        if(rpc!=undefined && !await isServerHost()){
             let remoteClientList=new Map(await easyCallRemoteJsonFunction(await rpc.ensureConnected(),__name__,'listPersistentRegistered',[]) as Array<[string,{url:string,name:string}]>);
             let toRemove=new Array<string>();
             let toAdd=new Array<[string,string]>();
@@ -745,21 +751,6 @@ export let persistent={
     }
 }
 
-;(async ()=>{
-    try{
-        await persistent.load()
-        let rpc=getRegistered(ServerHostRpcName);
-        if(rpc!=undefined){
-            await easyCallRemoteJsonFunction(await rpc.ensureConnected(),__name__,'isServerHost',[{newValue:true}])
-        }
-        if(!__internal__.isServerHost.done){
-            __internal__.isServerHost.setResult(false);
-        }
-    }catch(err){
-        __internal__.isServerHost.setResult(false);
-    };
-})();
-
 //Before typescript support syntax like <typeof import(T)>, we can only tell module type explicitly.
 //Only support plain JSON parameter and return value.
 export async function importRemoteModule(rpc:RpcExtendClient1,moduleName:string):Promise<any>{
@@ -782,4 +773,22 @@ export async function easyCallRemoteJsonFunction(rpc:RpcExtendClient1,moduleName
     funcs=await getAttachedRemoteRigstryFunction(rpc);
     let r=await funcs.callJsonFunction(moduleName,funcName,args);
     return r;
+}
+
+let addingDefaultPxseedJsBuiltinRpcClient=new mutex();
+async function addDefaultPxseedJsBuiltinRpcClient(){
+    await addingDefaultPxseedJsBuiltinRpcClient.exec(async ()=>{
+        if(globalThis.location!=undefined && ['http:','https:'].includes(globalThis.location.protocol)){
+            if(getRegistered(ServiceWorker)==null){
+                await addClient('serviceworker:1',ServiceWorker);
+            }
+        }
+        if(getRegistered(WebWorker1RpcName)==null){
+            await addClient('webworker:'+__name__+'/worker/1',WebWorker1RpcName)
+        }
+        if(getRegistered(ServerHostRpcName)!=null && getRegistered(ServerHostWorker1RpcName)==null && !__internal__.isPxseedWorker){
+            await addClient('iooverpxprpc:'+ServerHostRpcName+'/'+
+            encodeURIComponent('webworker:'+__name__+'/worker/1'),ServerHostWorker1RpcName)
+        }
+    })
 }
