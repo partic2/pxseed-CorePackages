@@ -20,24 +20,6 @@ function dirname2(path:string){
     return '';
 }
 
-class MountFileEntry{
-    //pxseed url for mounted fs, eg:  "pxseedjs:your/module/name.asynchronizedBuilder?param=xxx"
-    //asynchronizedBuilder:async function asynchronizedBuilder(url:string):Promise<SimpleFileSystem>
-    constructor(public builder:string){}
-    fs?:SimpleFileSystem
-    toJSON(){
-        return this.builder;
-    }
-    async ensureFs(){
-        if(this.fs==undefined){
-            let {pathname,protocol}=new URL(this.builder);
-            assert(protocol=='pxseedjs:');
-            let delim=pathname.lastIndexOf('.');
-            this.fs=await ((await import(pathname.substring(0,delim)))[pathname.substring(delim+1)])(this.builder);
-        }
-        await this.fs!.ensureInited();
-    }
-}
 
 export interface FileEntry{
     name:string
@@ -46,7 +28,6 @@ export interface FileEntry{
     mtime:number,
     children?:FileEntry[],
     dataKey?:Array<{key:string,size:number}>|string,
-    mountFs?:MountFileEntry|string
 }
 export interface SimpleFileSystem{
     ensureInited():Promise<void>;
@@ -306,34 +287,19 @@ export class KVDbBasedFs implements SimpleFileSystem{
         for(let i1=0;i1<path2.length;i1++){
             let name=path2[i1];
             if(curobj.type==='dir'){
-                if(curobj.mountFs==null){
-                    let t1=curobj.children!.find(v=>v.name===name);
-                    if(t1===undefined){
-                        if(opt.createParentDirectories){
-                            t1={type:'dir',children:[],name,mtime:GetCurrentTime().getTime()};
-                            curobj.children!.push(t1);
-                        }else{
-                            throw new LWSFSInternalError(path2.slice(0,i1).join('/')+' is not a directory')
-                        }
-                    }
-                    curobj=t1;
-                }else{
-                    if(typeof curobj.mountFs==='string'){
-                        curobj.mountFs=new MountFileEntry(curobj.mountFs);
-                        await curobj.mountFs.ensureFs();
-                    }
-                    return {
-                        entry:curobj,
-                        restPath:path2.slice(i1+1)
+                let t1=curobj.children!.find(v=>v.name===name);
+                if(t1===undefined){
+                    if(opt.createParentDirectories){
+                        t1={type:'dir',children:[],name,mtime:GetCurrentTime().getTime()};
+                        curobj.children!.push(t1);
+                    }else{
+                        throw new LWSFSInternalError(path2.slice(0,i1).join('/')+' is not a directory')
                     }
                 }
+                curobj=t1;
             }else if(curobj.type==='file'){
                 throw new Error(path2.slice(0,i1+1).join('/')+' is not a directory')
             }
-        }
-        if(typeof curobj.mountFs==='string'){
-            curobj.mountFs=new MountFileEntry(curobj.mountFs);
-            await curobj.mountFs.ensureFs();
         }
         return {
             entry:curobj
@@ -342,50 +308,41 @@ export class KVDbBasedFs implements SimpleFileSystem{
     async writeAll(path:string,data:Uint8Array){
         let path2=this.pathSplit(path);
         let lookupResult=await this.lookupPathDir(path2.slice(0,path2.length-1),{createParentDirectories:true});
-        if(lookupResult.restPath==undefined && lookupResult.entry.mountFs==null){
-            let parent=lookupResult.entry;
-            let found=parent.children!.find(v=>v.name===path2[path2.length-1]);
-            let dataKey=GenerateRandomString();
-            if(found!=undefined){
-                found.mtime=GetCurrentTime().getTime();
-                if(typeof found.dataKey==='string'){
-                    await this.db!.delete(found.dataKey);
-                }else{
-                    for(let t1 of found.dataKey!){
-                        await this.db!.delete(t1.key);
-                    }
-                }
-                found.dataKey=[{key:dataKey,size:data.length}];
+        let parent=lookupResult.entry;
+        let found=parent.children!.find(v=>v.name===path2[path2.length-1]);
+        let dataKey=GenerateRandomString();
+        if(found!=undefined){
+            found.mtime=GetCurrentTime().getTime();
+            if(typeof found.dataKey==='string'){
+                await this.db!.delete(found.dataKey);
             }else{
-                found={type:'file',name:path2[path2.length-1],dataKey:[{key:dataKey,size:data.length}],mtime:GetCurrentTime().getTime()}
-                parent.children!.push(found);
+                for(let t1 of found.dataKey!){
+                    await this.db!.delete(t1.key);
+                }
             }
-            found.size=data.length;
-            await this.db!.setItem(dataKey,data);
-            await this.saveChange();
+            found.dataKey=[{key:dataKey,size:data.length}];
         }else{
-            await (lookupResult.entry.mountFs as MountFileEntry).fs!.writeAll([...(lookupResult.restPath??[]),path2.at(-1)!].join('/'),data)
+            found={type:'file',name:path2[path2.length-1],dataKey:[{key:dataKey,size:data.length}],mtime:GetCurrentTime().getTime()}
+            parent.children!.push(found);
         }
-        
+        found.size=data.length;
+        await this.db!.setItem(dataKey,data);
+        await this.saveChange();
     }
     async readAll(path:string){
         let path2=this.pathSplit(path);
         try{
             let lookupResult=await this.lookupPathDir(path2.slice(0,path2.length-1),{createParentDirectories:false});
-            if(lookupResult.restPath==undefined && lookupResult.entry.mountFs==null){
-                let parent=lookupResult.entry;
-                let found=parent.children!.find(v=>v.name===path2[path2.length-1]);
-                if(found==undefined || found.type!=='file'){
-                    return null
-                }else{
-                    if(typeof found.dataKey==='string'){
-                        return await this.db!.getItem(found.dataKey!) as Uint8Array;
-                    }else{
-                        return new Uint8Array(ArrayBufferConcat(await Promise.all(found.dataKey!.map(t1=>this.db!.getItem(t1.key)))));
-                    }
-                }
+            let parent=lookupResult.entry;
+            let found=parent.children!.find(v=>v.name===path2[path2.length-1]);
+            if(found==undefined || found.type!=='file'){
+                return null
             }else{
-                return await (lookupResult.entry.mountFs as MountFileEntry).fs!.readAll([...(lookupResult.restPath??[]),path2.at(-1)!].join('/'))
+                if(typeof found.dataKey==='string'){
+                    return await this.db!.getItem(found.dataKey!) as Uint8Array;
+                }else{
+                    return new Uint8Array(ArrayBufferConcat(await Promise.all(found.dataKey!.map(t1=>this.db!.getItem(t1.key)))));
+                }
             }
         }catch(e:any){
             this.throwIfNotInternalError(e);
@@ -395,23 +352,19 @@ export class KVDbBasedFs implements SimpleFileSystem{
     async delete2(path:string){
         let path2=this.pathSplit(path);
         let lookupResult=await this.lookupPathDir(path2.slice(0,path2.length-1),{createParentDirectories:false});
-        if(lookupResult.restPath==undefined && lookupResult.entry.mountFs==null){
-            let parent=lookupResult.entry;
-            let found=parent.children!.findIndex(v=>v.name===path2[path2.length-1]);
-            if(found>=0){
-                let [fe]=parent.children!.splice(found,1);
-                if(fe.dataKey!=undefined){
-                    if(typeof fe.dataKey==='string'){
-                        await this.db!.delete(fe.dataKey);
-                    }else{
-                        await Promise.all(fe.dataKey.map(t1=>this.db!.delete(t1.key)));
-                    }
+        let parent=lookupResult.entry;
+        let found=parent.children!.findIndex(v=>v.name===path2[path2.length-1]);
+        if(found>=0){
+            let [fe]=parent.children!.splice(found,1);
+            if(fe.dataKey!=undefined){
+                if(typeof fe.dataKey==='string'){
+                    await this.db!.delete(fe.dataKey);
+                }else{
+                    await Promise.all(fe.dataKey.map(t1=>this.db!.delete(t1.key)));
                 }
             }
-            await this.saveChange()
-        }else{
-            await (lookupResult.entry.mountFs as MountFileEntry).fs!.delete2([...(lookupResult.restPath??[]),path2.at(-1)!].join('/'))
         }
+        await this.saveChange()
     }
     async saveChange(){
         this.lastModified=GetCurrentTime().getTime();
@@ -421,20 +374,11 @@ export class KVDbBasedFs implements SimpleFileSystem{
     async listdir(path:string){
         let path2=this.pathSplit(path);
         let lookupResult=await this.lookupPathDir(path2,{createParentDirectories:false});
-        if(lookupResult.restPath==undefined && lookupResult.entry.mountFs==null){
-            return lookupResult.entry.children!.map(v=>v);
-        }else{
-            return (lookupResult.entry.mountFs as MountFileEntry).fs!.listdir([...(lookupResult.restPath??[])].join('/'))
-        }
-        
+        return lookupResult.entry.children!.map(v=>v);
     }
     async mkdir(path:string){
         let path2=this.pathSplit(path);
         let lookupResult=await this.lookupPathDir(path2,{createParentDirectories:true});
-        if(lookupResult.restPath==undefined && lookupResult.entry.mountFs==null){
-        }else{
-            return (lookupResult.entry.mountFs as MountFileEntry).fs!.mkdir([...(lookupResult.restPath??[])].join('/'))
-        }
         await this.saveChange();
     }
     //Don't create directory automatically
@@ -445,13 +389,9 @@ export class KVDbBasedFs implements SimpleFileSystem{
                 return this.root!.type;
             }
             let lookupResult=await this.lookupPathDir(path2.slice(0,path2.length-1),{createParentDirectories:false});
-            if(lookupResult.restPath==undefined && lookupResult.entry.mountFs==null){
-                let parent=lookupResult.entry;
-                let found=parent.children!.find(v=>v.name===path2[path2.length-1]);
-                return found===undefined?'none':found.type;
-            }else{
-                return (lookupResult.entry.mountFs as MountFileEntry).fs!.filetype([...(lookupResult.restPath??[]),path2.at(-1)!].join('/'))
-            }
+            let parent=lookupResult.entry;
+            let found=parent.children!.find(v=>v.name===path2[path2.length-1]);
+            return found===undefined?'none':found.type;
         }catch(e){
             this.throwIfNotInternalError(e);
             return 'none'
@@ -462,19 +402,11 @@ export class KVDbBasedFs implements SimpleFileSystem{
         let newPath2=this.pathSplit(newPath);
         let parent=await this.lookupPathDir(path2.slice(0,path2.length-1),{createParentDirectories:false})
         let newParent=await this.lookupPathDir(newPath2.slice(0,path2.length-1),{createParentDirectories:true});
-        if(parent.restPath==undefined && newParent.restPath==undefined && parent.entry.mountFs==null && newParent.entry.mountFs==null){
-            let foundIndex=parent.entry.children!.findIndex(v=>v.name==path2[path2.length-1]);
-            let [t1]=parent.entry.children!.splice(foundIndex,1);
-            t1.name=newPath2[newPath2.length-1];
-            newParent.entry.children!.push(t1);
-            await this.saveChange();
-        }else if(parent.entry==newParent.entry){
-            await (parent.entry.mountFs as MountFileEntry).fs!.rename(
-                [parent.restPath??[],path2.at(-1)].join('/'),
-                [newParent.restPath??[],path2.at(-1)].join('/'))
-        }else{
-            throw new Error('Cross filesystem rename is not supported');
-        }
+        let foundIndex=parent.entry.children!.findIndex(v=>v.name==path2[path2.length-1]);
+        let [t1]=parent.entry.children!.splice(foundIndex,1);
+        t1.name=newPath2[newPath2.length-1];
+        newParent.entry.children!.push(t1);
+        await this.saveChange();
     }
     async dataDir(): Promise<string> {
         return ''
@@ -484,130 +416,119 @@ export class KVDbBasedFs implements SimpleFileSystem{
         assert(buf.length>0);
         let path2=this.pathSplit(path);
         let lookupResult=await this.lookupPathDir(path2.slice(0,path2.length-1),{createParentDirectories:false});
-        if(lookupResult.entry.mountFs==null){
-            let entry=lookupResult.entry.children!.find(t1=>t1.name==path2.at(-1));
-            let datas=new Array<{key:string,size:number}>();
-            if(typeof entry!.dataKey==='string'){
-                datas.push({key:entry!.dataKey,size:entry!.size!})
-            }else{
-                datas=entry!.dataKey!
-            }
-            let pos=0;
-            let blk=0;
-            for(blk=0;blk<datas.length;blk++){
-                if(pos+datas[blk].size>offset){
-                    break;
-                }
-                pos+=datas[blk].size;
-            }
-            let len=Math.min(datas[blk].size-(offset-pos),buf.byteLength);
-            if(len<=0)return 0;
-            let bufsrc=await this.db!.getItem(datas[blk].key);
-            buf.set(new Uint8Array(bufsrc.buffer,offset-pos,len));
-            return len;
+        let entry=lookupResult.entry.children!.find(t1=>t1.name==path2.at(-1));
+        let datas=new Array<{key:string,size:number}>();
+        if(typeof entry!.dataKey==='string'){
+            datas.push({key:entry!.dataKey,size:entry!.size!})
         }else{
-            return await (lookupResult.entry.mountFs as MountFileEntry).fs!.read([...(lookupResult.restPath??[]),path2.at(-1)!].join('/'),offset,buf);
+            datas=entry!.dataKey!
         }
+        let pos=0;
+        let blk=0;
+        for(blk=0;blk<datas.length;blk++){
+            if(pos+datas[blk].size>offset){
+                break;
+            }
+            pos+=datas[blk].size;
+        }
+        let len=Math.min(datas[blk].size-(offset-pos),buf.byteLength);
+        if(len<=0)return 0;
+        let bufsrc=await this.db!.getItem(datas[blk].key);
+        buf.set(new Uint8Array(bufsrc.buffer,offset-pos,len));
+        return len;
     }
     async write(path: string, offset: number, buf: Uint8Array): Promise<number> {
         assert(buf.length>0);
         let path2=this.pathSplit(path);
         let lookupResult=await this.lookupPathDir(path2.slice(0,path2.length-1),{createParentDirectories:true});
-        if(lookupResult.entry.mountFs==null){
-            let entry=lookupResult.entry.children!.find(t1=>t1.name==path2.at(-1));
-            if(entry==undefined){
-                let newEntry={
-                    type:'file',name:path2[path2.length-1],
-                    dataKey:[{key:GenerateRandomString(),size:offset}],
-                    mtime:GetCurrentTime().getTime(),
-                    size:offset
-                }
-                await this.db!.setItem(newEntry.dataKey[0].key,new Uint8Array(newEntry.dataKey[0].size))
-                entry=newEntry as any;
-                lookupResult.entry.children!.push(entry!);
+
+        let entry=lookupResult.entry.children!.find(t1=>t1.name==path2.at(-1));
+        if(entry==undefined){
+            let newEntry={
+                type:'file',name:path2[path2.length-1],
+                dataKey:[{key:GenerateRandomString(),size:offset}],
+                mtime:GetCurrentTime().getTime(),
+                size:offset
             }
-            let datas=new Array<{key:string,size:number}>();
-            if(typeof entry!.dataKey==='string'){
-                datas.push({key:entry!.dataKey,size:entry!.size!})
-            }else{
-                datas=entry!.dataKey!
-            }
-            if(offset>entry!.size!){
-                this.truncate(path,offset);
-            }
-            let pos=0,blk=0,endblk=0,startblk=0,startpos=0,endpos=0;
-            for(blk=0;blk<datas.length;blk++){
-                if(pos+datas[blk].size>offset){
-                    break;
-                }
-                pos+=datas[blk].size;
-            }
-            startblk=blk;
-            startpos=pos;
-            for(;blk<datas.length;blk++){
-                if(pos+datas[blk].size>offset+buf.byteLength){
-                    break;
-                }
-                pos+=datas[blk].size;
-            }
-            endblk=blk;
-            endpos=pos;
-            let newDatas=new Array<{key:string,size:number}>();
-            for(let t1=0;t1<startblk;t1++){
-                newDatas.push(datas[t1]);
-            }
-            if(startpos<offset){
-                let newKey=GenerateRandomString();
-                let startblk2=await this.db!.getItem(datas[startblk].key) as Uint8Array;
-                await this.db!.setItem(newKey,startblk2.slice(0,offset-startpos));
-                newDatas.push({key:newKey,size:offset-startpos});
-            }
-            {
-                let newKey=GenerateRandomString();
-                await this.db!.setItem(newKey,buf.slice());
-                newDatas.push({key:newKey,size:buf.length});
-            }
-            if(endblk<datas.length){
-                if(endpos<offset+buf.byteLength){
-                    let newKey=GenerateRandomString();
-                    let endblk2=await this.db!.getItem(datas[endblk].key) as Uint8Array;
-                    let blkSplice=offset+buf.byteLength-endpos
-                    await this.db!.setItem(newKey,endblk2.slice(blkSplice,endblk2.byteLength));
-                    newDatas.push({key:newKey,size:endblk2.byteLength-blkSplice});
-                    await this.db!.delete(datas[endblk].key);
-                }else{
-                    newDatas.push(datas[endblk]);
-                }
-            }
-            for(let t1=endblk+1;t1<datas.length;t1++){
-                newDatas.push(datas[t1]);
-            }
-            for(let t1=startblk;t1<endblk;t1++){
-                await this.db!.delete(datas[t1].key);
-            }
-            entry!.dataKey=newDatas;
-            entry!.size=entry!.dataKey.reduce((prev,curr)=>prev+curr.size,0);
-            await this.saveChange();
-            return buf.byteLength;
-        }else{
-            return await (lookupResult.entry.mountFs as MountFileEntry).fs!.write([...(lookupResult.restPath??[]),path2.at(-1)!].join('/'),offset,buf);
+            await this.db!.setItem(newEntry.dataKey[0].key,new Uint8Array(newEntry.dataKey[0].size))
+            entry=newEntry as any;
+            lookupResult.entry.children!.push(entry!);
         }
+        let datas=new Array<{key:string,size:number}>();
+        if(typeof entry!.dataKey==='string'){
+            datas.push({key:entry!.dataKey,size:entry!.size!})
+        }else{
+            datas=entry!.dataKey!
+        }
+        if(offset>entry!.size!){
+            await this.truncate(path,offset);
+        }
+        let pos=0,blk=0,endblk=0,startblk=0,startpos=0,endpos=0;
+        for(blk=0;blk<datas.length;blk++){
+            if(pos+datas[blk].size>offset){
+                break;
+            }
+            pos+=datas[blk].size;
+        }
+        startblk=blk;
+        startpos=pos;
+        for(;blk<datas.length;blk++){
+            if(pos+datas[blk].size>offset+buf.byteLength){
+                break;
+            }
+            pos+=datas[blk].size;
+        }
+        endblk=blk;
+        endpos=pos;
+        let newDatas=new Array<{key:string,size:number}>();
+        for(let t1=0;t1<startblk;t1++){
+            newDatas.push(datas[t1]);
+        }
+        if(startpos<offset){
+            let newKey=GenerateRandomString();
+            let startblk2=await this.db!.getItem(datas[startblk].key) as Uint8Array;
+            await this.db!.setItem(newKey,startblk2.slice(0,offset-startpos));
+            newDatas.push({key:newKey,size:offset-startpos});
+        }
+        {
+            let newKey=GenerateRandomString();
+            await this.db!.setItem(newKey,buf.slice());
+            newDatas.push({key:newKey,size:buf.length});
+        }
+        if(endblk<datas.length){
+            if(endpos<offset+buf.byteLength){
+                let newKey=GenerateRandomString();
+                let endblk2=await this.db!.getItem(datas[endblk].key) as Uint8Array;
+                let blkSplice=offset+buf.byteLength-endpos
+                await this.db!.setItem(newKey,endblk2.slice(blkSplice,endblk2.byteLength));
+                newDatas.push({key:newKey,size:endblk2.byteLength-blkSplice});
+                await this.db!.delete(datas[endblk].key);
+            }else{
+                newDatas.push(datas[endblk]);
+            }
+        }
+        for(let t1=endblk+1;t1<datas.length;t1++){
+            newDatas.push(datas[t1]);
+        }
+        for(let t1=startblk;t1<endblk;t1++){
+            await this.db!.delete(datas[t1].key);
+        }
+        entry!.dataKey=newDatas;
+        entry!.size=entry!.dataKey.reduce((prev,curr)=>prev+curr.size,0);
+        await this.saveChange();
+        return buf.byteLength;
     }
     async stat(path: string): Promise<{ atime: Date; mtime: Date; ctime: Date; birthtime: Date; size: number; }> {
         let path2=this.pathSplit(path);
         try{
             let lookupResult=await this.lookupPathDir(path2.slice(0,path2.length-1),{createParentDirectories:false});
-            if(lookupResult.entry.mountFs==null){
-                let parent=lookupResult.entry;
-                let found=parent.children!.find(v=>v.name===path2[path2.length-1]);
-                if(found==undefined){
-                    throw new Error(`${path} can't be read.`);
-                }else{
-                    let mtimDat=new Date(found.mtime);
-                    return {atime:mtimDat,mtime:mtimDat,ctime:mtimDat,birthtime:mtimDat,size:found.size??0};
-                }
+            let parent=lookupResult.entry;
+            let found=parent.children!.find(v=>v.name===path2[path2.length-1]);
+            if(found==undefined){
+                throw new Error(`${path} can't be read.`);
             }else{
-                return (lookupResult.entry.mountFs as MountFileEntry).fs!.stat([...(lookupResult.restPath??[]),path2.at(-1)!].join('/'))
+                let mtimDat=new Date(found.mtime);
+                return {atime:mtimDat,mtime:mtimDat,ctime:mtimDat,birthtime:mtimDat,size:found.size??0};
             }
         }catch(e){
             this.throwIfNotInternalError(e);
@@ -617,35 +538,31 @@ export class KVDbBasedFs implements SimpleFileSystem{
     async truncate(path: string, newSize: number): Promise<void> {
         let path2=this.pathSplit(path);
         try{
-            let lookupResult=await this.lookupPathDir(path2.slice(0,path2.length-1),{createParentDirectories:false});
-            if(lookupResult.entry.mountFs==null){
-                assert(lookupResult.entry.type=='file',`incorrect file type for ${path}`);
-                let datas=new Array<{key:string,size:number}>();
-                if(typeof lookupResult.entry.dataKey==='string'){
-                    datas.push({key:lookupResult.entry.dataKey,size:lookupResult.entry.size!});
-                }else{
-                    datas=lookupResult.entry.dataKey!;
-                }
-                if(lookupResult.entry.size!<newSize){
-                    let newBlk={key:GenerateRandomString(),size:newSize-lookupResult.entry.size!}
-                    await this.db!.setItem(newBlk.key,new Uint8Array(newBlk.size));
-                    datas.push(newBlk);
-                }else if(lookupResult.entry.size!>newSize){
-                    let pos=0;
-                    let t1=-1;
-                    for(t1=0;t1<datas.length;t1++){
-                        if(pos+datas[t1].size>newSize){
-                            break;
-                        }
-                    }
-                    let data1=await this.db!.getItem(datas[t1].key) as Uint8Array;
-                    await this.db!.setItem(datas[t1].key,data1.slice(0,newSize-pos));
-                    lookupResult.entry.dataKey=datas.slice(0,t1);
-                }
-                lookupResult.entry.size=newSize;
+            let lookupResult=await this.lookupPathDir(path2,{createParentDirectories:false});
+            assert(lookupResult.entry.type=='file',`incorrect file type for ${path}`);
+            let datas=new Array<{key:string,size:number}>();
+            if(typeof lookupResult.entry.dataKey==='string'){
+                datas.push({key:lookupResult.entry.dataKey,size:lookupResult.entry.size!});
             }else{
-                (lookupResult.entry.mountFs as MountFileEntry).fs!.truncate([...(lookupResult.restPath??[]),path2.at(-1)].join('/'),newSize)
+                datas=lookupResult.entry.dataKey!;
             }
+            if(lookupResult.entry.size!<newSize){
+                let newBlk={key:GenerateRandomString(),size:newSize-lookupResult.entry.size!}
+                await this.db!.setItem(newBlk.key,new Uint8Array(newBlk.size));
+                datas.push(newBlk);
+            }else if(lookupResult.entry.size!>newSize){
+                let pos=0;
+                let t1=-1;
+                for(t1=0;t1<datas.length;t1++){
+                    if(pos+datas[t1].size>newSize){
+                        break;
+                    }
+                }
+                let data1=await this.db!.getItem(datas[t1].key) as Uint8Array;
+                await this.db!.setItem(datas[t1].key,data1.slice(0,newSize-pos));
+                lookupResult.entry.dataKey=datas.slice(0,t1);
+            }
+            lookupResult.entry.size=newSize;
         }catch(e){
             this.throwIfNotInternalError(e);
         }
