@@ -134,7 +134,7 @@ export let files={
 	tjs:null as typeof tjs|null,
 	simple:null as SimpleFileSystem|null,
 	initmtx:new mutex(),
-	osPathSep:getWWWRoot().includes('\\')?'\\':'/',
+	osPathSep:'/',
 	async init(){
 		await this.initmtx.exec(async ()=>{
 			if(this.tjs==null){
@@ -255,7 +255,23 @@ export let files={
 			if((fs as any)[RpcSerializeMagicMark]==undefined){
 				(fs as any)[RpcSerializeMagicMark]={};
 			}
-			env.jsnotebook.callFunctionInNotebookWebui('partic2/JsNotebook/filebrowser','openFileBrowserWindowForSimpleFileSystem',[{fs,title:'File browser',initdir}]);
+			env.jsnotebook.callFunctionInNotebookWebui('partic2/JsNotebook/filebrowser','openFileBrowserWindowForSimpleFileSystem',
+				[{fs,title:'File browser',initdir}]);
+		}
+	},
+	async openFileBrowserWindowForSimpleFileSystemToSelect(fs:SimpleFileSystem,initdir?:string){
+		let fut=new future<string[]|null>()
+		let env=TaskLocalEnv.get();
+		if(env?.jsnotebook?.callFunctionInNotebookWebui!=undefined){
+			if((fs as any)[RpcSerializeMagicMark]==undefined){
+				(fs as any)[RpcSerializeMagicMark]={};
+			}
+			if((fut as any)[RpcSerializeMagicMark]==undefined){
+				(fut as any)[RpcSerializeMagicMark]={};
+			}
+			await env.jsnotebook.callFunctionInNotebookWebui('partic2/JsNotebook/filebrowser','openFileBrowserWindowForSimpleFileSystemToSelect',
+				[{fs,title:'File browser',initdir,selectFile:fut}]);
+			return fut.get(); 
 		}
 	}
 }

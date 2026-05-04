@@ -139,11 +139,9 @@ export class PxprpcIoFromRawStream implements Io{
         });
     }
     close(): void {
-        this.w.close();
-		this.w.releaseLock();
-		this.r.releaseLock();
-		this.stream[1].close();
-		this.stream[0].cancel();
+        this.w.close().catch(()=>{});
+		this.stream[1].close().catch(()=>{});
+		this.stream[0].cancel().catch(()=>{});
     }
 }
 

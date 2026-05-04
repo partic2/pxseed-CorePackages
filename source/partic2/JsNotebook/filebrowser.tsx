@@ -2,7 +2,7 @@
 import * as React from 'preact'
 var ReactDOM=React
 
-import {ArrayWrap2, GenerateRandomString, GetBlobArrayBufferContent, GetCurrentTime, mutex} from 'partic2/jsutils1/base'
+import {ArrayWrap2, future, GenerateRandomString, GetBlobArrayBufferContent, GetCurrentTime, mutex} from 'partic2/jsutils1/base'
 import {CKeyValueDb, DynamicPageCSSManager,getResourceManager,path,selectFile} from 'partic2/jsutils1/webutils'
 import { ReactRefEx, ReactRender, css } from 'partic2/pComponentUi/domui'
 import { SimpleFileSystem } from 'partic2/CodeRunner/JsEnviron'
@@ -13,7 +13,9 @@ import { TextEditor } from 'partic2/pComponentUi/texteditor'
 import { SimpleReactForm1, ValueCheckBox } from '../pComponentUi/input'
 import { getIconUrl } from 'partic2/pxseedMedia1/index1'
 import { files } from './tjseasyapi'
-import { openNewWindow } from '../pComponentUi/workspace'
+import { openNewWindow } from 'partic2/pComponentUi/workspace'
+import { RpcExtendClient1 } from 'pxprpc/extend'
+import { ClientInfo } from 'partic2/pxprpcClient/registry'
 
 
 var __name__='partic2/JsNotebook/filebrowser'
@@ -71,7 +73,8 @@ interface FileBrowserState{
     currPathHistory:string[],
 };
 
-class FileBrowserComponent<P extends {fs:SimpleFileSystem}={fs:SimpleFileSystem}> extends React.Component<P,FileBrowserState>{
+class FileBrowserComponent<P extends {fs:SimpleFileSystem}={fs:SimpleFileSystem}>
+    extends React.Component<P,FileBrowserState>{
     public constructor(props?: any | undefined, context?: any){
         super(props,context)
         this.setState({childrenFile:[],
@@ -333,6 +336,37 @@ class FileBrowserComponent<P extends {fs:SimpleFileSystem}={fs:SimpleFileSystem}
     }
 }
 
+class SelectFileBrowserComponent<P extends {fs:SimpleFileSystem,onSelect:(selected:string[])=>void}={fs:SimpleFileSystem,onSelect:(selected:string[])=>void}>
+    extends FileBrowserComponent<P>{
+    protected DoSelect(){
+        this.props.onSelect(Array.from(this.state.selectedFiles));
+    }
+    protected renderAction(){
+        return <div>
+            <a href="javascript:;" onClick={()=>this.DoGoBack()}>GoBack</a>&emsp;
+            <a href="javascript:;" onClick={()=>this.DoNew()}>New</a>&emsp;
+            <a href="javascript:;" onClick={()=>this.DoRenameTo()}>Rename</a>&emsp;
+            <a href="javascript:;" onClick={()=>this.DoDelete()}>Delete</a>&emsp;
+            <a href="javascript:;" onClick={()=>this.DoUpload()}>Upload</a>&emsp;
+            <a href="javascript:;" onClick={()=>this.DoCopy()}>Copy</a>&emsp;
+            <a href="javascript:;" onClick={()=>this.DoCut()}>Cut</a>&emsp;
+            <a href="javascript:;" onClick={()=>this.DoPaste()}>Paste</a>&emsp;
+            <a href="javascript:;" onClick={()=>this.DoSelect()}>Select</a>&emsp;
+        </div>
+    }
+    async DoFileOpen(path:string,opt?:{noHistory?:boolean}){
+        let filetype=await this.props.fs.filetype(path);
+        if(filetype=='file'){
+            this.state.selectedFiles.clear();
+            this.state.selectedFiles.add(path);
+            this.DoSelect();
+        }else{
+            await super.DoFileOpen(path,opt);
+        }
+    }
+}
+
+
 
 class WorkspaceFileBrowser2 extends FileBrowserComponent<{fs:SimpleFileSystem,context:WorkspaceContext}>{
     public constructor(props?: any | undefined, context?: any){
@@ -356,6 +390,11 @@ class WorkspaceFileBrowser2 extends FileBrowserComponent<{fs:SimpleFileSystem,co
                 alert('No handler for such file extension.');
             }else{
                 await selectedHandle.open(path);
+            }
+        }else if(filetype=='dir'){
+            if(this.props.context.startupProfile!=null){
+                this.props.context.startupProfile!.currPath=path;
+                this.props.context.saveStartupProfile();
             }
         }
     }
@@ -383,10 +422,25 @@ class WorkspaceFileBrowser2 extends FileBrowserComponent<{fs:SimpleFileSystem,co
 
 export async function openFileBrowserWindowForSimpleFileSystem(p:{fs:SimpleFileSystem,title?:string,initdir?:string}){
     let ref=new ReactRefEx<FileBrowserComponent>();
-    await openNewWindow(<FileBrowserComponent fs={p.fs} title={p.title} ref={ref}/>)
+    await openNewWindow(<FileBrowserComponent fs={p.fs} ref={ref}/>,{title:p.title});
     if(p.initdir!=undefined){
         (await ref.waitValid()).DoFileOpen(p.initdir);
     }
+}
+
+export async function openFileBrowserWindowForSimpleFileSystemToSelect(p:{fs:SimpleFileSystem,title?:string,initdir?:string,
+    selectFile:future<string[]|null>}){
+    let ref=new ReactRefEx<SelectFileBrowserComponent>();
+    let result:string[]|null=null
+    let newWin=await openNewWindow(<SelectFileBrowserComponent fs={p.fs} ref={ref} onSelect={(selected)=>{
+        result=selected;
+        newWin.close();
+    }}/>,{title:p.title});
+    if(p.initdir!=undefined){
+        (await ref.waitValid()).DoFileOpen(p.initdir);
+    }
+    await newWin.waitClose();
+    p.selectFile.setResult(result);
 }
 
 export namespace __internal__{

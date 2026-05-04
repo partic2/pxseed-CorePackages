@@ -1,6 +1,6 @@
 import { BuildUrlFromJsEntryModule, GetJsEntry,  GetPersistentConfig } from "partic2/jsutils1/webutils";
 import { requirejs } from "partic2/jsutils1/base";
-import { easyCallRemoteJsonFunction, getPersistentRegistered, ServerHostWorker1RpcName } from "partic2/pxprpcClient/registry";
+import { easyCallRemoteJsonFunction, getPersistentRegistered, ServerHostRpcName, ServerHostWorker1RpcName } from "partic2/pxprpcClient/registry";
 import { RemotePxseedJsIoServer } from "partic2/pxprpcClient/bus";
 import { rpcId } from "partic2/pxprpcClient/rpcworker";
 import { RpcExtendServer1 } from "pxprpc/extend";
@@ -13,19 +13,31 @@ export let packageManagerWebuiEntry={
     module:'partic2/packageManager/webui2',func:'main'
 }
 
-let config:{onWebuiStartup?:Array<{module:string,func:string}>}={};
+let persistentConfig:{onWebuiStartup?:Array<{module:string,func:string}>}={};
+
+export let config={
+    warningBeforeUnload:true
+}
+window.addEventListener('beforeunload',(ev)=>{
+    if(config.warningBeforeUnload){
+        ev.preventDefault();
+        ev.returnValue = true;
+    }
+})
 
 ;(async ()=>{
     if(GetJsEntry()==__name__){
-        config=await GetPersistentConfig(__name__);
-        if(config.onWebuiStartup!=undefined){
-            await Promise.allSettled(config.onWebuiStartup.map(t1=>import(t1.module).then((mod)=>mod[t1.func]()).catch((err)=>{console.warn(err)})))
+        persistentConfig=await GetPersistentConfig(__name__);
+        if(persistentConfig.onWebuiStartup!=undefined){
+            await Promise.allSettled(persistentConfig.onWebuiStartup.map(t1=>import(t1.module).then((mod)=>mod[t1.func]()).catch((err)=>{console.warn(err)})))
         }
         try{
-            let shw1=await getPersistentRegistered(ServerHostWorker1RpcName);
-            RemotePxseedJsIoServer.serve(`/pxprpc/pxseed_webui/${__name__.replace(/\//g,'.')}/${rpcId.get()}`,{
+            if(await getPersistentRegistered(ServerHostRpcName)!=null){
+                RemotePxseedJsIoServer.serve(`/pxprpc/pxseed_webui/${__name__.replace(/\//g,'.')}/${rpcId.get()}`,{
                         onConnect:(io)=>new RpcExtendServer1(new Server(io))
                     }).catch((err:any)=>console.warn(err.message,err.stack));
+            }
+            let shw1=await getPersistentRegistered(ServerHostWorker1RpcName);
             if(shw1!=null){
                 let rpc1=await shw1.ensureConnected();
                 let startups=await easyCallRemoteJsonFunction(rpc1,'partic2/packageManager/registry','getPackageListeners',['onWebuiStartup']) as Array<{module:string,func:string}>;
