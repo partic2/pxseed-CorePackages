@@ -186,7 +186,7 @@ class NotebookViewer extends React.Component<{context:WorkspaceContext,path:stri
         await this.props.context.fs!.writeAll(this.props.path,utf8conv(JSON.stringify(saved)));
     }
     async callFunctionInNotebookWebui(module:string,fnName:string,args:any[]){
-        let fn=(await requirejs.promiseRequire<any>(module))[fnName];
+        let fn=(await import(module))[fnName];
         fn(...args,{rpc:this.state.rpc,codeCellList:this.rref.ccl,codeContext:this.state.codeContext});
     }
     async updateNotebookCodeCellsData(cellsData:string){

@@ -60,7 +60,13 @@ export let rootConfig={...config};
 
 let blockFileMatchRegex=new Array<RegExp>();
 
+export async function setupServerPxprpcClient(){
+    await addClient('pxseedjs:'+__name__+'.getConnectionForServerHost',ServerHostRpcName);
+    await addClient('webworker:partic2/pxprpcClient/registry/worker/1',ServerHostWorker1RpcName)
+}
+
 export async function loadConfig(){
+    await setupServerPxprpcClient();
     let tjs=await buildTjs();
     try{
         let configData=await tjs.readFile(getWWWRoot()+'/pxseedServer2023/config.json')
@@ -284,7 +290,7 @@ export let serverCommandRegistry:Record<string,(param:any)=>any>={
         wrapConsole.warn=(...msg:any[])=>records.push(msg);
         wrapConsole.error=(...msg:any[])=>records.push(msg);
         await withConsole(wrapConsole,async ()=>{
-            await cleanBuildStatus(path.join(wwwroot,'..','source'))
+            await cleanBuildStatus(path.join(wwwroot))
             await processDirectory(path.join(wwwroot,'..','source'));
         });
         return records.map(t1=>t1.join(' ')).join('\n');
@@ -305,7 +311,7 @@ export let serverCommandRegistry:Record<string,(param:any)=>any>={
 }
 
 export function pxseedRunStartupModules(){
-    Promise.allSettled(config.initModule!.map(mod=>requirejs.promiseRequire(mod)));
+    Promise.allSettled(config.initModule!.map(mod=>import(mod)));
     if(config.subprocessIndex==undefined)import('partic2/packageManager/onServerStartup');
 }
 
@@ -328,10 +334,6 @@ export async function getConnectionForServerHost(){
     }
 }
 
-;(async ()=>{
-    await addClient('pxseedjs:'+__name__+'.getConnectionForServerHost',ServerHostRpcName);
-    await addClient('webworker:partic2/pxprpcClient/registry/worker/1',ServerHostWorker1RpcName)
-})();
 
 export async function initNotebookCodeEnv(_ENV:any){
     Object.assign(_ENV,serverCommandRegistry);

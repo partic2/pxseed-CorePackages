@@ -1,5 +1,5 @@
-//To initialize node environment. For these don't want to start http server, just import this module.
-import 'partic2/nodehelper/env'
+//To initialize node environment. 
+import {__inited__ as nodeenvinited} from 'partic2/nodehelper/env'
 
 import { config, defaultRouter, loadConfig, pxseedRunStartupModules, rootConfig, saveConfig, serverCommand, serverCommandRegistry, setupHttpServerHandler, subprocessMagic } from './pxseedhttpserver';
 
@@ -240,7 +240,7 @@ export async function startServer(){
 }
 
 export let __inited__=(async ()=>{
-
+    await nodeenvinited;
     await startServer();
 
     serverCommandRegistry.buildEnviron=async ()=>{

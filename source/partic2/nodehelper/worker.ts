@@ -1,4 +1,4 @@
-import { GenerateRandomString, amdContext, future, requirejs } from "partic2/jsutils1/base";
+import { GenerateRandomString, future, requirejs } from "partic2/jsutils1/base";
 import { BasicMessagePort, FunctionCallOverMessagePort, IWorkerThread, WebWorkerThread, getWWWRoot, lifecycle, setWorkerThreadImplementation } from "partic2/jsutils1/webutils";
 import { MessagePort} from "worker_threads";
 import {Worker as NWorker} from 'worker_threads'

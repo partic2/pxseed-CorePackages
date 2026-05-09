@@ -2,7 +2,7 @@
 import * as React from 'preact'
 var ReactDOM=React
 
-import {ArrayWrap2, future, GenerateRandomString, GetBlobArrayBufferContent, GetCurrentTime, mutex} from 'partic2/jsutils1/base'
+import {ArrayWrap2, future, GenerateRandomString, GetCurrentTime, mutex} from 'partic2/jsutils1/base'
 import {CKeyValueDb, DynamicPageCSSManager,getResourceManager,path,selectFile} from 'partic2/jsutils1/webutils'
 import { ReactRefEx, ReactRender, css } from 'partic2/pComponentUi/domui'
 import { SimpleFileSystem } from 'partic2/CodeRunner/JsEnviron'
@@ -207,7 +207,7 @@ class FileBrowserComponent<P extends {fs:SimpleFileSystem}={fs:SimpleFileSystem}
         let selected=await selectFile()
         if(selected!=null){
             for(let t1=0;t1<selected.length;t1++){
-                let data=await GetBlobArrayBufferContent(selected.item(t1)!);
+                let data=await selected.item(t1)!.arrayBuffer();
                 let name=selected.item(t1)!.name;
                 await this.props.fs.writeAll(this.state.currPath+'/'+name,new Uint8Array(data!)!)
             }

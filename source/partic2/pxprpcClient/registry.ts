@@ -701,53 +701,6 @@ export let persistent={
                 registered.set(name,clie);
             })
         }       
-    },
-    pullFromServerHost:async function(){
-        let rpc=getRegistered(ServerHostRpcName);
-        if(rpc!=undefined && !await isServerHost()){
-            let result1=await easyCallRemoteJsonFunction(await rpc.ensureConnected(),__name__,'listPersistentRegistered',[]);
-            for(let t1 of result1){
-                if(t1[0]==ServerHostRpcName)continue;
-                if(t1[1].url.startsWith('iooverpxprpc:')){
-                    await addClient(`iooverpxprpc:${ServerHostRpcName}/${t1[1].url.substring('iooverpxprpc:'.length)}`)
-                }else{
-                    await addClient(`iooverpxprpc:${ServerHostRpcName}/${encodeURIComponent(t1[1].url)}`,t1[0]);
-                }
-            }
-        }
-    },
-    pushToServerHost:async function(){
-        let rpc=getRegistered(ServerHostRpcName);
-        if(rpc!=undefined && !await isServerHost()){
-            let remoteClientList=new Map(await easyCallRemoteJsonFunction(await rpc.ensureConnected(),__name__,'listPersistentRegistered',[]) as Array<[string,{url:string,name:string}]>);
-            let toRemove=new Array<string>();
-            let toAdd=new Array<[string,string]>();
-            let registered=await listPersistentRegistered();
-            for(let t1 of registered){
-                if(t1[1].url.startsWith(`iooverpxprpc:${ServerHostRpcName}/`)){
-                    let restRpcPath=t1[1].url.substring(`iooverpxprpc:${ServerHostRpcName}/`.length);
-                    if(restRpcPath.indexOf('/')>=0){
-                        restRpcPath='iooverpxprpc:'+restRpcPath;
-                    }else{
-                        restRpcPath=decodeURIComponent(restRpcPath);
-                    }
-                    if(remoteClientList.get(t1[0])?.url!=restRpcPath){
-                        toAdd.push([restRpcPath,t1[0]]);
-                    }
-                }
-            }
-            for(let t1 of remoteClientList.keys()){
-                if(getRegistered(t1)==undefined){
-                    toRemove.push(t1);
-                }
-            }
-            for(let t1 of toAdd){
-                await easyCallRemoteJsonFunction(await rpc.ensureConnected(),__name__,'addClient',t1)
-            }
-            for(let t1 of toRemove){
-                await easyCallRemoteJsonFunction(await rpc.ensureConnected(),__name__,'removeClient',[t1]);
-            }
-        }
     }
 }
 

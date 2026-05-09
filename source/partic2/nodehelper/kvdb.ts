@@ -65,7 +65,12 @@ async function tjsWriteFile(path:string,data:Uint8Array){
     let tjs1=await buildTjs()
     let file1=await tjs1!.open(path,'w');
     try{
-        await file1.write(data);
+        let offset=0;
+        while(offset<data.byteLength){
+            let count=await file1.write(new Uint8Array(data.buffer,data.byteOffset+offset,data.byteLength-offset));
+            assert(count>0);
+            offset+=count;
+        }
     }finally{
         await file1.close();
     }
@@ -83,17 +88,19 @@ export class FsBasedKvDbV1 implements IKeyValueDb{
     tjs1:null|typeof tjs=null;
     mtx=new mutex();
     protected async readLatestConfig(){
-        try{
-            let data=await this.tjs1!.readFile(this.baseDir+'/config.json')
-            this.config=JSON.parse(new TextDecoder().decode(data));
-            if(this.config?.version!==1){
-                log.warning('Invalid kvdb file, ignored.',this.baseDir+'/config.json')
-                this.config={version:1,time:GetCurrentTime().getTime(),fileList:{}}
+        await this.mtx.exec(async ()=>{
+            try{
+                let data=await this.tjs1!.readFile(this.baseDir+'/config.json')
+                this.config=JSON.parse(new TextDecoder().decode(data));
+                if(this.config?.version!==1){
+                    log.warning('Invalid kvdb file, ignored.',this.baseDir+'/config.json')
+                    this.config={version:1,time:GetCurrentTime().getTime(),fileList:{}}
+                }
+            }catch(e:any){
+                this.config={version:1,fileList:{},time:GetCurrentTime().getTime(),lastError:e.toString()+e.stack}
+                await tjsWriteFile(this.baseDir+'/config.json',new TextEncoder().encode(JSON.stringify(this.config)))
             }
-        }catch(e:any){
-            this.config={version:1,fileList:{},time:GetCurrentTime().getTime(),lastError:e.toString()+e.stack}
-            await tjsWriteFile(this.baseDir+'/config.json',new TextEncoder().encode(JSON.stringify(this.config)))
-        }
+        })
     }
     protected async saveConfigToFile(){
         await tjsWriteFile(this.baseDir+'/config.json',new TextEncoder().encode(JSON.stringify(this.config)));
@@ -107,7 +114,7 @@ export class FsBasedKvDbV1 implements IKeyValueDb{
         this.setItemRaw(key,serializableObject(val));
     }
     async setItemRaw(key:string,val:Uint8Array): Promise<void> {
-        this.mtx.exec(async ()=>{
+        await this.mtx.exec(async ()=>{
             if(!(key in this.config!.fileList)){
                 this.config!.fileList[key]={fileName:GenerateRandomString()}
             }
@@ -147,7 +154,7 @@ export class FsBasedKvDbV1 implements IKeyValueDb{
         onKey(null);
     }
     async delete(key: string): Promise<void> {
-        this.mtx.exec(async ()=>{
+        await this.mtx.exec(async ()=>{
             let {fileName}=this.config!.fileList[key];
             await this.tjs1!.remove(this.baseDir+'/'+fileName);
             delete this.config!.fileList[key]

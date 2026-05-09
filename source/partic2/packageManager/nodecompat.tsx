@@ -188,7 +188,7 @@ export async function getTypescriptModuleTjs():Promise<typeof import('typescript
   }
   let importTyescriptSucc=false;
   try{
-    let ts=await requirejs.promiseRequire<any>('typescript');
+    let ts=await import('typescript' as any);
     importTyescriptSucc=true;
     cachedTypescriptModule=ts.default??ts;
     return cachedTypescriptModule!;
@@ -196,7 +196,7 @@ export async function getTypescriptModuleTjs():Promise<typeof import('typescript
     await Promise.all(Object.keys(await requirejs.getFailed()).map((t1)=>requirejs.undef(t1)));
   }
   try{
-    let ts=await requirejs.promiseRequire<any>('partic2/packageManager/typescript4tjs');
+    let ts=await import('partic2/packageManager/typescript4tjs' as any);
     importTyescriptSucc=true;
     cachedTypescriptModule=ts.default??ts;
     return cachedTypescriptModule!;
@@ -212,7 +212,7 @@ export async function getTypescriptModuleTjs():Promise<typeof import('typescript
     await fs.promises.writeFile(path.join(wwwroot,'partic2','packageManager','typescript4tjs.js'),new TextEncoder().encode(tstxt));
   }
   {
-    let ts=await requirejs.promiseRequire<any>('partic2/packageManager/typescript4tjs');
+    let ts=await import('partic2/packageManager/typescript4tjs' as any);
     importTyescriptSucc=true;
     cachedTypescriptModule=ts.default??ts;
     return cachedTypescriptModule!;

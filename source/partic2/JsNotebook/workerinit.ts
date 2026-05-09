@@ -9,6 +9,7 @@ import { Client, Server } from "pxprpc/base";
 import { CodeCellListData, CodeCompletionContext } from "partic2/CodeRunner/Inspector";
 import type {} from 'partic2/tjshelper/txikijs'
 import { TjsUtilsProcess } from "./tjseasyapi";
+import { defaultHttpClient } from "partic2/jsutils1/webutils";
 
 export var __name__='partic2/JsNotebook/workerinit'
 
@@ -145,24 +146,7 @@ export async function initNotebookCodeEnv(_ENV:any,opt?:{codePath?:string}){
         _ENV.fs.simple.delete2[CustomFunctionParameterCompletionSymbol]=makeFunctionCompletionWithFilePathArg0(undefined);
     }
     _ENV.globalThis=globalThis;
-    _ENV.pxseedServerCommand={
-        buildPackages:async ()=>{
-            let module1=await importRemoteModule(await (await getPersistentRegistered(ServerHostRpcName))!.ensureConnected(),'pxseedServer2023/pxseedhttpserver');
-            return await module1.serverCommand('buildPackages')
-        },
-        rebuildPackages:async ()=>{
-            let module1=await importRemoteModule(await (await getPersistentRegistered(ServerHostRpcName))!.ensureConnected(),'pxseedServer2023/pxseedhttpserver');
-            return await module1.serverCommand('rebuildPackages')
-        },
-        getConfig:async ()=>{
-            let module1=await importRemoteModule(await (await getPersistentRegistered(ServerHostRpcName))!.ensureConnected(),'pxseedServer2023/pxseedhttpserver');
-            return await module1.serverCommand('rebuildPackages')
-        },
-        saveConfig:async (cfg:any)=>{
-            let module1=await importRemoteModule(await (await getPersistentRegistered(ServerHostRpcName))!.ensureConnected(),'pxseedServer2023/pxseedhttpserver');
-            return await module1.serverCommand('saveConfig',cfg)
-        }
-    }
+    _ENV.fetch=defaultHttpClient.fetch.bind(defaultHttpClient)
     _ENV.restartThisWorker=async ()=>{
         _ENV.jsnotebook?.reconnectCodeContextSoon?.();
         await sleep(100);

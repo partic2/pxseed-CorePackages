@@ -3,12 +3,12 @@ import * as React from 'preact'
 import {DomComponentGroup, DomRootComponent, ReactRefEx, ReactRender, css} from 'partic2/pComponentUi/domui'
 import { RemoteRunCodeContext } from 'partic2/CodeRunner/RemoteCodeContext'
 import {getPersistentRegistered, importRemoteModule,persistent,ServerHostRpcName,ServerHostWorker1RpcName, WebWorker1RpcName} from 'partic2/pxprpcClient/registry'
-import { GenerateRandomString, GetBlobArrayBufferContent, GetCurrentTime, Ref2, Task, assert, future, requirejs, throwIfAbortError } from 'partic2/jsutils1/base'
+import { GetCurrentTime, Ref2, Task, assert, future, requirejs, throwIfAbortError } from 'partic2/jsutils1/base'
 import { BuildUrlFromJsEntryModule, GetJsEntry, GetPersistentConfig, getResourceManager, path, RequestDownload, SavePersistentConfig, selectFile, useDeviceWidth } from 'partic2/jsutils1/webutils'
 import {promptWithForm, SimpleReactForm1} from 'partic2/pComponentUi/input'
 import {alert, appendFloatWindow, confirm, prompt, css as windowCss, WindowComponent} from 'partic2/pComponentUi/window'
 var registryModuleName='partic2/packageManager/registry';
-import {TaskLocalRef,Singleton} from 'partic2/CodeRunner/jsutils2'
+import {TaskLocalRef,Singleton, utf8conv} from 'partic2/CodeRunner/jsutils2'
 import {RemotePxseedJsIoServer} from 'partic2/pxprpcClient/bus'
 
 export var __name__=requirejs.getLocalRequireModule(require);
@@ -269,9 +269,7 @@ class PackagePanel extends React.Component<{},{
         let selected=await selectFile();
         if(selected!=null && selected.length>0){
             let registry=await remoteModule.registry.get();
-            registry.importPackagesInstallation!(JSON.parse(new TextDecoder().decode(
-                (await GetBlobArrayBufferContent(selected.item(0)!))!))
-            )
+            registry.importPackagesInstallation!(JSON.parse(utf8conv(new Uint8Array(await selected.item(0)!.arrayBuffer()))));
         }
     }
     filterString:string='webui'

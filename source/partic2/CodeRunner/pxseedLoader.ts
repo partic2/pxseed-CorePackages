@@ -2,7 +2,7 @@
 //Some function to process source 
 
 import * as acorn from 'acorn'
-import {ancestor} from 'acorn-walk'
+import * as acornWalk from 'acorn-walk'
 import { GetCurrentTime, Task, assert, requirejs, throwIfAbortError } from 'partic2/jsutils1/base';
 import type { PxseedStatus } from 'pxseedBuildScript/buildlib';
 
@@ -66,17 +66,17 @@ function addAsyncEnterExitHook(node:acorn.FunctionDeclaration|acorn.FunctionExpr
 
 export function addAsyncHook(replacePlan:JsSourceReplacePlan){
     let result=replacePlan.ast();
-    ancestor(result,{
-        FunctionDeclaration(node,state,ancetors){
+    acornWalk.ancestor(result,{
+        FunctionDeclaration(node,state,ancestors){
             addAsyncEnterExitHook(node,replacePlan);
         },
-        ArrowFunctionExpression(node,state,ancetors){
+        ArrowFunctionExpression(node,state,ancestors){
             addAsyncEnterExitHook(node,replacePlan);
         },
-        FunctionExpression(node,state,ancetors){
+        FunctionExpression(node,state,ancestors){
             addAsyncEnterExitHook(node,replacePlan);
         },
-        AwaitExpression(node,state,ancetors){
+        AwaitExpression(node,state,ancestors){
             let awaitHook='Promise.__onAwait(';
             if(!(replacePlan.source.substring(node.argument.start,node.argument.start+awaitHook.length)===awaitHook)){
                 replacePlan.plan.push({
@@ -96,6 +96,7 @@ export function addAsyncHook(replacePlan:JsSourceReplacePlan){
 
 import {setupAsyncHook} from './jsutils2'
 
+
 export {setupAsyncHook}
 
 export async function ensureModuleImported(replacePlan:JsSourceReplacePlan,moduleName:string){
@@ -113,6 +114,88 @@ export async function ensureModuleImported(replacePlan:JsSourceReplacePlan,modul
             }
         }
     }
+}
+
+export async function addAutoAsyncAwait(replacePlan:JsSourceReplacePlan,initDirective?:any){
+    let sast=replacePlan.ast();
+    function ensureFunctionAsync(node:acorn.FunctionDeclaration|acorn.FunctionExpression|acorn.ArrowFunctionExpression|
+        acorn.AnonymousFunctionDeclaration,
+    replacePlan:JsSourceReplacePlan){
+        if(!node.async){
+            replacePlan.plan.push({
+                start:node.start,
+                end:node.start,
+                newString:' async '
+            })
+        }
+    }
+    function ensureFunctionCallAwait(node:acorn.CallExpression|acorn.ImportExpression,ancestors:acorn.Node[],
+    replacePlan:JsSourceReplacePlan){
+        if(ancestors.at(-2)?.type!=='AwaitExpression'){
+            replacePlan.plan.push({
+                start:node.start,
+                end:node.start,
+                newString:(ancestors.at(-2)?.type==='ExpressionStatement'?';':'')+'(await '
+            });
+            replacePlan.plan.push({
+                start:node.end,
+                end:node.end,
+                newString:')'
+            });
+        }
+    }
+    acornWalk.ancestor(sast,{
+        FunctionDeclaration(node,state,ancestors){
+            if(state.at(-1).autoAsync===true){
+                ensureFunctionAsync(node,replacePlan);
+            }
+        },
+        ArrowFunctionExpression(node,state,ancestors){
+            if(state.at(-1).autoAsync===true){
+                ensureFunctionAsync(node,replacePlan);
+            }
+        },
+        FunctionExpression(node,state,ancestors){
+            if(state.at(-1).autoAsync===true){
+                ensureFunctionAsync(node,replacePlan);
+            }
+        },
+        CallExpression(node,state,ancestors){
+            if(node.callee.type=='Identifier' && node.callee.name==='__transpile__' && node.arguments.length===2){
+                //skip
+            }else if(state.at(-1).autoAsync===true){
+                ensureFunctionCallAwait(node,ancestors,replacePlan)
+            }
+        },
+        ImportExpression(node,state,ancestors){
+            if(state.at(-1).autoAsync===true){
+                ensureFunctionCallAwait(node,ancestors,replacePlan)
+            }
+        },
+        ForOfStatement(node,state,ancestors){
+            if(state.at(-1).autoAsync===true){
+                if(!node.await){
+                    replacePlan.plan.push({
+                        start:node.start+3,
+                        end:node.start+3,
+                        newString:' await'
+                    })
+                }
+            }
+        }
+    },{
+        ...acornWalk.base,
+        CallExpression:(node,state,walk)=>{
+            if(node.callee.type=='Identifier' && node.callee.name==='__transpile__' && node.arguments.length===2){
+                let directive={...state.at(-1),...(new Function('return '+replacePlan.source.substring(node.arguments[0].start,node.arguments[0].end))())};
+                state.push(directive);
+                walk(node.arguments[1],state);
+                state.pop();
+            }else{
+                acornWalk.base.CallExpression?.(node,state,walk);
+            }
+        }
+    },[initDirective??{}])
 }
 
 export async function addAsyncHookPxseedLoader(dir:string,config:{include?:string[]},status:PxseedStatus){
@@ -141,3 +224,28 @@ export async function addAsyncHookPxseedLoader(dir:string,config:{include?:strin
     status.loadersData[__name__+'.addAsyncHookPxseedLoader']={completeTime:GetCurrentTime().getTime()}
 }
 
+export async function addAutoAsyncAwaitPxseedLoader(dir:string,config:{include?:string[]},status:PxseedStatus){
+    const {sourceDir,outputDir}=await import('pxseedBuildScript/loaders');
+    const { getNodeCompatApi }=await import('pxseedBuildScript/util');
+    const {fs,path}=await getNodeCompatApi();
+    let packageOutput=outputDir+'/'+dir.substring(sourceDir.length+1);
+    if(config.include==undefined){
+        config.include=['**/*.js']
+    }
+    const { simpleGlob } =await import('pxseedBuildScript/util');
+    let lastCompleteTime=status.loadersData[__name__+'.addAutoAsyncAwaitPxseedLoader']?.completeTime??1
+    for(let file1 of await simpleGlob(config.include,{cwd:packageOutput})){
+        let fpath=path.join(packageOutput,file1);
+        let finfo=await fs.stat(fpath);
+        if(finfo.mtime.getTime()>lastCompleteTime){
+            console.info('addAutoAsyncAwait:',file1);
+            let source=new TextDecoder().decode(await fs.readFile(fpath));
+            let replacePlan=new JsSourceReplacePlan(source);
+            replacePlan.parsedAst=acorn.parse(source,{allowAwaitOutsideFunction:true,ecmaVersion:'latest',allowReturnOutsideFunction:true});
+            addAutoAsyncAwait(replacePlan);
+            let modified=replacePlan.apply();
+            await fs.writeFile(fpath,new TextEncoder().encode(modified));
+        }
+    }
+    status.loadersData[__name__+'.addAutoAsyncAwaitPxseedLoader']={completeTime:GetCurrentTime().getTime()}
+}

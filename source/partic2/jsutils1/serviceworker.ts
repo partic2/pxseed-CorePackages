@@ -92,7 +92,7 @@ export function getDefaultCache():Cache{
 
 export async function loadServiceWorkerModule(modName:string){
     try{
-        let mod=await requirejs.promiseRequire<any>(modName);
+        let mod=await import(modName);
         if(mod!=undefined && ('asyncInit' in mod)){
             await mod.asyncInit();
         }

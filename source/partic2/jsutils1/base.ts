@@ -257,26 +257,23 @@ export function ParseDate(dateStr: string, layout: string): Date {
     return new Date(year, month, date, hour, minute, second,millisecond)
 }
 
-
-
-export function GetBlobArrayBufferContent(blob: Blob): Promise<ArrayBuffer | null> {
-    return new Promise(function (resolve, reject) {
-        let reader = new FileReader();
-        reader.onload = function (ev) {
-            resolve(<ArrayBuffer | null>reader.result);
+export async function sleep<T>(milliSeconds: number, arg?: T): Promise<T> {
+    let defer=new Array<()=>void>();
+    return new Promise<T>(((resolve,reject)=>{
+        const onAbort=(ev:Event)=>{reject((ev as any).reason)};
+        let currentTask=Task.currentTask
+        if(currentTask!=undefined){
+            if(currentTask.getAbortSignal().aborted){
+                reject(currentTask.getAbortSignal().reason);
+            }else if(milliSeconds>1000){
+                //Better performance?
+                currentTask.getAbortSignal().addEventListener('abort',onAbort);
+                defer.push(()=>currentTask.getAbortSignal().removeEventListener)
+            }
         }
-        reader.onerror=function(ev){
-            reject(ev);
-        }
-        reader.readAsArrayBuffer(blob!);
-    })
-}
-
-
-export function sleep<T>(milliSeconds: number, arg?: T): Promise<T> {
-    return new Promise(function (resolve, reject) {
-        setTimeout(resolve, milliSeconds, arg)
-    });
+        const timer=setTimeout(()=>resolve(arg as any),milliSeconds);
+        defer.push(()=>clearTimeout(timer));
+    })).finally(()=>defer.forEach((cb)=>cb()));
 }
 
 export class future<T>{
@@ -431,17 +428,6 @@ export class mutex{
 }
 
 declare var require:any,define:any;
-export let amdContext={
-    require:null as any,
-    define:null as any,
-    requirejs:null as any
-}
-try{
-    amdContext.require=require;
-    amdContext.define=define;
-    amdContext.requirejs=(globalThis as any).requirejs
-}catch(e){/*Not AMD Environment*/}
-
 
 //Iamdee spec
 export interface IamdeeScriptLoader {
@@ -451,40 +437,27 @@ export interface IamdeeScriptLoader {
 
 export let requirejs = {
     define:function (name: string, dependency: string[], mod: any) {
-        amdContext.define(name, dependency, mod);
-    },
-    require:function(dependency: string[], callback: any,errback?: any) {
-        amdContext.require(dependency, callback,errback);
-    },
-    promiseRequire:function<mod>(implModName: string) {
-        let that=this;
-        return new Promise<mod>(function (resolve, reject) {
-            that.require([implModName], function (mod0: mod) {
-                resolve(mod0);
-            },(err:any)=>{
-                reject(err);
-            });
-        })
+        define(name, dependency, mod);
     },
     getConfig:function(){
-        return amdContext.require.getConfig();
+        return require.getConfig();
     },
     getDefined:async function ():Promise<{[k:string]:any}>{
-        return amdContext.require.getDefined();
+        return require.getDefined();
     },
     getFailed:async function ():Promise<{[k:string]:{error:Error}}>{
         //partic2-iamdee feature
-        return amdContext.requirejs.getFailed();
+        return require.getFailed();
     },
     undef:async function (mod:string){
-        amdContext.requirejs.undef(mod)
+        require.undef(mod)
     },
     addScriptLoader(loader:IamdeeScriptLoader,beforeOthers?:boolean){
         //partic2-iamdee feature
         if(beforeOthers){
-            amdContext.define.amd.scriptLoaders.unshift(loader);
+            define.amd.scriptLoaders.unshift(loader);
         }else{
-            amdContext.define.amd.scriptLoaders.push(loader);
+            define.amd.scriptLoaders.push(loader);
         }
     },
     getLocalRequireModule(localRequire:typeof require):string{
@@ -500,7 +473,7 @@ export let requirejs = {
             if(onDefining!=undefined){
                 this.definingHook.push(onDefining);
             }
-            amdContext.requirejs.config({
+            require.config({
                 onDefining:(defineParameter:{moduleId:string,dependencies:string[],defineFactory: Function})=>{
                     if(this.definingHook!=null){
                         for(let t1 of this.definingHook){
@@ -519,8 +492,7 @@ export function GenerateRandomString(maxRandLenX4?:number) {
     if(maxRandLenX4==undefined)maxRandLenX4=4
     for(let i1=0;i1<maxRandLenX4;i1++){
         let part=Math.floor(Math.random() * 1679616).toString(36);
-        for(;part.length<4;part='0'+part);
-        s+=part;
+        s=s+part.padStart(4,'0');
     }
     return s;
 }
@@ -636,8 +608,6 @@ export class TaskLocalRef<T> extends Ref2<T|undefined>{
         }
     }
 }
-
-
 
 export var logger={
     debug:function(...msg:any[]){console.debug(...msg)},

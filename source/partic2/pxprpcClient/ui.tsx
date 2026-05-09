@@ -1,12 +1,12 @@
 
 
 import * as React from 'preact'
-import { ClientInfo, addClient, removeClient, getRegistered, listRegistered, persistent, listPersistentRegistered } from './registry';
+import { ClientInfo, addClient, removeClient, getRegistered, listRegistered, persistent, listPersistentRegistered, ServerHostRpcName, isServerHost, easyCallRemoteJsonFunction, getPersistentRegistered } from './registry';
 import { ReactRefEx, css, event } from 'partic2/pComponentUi/domui';
 import { prompt,alert} from 'partic2/pComponentUi/window';
 import { ArrayWrap2, assert, GenerateRandomString, requirejs } from 'partic2/jsutils1/base';
 import { rpcId } from './rpcworker';
-import { DynamicPageCSSManager, GetPersistentConfig, SavePersistentConfig } from 'partic2/jsutils1/webutils';
+import { DynamicPageCSSManager, GetPersistentConfig, SavePersistentConfig,path } from 'partic2/jsutils1/webutils';
 
 let css2={
     rpcClientCard:GenerateRandomString()
@@ -80,6 +80,57 @@ class AddCard extends React.Component<{},{
 
 let config:{lastFilter?:string}|null=null;
 
+async function pullFromServerHost(){
+    let rpc=await getPersistentRegistered(ServerHostRpcName);
+    if(rpc!=undefined && !await isServerHost()){
+        let result1=await easyCallRemoteJsonFunction(await rpc.ensureConnected(),path.join(__name__,'..','registry'),'listPersistentRegistered',[]);
+        for(let t1 of result1){
+            if(t1[0]==ServerHostRpcName)continue;
+            let existed=await getPersistentRegistered(t1[0]);
+            if(existed==null || t1[1].url.startsWith(`iooverpxprpc:${ServerHostRpcName}`)){
+                if(t1[1].url.startsWith('iooverpxprpc:')){
+                    await addClient(`iooverpxprpc:${ServerHostRpcName}/${t1[1].url.substring('iooverpxprpc:'.length)}`)
+                }else{
+                    await addClient(`iooverpxprpc:${ServerHostRpcName}/${encodeURIComponent(t1[1].url)}`,t1[0]);
+                }
+            }
+        }
+    }
+}
+async function pushToServerHost(){
+    let rpc=getRegistered(ServerHostRpcName);
+    if(rpc!=undefined && !await isServerHost()){
+        let remoteClientList=new Map(await easyCallRemoteJsonFunction(await rpc.ensureConnected(),path.join(__name__,'..','registry'),'listPersistentRegistered',[]) as Array<[string,{url:string,name:string}]>);
+        let toRemove=new Array<string>();
+        let toAdd=new Array<[string,string]>();
+        let registered=await listPersistentRegistered();
+        for(let t1 of registered){
+            if(t1[1].url.startsWith(`iooverpxprpc:${ServerHostRpcName}/`)){
+                let restRpcPath=t1[1].url.substring(`iooverpxprpc:${ServerHostRpcName}/`.length);
+                if(restRpcPath.indexOf('/')>=0){
+                    restRpcPath='iooverpxprpc:'+restRpcPath;
+                }else{
+                    restRpcPath=decodeURIComponent(restRpcPath);
+                }
+                if(remoteClientList.get(t1[0])?.url!=restRpcPath){
+                    toAdd.push([restRpcPath,t1[0]]);
+                }
+            }
+        }
+        for(let t1 of remoteClientList.keys()){
+            if(getRegistered(t1)==undefined){
+                toRemove.push(t1);
+            }
+        }
+        for(let t1 of toAdd){
+            await easyCallRemoteJsonFunction(await rpc.ensureConnected(),__name__,'addClient',t1)
+        }
+        for(let t1 of toRemove){
+            await easyCallRemoteJsonFunction(await rpc.ensureConnected(),__name__,'removeClient',[t1]);
+        }
+    }
+}
+
 export class RegistryUI extends React.Component<{},{selected:string|null,filter:string}>{
     rref={div:React.createRef<HTMLDivElement>()}
     async doLoadConfig(){
@@ -142,8 +193,8 @@ export class RegistryUI extends React.Component<{},{selected:string|null,filter:
     }
     async doSyncWithServer(){
         try{
-            await persistent.pullFromServerHost();
-            await persistent.pushToServerHost();
+            await pullFromServerHost();
+            await pushToServerHost();
             this.forceUpdate();
         }catch(err:any){
             alert(err.toString()+err.stack)

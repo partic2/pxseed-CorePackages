@@ -1,13 +1,13 @@
 
 
-import {ancestor} from 'acorn-walk'
+import * as acornWalk from 'acorn-walk'
 import * as acorn from 'acorn'
 import { requirejs } from 'partic2/jsutils1/base';
 import * as jsutils1 from 'partic2/jsutils1/base'
 
 import { toSerializableObject, fromSerializableObject, 
     defaultCompletionHandlers, CodeCompletionItem} from './Inspector';
-import { addAsyncHook, JsSourceReplacePlan, setupAsyncHook } from './pxseedLoader';
+import { addAsyncHook, addAutoAsyncAwait, JsSourceReplacePlan, setupAsyncHook } from './pxseedLoader';
 import { OnConsoleData, TaskLocalRef } from './jsutils2';
 
 
@@ -39,7 +39,10 @@ export class CodeContextEventTarget extends EventTarget{
     removeEventListener(type: string, callback: ((ev:CodeContextEvent)=>void)|EventListenerOrEventListenerObject | null, options?: AddEventListenerOptions | boolean): void {
         super.removeEventListener(type,callback as any);
     }
-    
+    //The original dispatchEvent on EventTarget. To trigger listener only.
+    _dispatchEventOnEventTarget(event:CodeContextEvent):boolean{
+        return super.dispatchEvent(event);
+    }
 }
 
 export interface RunCodeContext{
@@ -87,9 +90,19 @@ export async function enableDebugger(){
     }catch(err){};
 }
 
+async function defaultCodeTranspilingProcessor(processContext:{source:string,_ENV:any}){
+    let replacePlan=new JsSourceReplacePlan(processContext.source);
+    await addAutoAsyncAwait(replacePlan,processContext._ENV.__topLevelTranspileDirective??{})
+    processContext.source=replacePlan.apply();
+}
+
+export let __internal__={
+    defaultCodeTranspilingProcessor
+}
+
 export class LocalRunCodeContext implements RunCodeContext{
     importHandler:(source:string)=>Promise<any>=async (source)=>{
-        return requirejs.promiseRequire(source);
+        return import(source);
     };
     event=new CodeContextEventTarget();
     localScope:{[key:string]:any}={
@@ -100,10 +113,12 @@ export class LocalRunCodeContext implements RunCodeContext{
             let imp=this.importHandler(module);
             return imp;
         },
+        __topLevelTranspileDirective:{},
+        __transpile__:(directive:any,source:any)=>source,
         //some utils provide by codeContext
         __priv_jsExecLib:jsExecLib,
         //custom source processor for 'runCode' _ENV.__priv_processSource, run before builtin processor.
-        __priv_processSource:[] as ((processContext:{source:string,_ENV:any})=>PromiseLike<void>|void)[],
+        __priv_sourceProcessors:[{name:__name__+'.defaultCodeTranspilingProcessor',process:defaultCodeTranspilingProcessor}] as {process:(processContext:{source:string,_ENV:any})=>PromiseLike<void>|void,name:string}[],
         event:this.event,
         CodeContextEvent,
         Task:jsutils1.Task,
@@ -171,7 +186,7 @@ export class LocalRunCodeContext implements RunCodeContext{
         }
         return '';
     }
-    processSource(source:string):{modifiedSource:string,declaringVariableNames:string[]}{
+    async processSource(source:string):Promise<{modifiedSource:string,declaringVariableNames:string[]}>{
         let replacePlan=new JsSourceReplacePlan(source);
         let result=acorn.parse(source,{allowAwaitOutsideFunction:true,ecmaVersion:'latest',allowReturnOutsideFunction:true});
         replacePlan.parsedAst=result
@@ -190,7 +205,7 @@ export class LocalRunCodeContext implements RunCodeContext{
             });
             return {declNames};
         }
-        ancestor(result,{
+        acornWalk.ancestor(result,{
             VariableDeclaration(node,state,ancestors){
                 //Performance issue.
                 if(ancestors.find(v=>v.type.endsWith('FunctionExpression')))return;
@@ -281,15 +296,15 @@ export class LocalRunCodeContext implements RunCodeContext{
         let processContext={_ENV:this.localScope,source}
         await jsutils1.Task.fork(function*(){
             TaskLocalEnv.set(that.localScope);
-            for(let processor of that.localScope.__priv_processSource){
-                let isAsync=processor(processContext);
+            for(let processor of that.localScope.__priv_sourceProcessors){
+                let isAsync=processor.process(processContext);
                 if(isAsync!=undefined && 'then' in isAsync){
                     yield isAsync;
                 }
             }
         }).run();
         source=processContext.source;
-        let proc1=this.processSource(source);
+        let proc1=await this.processSource(source);
         try{
             let result=await this.runCodeInScope(proc1.modifiedSource);
             this.localScope[resultVariable]=result;
@@ -339,15 +354,5 @@ export class LocalRunCodeContext implements RunCodeContext{
 }
 
 export var jsExecLib={
-    jsutils1,LocalRunCodeContext,toSerializableObject,fromSerializableObject,importModule:(name:string)=>import(name),
-    enableDebugger,
-    iteratorNext:async <T>(iterator:(Iterator<T>|AsyncIterator<T>),count:number)=>{
-        let arr=[];
-        for(let t1=0;t1<count;t1++){
-            let itr=await iterator.next()
-            if(itr.done)break;
-            arr.push(itr.value);
-        }
-        return arr;
-    }
+    jsutils1,LocalRunCodeContext,toSerializableObject,fromSerializableObject,importModule:(name:string)=>import(name),enableDebugger
 }

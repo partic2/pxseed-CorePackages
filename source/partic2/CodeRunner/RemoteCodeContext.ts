@@ -41,6 +41,9 @@ export class RunCodeContextConnector{
         }
         return events;
     }
+    async pushCodeContextEvent(event:{type:string,data:any}){
+        this.value.event._dispatchEventOnEventTarget(new CodeContextEvent(event.type,{data:event.data}));
+    }
     async runCode(source: string,resultVariable?:string): Promise<{stringResult:string|null,err:string|null}>{
         return this.value.runCode(source,resultVariable);
     }
@@ -59,24 +62,33 @@ export async function createConnectorWithNewRunCodeContext():Promise<RunCodeCont
     return t1;
 }
 
+class RemoteCodeContextEventTarget extends CodeContextEventTarget{
+    constructor(public rcc:RemoteRunCodeContext){
+        super();
+    }
+    dispatchEvent(event: CodeContextEvent): boolean {
+        this.rcc._remoteContext?.pushCodeContextEvent({type:event.type,data:event.data});
+        return super.dispatchEvent(event);
+    }
+}
 
 export class RemoteRunCodeContext implements RunCodeContext{
     //RunCodeContextConnector here is usually a rpc object, not the real local object.
-    protected _remoteContext:RunCodeContextConnector|null=null;
+    _remoteContext:RunCodeContextConnector|null=null;
     public constructor(public client1:RpcExtendClient1,remoteCodeContext?:RunCodeContextConnector){
         if(remoteCodeContext!=undefined){
             this._remoteContext=remoteCodeContext;
         }
         this.doInit();
     }
-    event=new CodeContextEventTarget();
+    event=new RemoteCodeContextEventTarget(this);
     protected async pullEventLoop(){
         try{
             let lastEventSeq=0;
             while(this._remoteContext!=null){
                 let events=await this._remoteContext!.pullCodeContextEvent(lastEventSeq)
                 for(let t1 of events){
-                    this.event.dispatchEvent(new CodeContextEvent(t1.type,{data:t1.data}));
+                    this.event._dispatchEventOnEventTarget(new CodeContextEvent(t1.type,{data:t1.data}));
                 }
                 if(events.length>0){
                     lastEventSeq=events.at(-1)!.seq;
@@ -123,9 +135,9 @@ export class RemoteRunCodeContext implements RunCodeContext{
         this._remoteContext=null;
         if(t1!=null){
             (async ()=>{
-                await t1.runCode(`event.dispatchEvent(new Event('remote-disconnected'))`).catch();
-                await t1.close?.()
-            })()
+                this.event.dispatchEvent(new CodeContextEvent('remote-disconnected'))
+                t1.close?.()
+            })().catch(()=>{})
         }
     };
 }

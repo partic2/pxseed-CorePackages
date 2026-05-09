@@ -1,10 +1,10 @@
-import 'partic2/nodehelper/env'
-import './pxseedhttpserver'
+
 
 import type {} from 'partic2/tjshelper/txikijs'
 
+import {__inited__ as nodeenvinited} from 'partic2/nodehelper/env'
 import { requirejs } from 'partic2/jsutils1/base';
-import { SimpleCli } from 'partic2/CodeRunner/simplecli'
+
 
 import {NodeReadableDataSource,NodeWritableDataSink} from 'partic2/nodehelper/nodeio'
 
@@ -24,11 +24,14 @@ export async function setCliOption(opt:Partial<typeof cliOption>){
 }
 
 async function cliMain(){
+    let {setupServerPxprpcClient} = await import('pxseedServer2023/pxseedhttpserver');
+    await setupServerPxprpcClient();
     let stdin=new ReadableStream<Uint8Array>(new NodeReadableDataSource(process.stdin)).getReader();
     let stdout=new WritableStream<Uint8Array>(new NodeWritableDataSink(process.stdout)).getWriter();
     let stderr=new WritableStream<Uint8Array>(new NodeWritableDataSink(process.stdout)).getWriter();
+    let { SimpleCli } =await import('partic2/CodeRunner/simplecli');
     let cli=new SimpleCli(stdin,stdout,stderr);
-    await cli.initEnv()
+    await cli.initEnv();
     cli.codeContext.localScope.exit=(exitCode?:number)=>{
         cli.codeContext.close();
         process.exit(exitCode??0);
@@ -73,4 +76,4 @@ async function cliMain(){
 }
 
 
-cliMain();
+nodeenvinited.then(()=>cliMain());
