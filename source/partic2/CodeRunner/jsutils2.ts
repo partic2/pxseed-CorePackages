@@ -327,6 +327,104 @@ export function setupAsyncHook(){
 	}
 }
 
+interface ArrayWrap3IteratorCallbackInput<T>{
+	value:T,
+	index:number,
+	break2:()=>void,
+	iterating:boolean
+}
+export class ArrayWrap3<T> extends ArrayWrap2<T>{
+	async forEach2(cb:(input:ArrayWrap3IteratorCallbackInput<T>)=>(Promise<void>|void)){
+		let arr=this.arr();
+		let input={index:0,break2(){this.iterating=false},iterating:true} as ArrayWrap3IteratorCallbackInput<T>;
+		for(let t1=0;t1<arr.length && input.iterating;t1++){
+			input.index=t1;
+			input.value=arr[t1];
+			await cb(input)
+		}
+	}
+	async map<T2>(cb:(value:T,index:number,arr:this)=>(Promise<T2>|T2)):Promise<ArrayWrap3<T2>>{
+		let arr=this.arr();
+		let r=new Array<T2>();
+		for(let t1=0;t1<arr.length;t1++){
+			r.push(await cb(arr[t1],t1,this));
+		}
+		return new (this.constructor as any)(r);
+	}
+	async forEach(cb:(value:T,index:number,arr:this)=>(Promise<void>|void)){
+		this.forEach2(async ({value,index})=>{
+			await cb(value,index,this);
+		})
+	}
+	async filter(cb:(value:T,index:number,arr:this)=>(Promise<boolean>|boolean)):Promise<ArrayWrap3<T>>{
+		let result=await this.findElements2(({value,index})=>cb(value,index,this))
+		return new (this.constructor as any)(result.found);
+	}
+	async reduce<U>(cb: (prev: U, curr: T, idx: number, arr: this) => Promise<U>|U, initialValue: U): Promise<U>{
+		let r=initialValue;
+		await this.forEach2(async ({value,index})=>{
+			r=await cb(r,value,index,this);
+		});
+		return r;
+	}
+	async findIndexs(condition:(input:ArrayWrap3IteratorCallbackInput<T>,found:Array<number>)=>(Promise<boolean>|boolean)){
+		let found=new Array<number>();
+		this.forEach2(async (i)=>{
+			let b=await condition(i,found);
+			if(b && i.iterating){found.push(i.index);}
+		})
+		return found;
+	}
+	//indexs must be unique
+	deleteByIndexs(indexs:Array<number>){
+		let indexs2=[...indexs].sort();
+		let arr=this.arr();
+		indexs2.forEach((v,i)=>{arr.splice(v-i,1);})
+	}
+	insertBefore(indexs:Array<number>,e:T){
+		let indexs2=[...indexs].sort();
+		let arr=this.arr();
+		indexs2.forEach((v,i)=>{arr.splice(v+i,0,e);})
+	}
+	insertAfter(indexs:Array<number>,e:T){
+		let indexs2=[...indexs].sort();
+		let arr=this.arr();
+		indexs2.forEach((v,i)=>{arr.splice(v+i+1,0,e);})
+	}
+	pickByIndexs(indexs:Array<number>){
+		let arr=this.arr();
+		return indexs.map((v)=>arr[v])
+	}
+	async findElements2(condition:(input:ArrayWrap3IteratorCallbackInput<T>)=>(Promise<boolean>|boolean),opt?:{maxCount?:number}){
+		let indexs=await this.findIndexs(async (c,f)=>{
+			if(opt?.maxCount!=undefined && f.length>=opt.maxCount){
+				c.break2();
+				return false;
+			}
+			return condition(c);
+		});
+		return {
+			indexs,
+			found:this.pickByIndexs(indexs),
+			delete:()=>this.deleteByIndexs(indexs),
+			insertBefore:(e:T)=>this.insertBefore(indexs,e),
+			insertAfter:(e:T)=>this.insertAfter(indexs,e),
+		}
+	}
+	async groupBy2(cb:(input:ArrayWrap3IteratorCallbackInput<T>)=>(Promise<string>|string)):Promise<Record<string,ArrayWrap3<T>>>{
+		let r:Record<string,ArrayWrap3<T>>={};
+		this.forEach2(async (input)=>{
+			let id=await cb(input);
+			if(input.iterating){
+				if(r[id]==undefined){
+					r[id]=new (this.constructor as any)([]);
+				}
+				r[id].arr().push(input.value);
+			}
+		});
+		return r;
+	}
+}
 
 export class CFuncCallProbe{
 	name?:string

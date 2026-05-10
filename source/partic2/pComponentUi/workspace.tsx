@@ -2,11 +2,11 @@
 import * as React from 'preact'
 import { css, DomComponent, ReactRefEx } from './domui';
 import { WindowComponentProps, css as windowCss } from './window';
-import {GenerateRandomString, GetCurrentTime, Ref2, copy, future, mutex, partial, requirejs, sleep} from 'partic2/jsutils1/base'
+import {GenerateRandomString, GetCurrentTime, Ref2, assert, copy, future, mutex, partial, requirejs, sleep} from 'partic2/jsutils1/base'
 import { appendFloatWindow, removeFloatWindow, WindowComponent } from './window';
 import { getIconUrl } from 'partic2/pxseedMedia1/index1';
 import { GetPersistentConfig, SavePersistentConfig } from 'partic2/jsutils1/webutils';
-import {DebounceCall} from 'partic2/CodeRunner/jsutils2'
+import {ArrayWrap3, DebounceCall} from 'partic2/CodeRunner/jsutils2'
 
 let __name__=requirejs.getLocalRequireModule(require);
 
@@ -36,16 +36,27 @@ export interface NewWindowHandle extends OpenNewWindopwOption{
     isHidden:()=>Promise<boolean>,
     children:Set<NewWindowHandle>,
     //For window has layoutHint
-    saveWindowPosition?:()=>void
-    forgetWindowPosition?:()=>void
-
+    saveWindowPosition?:()=>void,
+    forgetWindowPosition?:()=>void,
+}
+export interface NewWindowRequestContext{
+    contentVNode:React.VNode
+    request:OpenNewWindopwOption;
+    result:NewWindowHandle|null
 }
 export let WorkspaceWindowContext=React.createContext<{lastWindow?:NewWindowHandle}>({});
-export let openNewWindow=async function(contentVNode:React.VNode,options?:OpenNewWindopwOption):Promise<NewWindowHandle>{
-    options=options??{};
+
+
+export let openNewWindowPipeline=new ArrayWrap3<{
+    name:string,
+    handler:(context:NewWindowRequestContext)=>(Promise<void>|void)
+}>();
+
+openNewWindowPipeline.arr().push({name:__name__+'.openNewWindowCreateWindow',handler:async (context)=>{
+    let options=context.request;
+    let contentVNode=context.contentVNode;
     let closeFuture=new future<boolean>();
     let windowRef=new ReactRefEx<WindowComponent>();
-    let onWindowLayoutChange:(()=>void)|null=null;
     let handle={
         ...options,
         waitClose:async function(){
@@ -58,11 +69,6 @@ export let openNewWindow=async function(contentVNode:React.VNode,options?:OpenNe
             let at=NewWindowHandleLists.value.indexOf(handle);
             if(at>=0)NewWindowHandleLists.value.splice(at,1);
             NewWindowHandleLists.dispatchEvent(new Event('change'));
-            if(onWindowLayoutChange!=null){
-                let window1=await windowRef.waitValid();
-                window1.removeEventListener('move',onWindowLayoutChange);
-                window1.removeEventListener('resize',onWindowLayoutChange);
-            }
             removeFloatWindow(windowVNode);
             closeFuture.setResult(true);
         },
@@ -81,11 +87,6 @@ export let openNewWindow=async function(contentVNode:React.VNode,options?:OpenNe
         async isHidden(){
             return (await this.windowRef.waitValid()).isHidden()
         },
-        async saveWindowPosition(){
-            config1=await GetPersistentConfig(__name__);
-            config1.savedWindowLayout![options.layoutHint!]={time:GetCurrentTime().getTime(),...(await windowRef.waitValid()).state.layout};
-            await SavePersistentConfig(__name__);
-        },
         async forgetWindowPosition(){
             config1=await GetPersistentConfig(__name__);
             delete config1.savedWindowLayout![options.layoutHint!]
@@ -94,6 +95,28 @@ export let openNewWindow=async function(contentVNode:React.VNode,options?:OpenNe
         windowRef,windowVNode:null as any,
         children:new Set<NewWindowHandle>()
     }
+    let WindowComponentClass=options.WindowComponentClass??WindowComponent
+    let windowVNode=<WindowComponentClass ref={windowRef} onClose={async ()=>{
+        handle.close();
+    }} onComponentDidUpdate={()=>{
+        NewWindowHandleLists.dispatchEvent(new Event('change'));
+    }} titleBarButton={[{
+        icon:getIconUrl('minus.svg'),
+        onClick:async()=>handle.hide()
+    }]} title={options.title} {... (options.windowOptions??{})}
+    ><WorkspaceWindowContext.Provider value={{lastWindow:handle}}>{contentVNode}</WorkspaceWindowContext.Provider></WindowComponentClass>;
+    handle.windowVNode=windowVNode;
+    appendFloatWindow(windowVNode,true);
+    NewWindowHandleLists.value.push(handle);
+    if(options.parentWindow!=undefined){
+        options.parentWindow.children.add(handle);
+    }
+    context.result=handle;
+    NewWindowHandleLists.dispatchEvent(new Event('change'));
+}});
+
+openNewWindowPipeline.arr().push({name:__name__+'.openNewWindowLayoutWindow',handler:async (context)=>{
+    let options=context.request;
     config1=await GetPersistentConfig(__name__);
     if(config1.savedWindowLayout==undefined){config1.savedWindowLayout={}};
     let layout1:{left:number,top:number,width?:number|string,height?:number|string}|null=null;
@@ -102,14 +125,7 @@ export let openNewWindow=async function(contentVNode:React.VNode,options?:OpenNe
         config1.savedWindowLayout[options.layoutHint].time=GetCurrentTime().getTime();
         await SavePersistentConfig(__name__);
     }
-    let allEnt=Array.from(Object.entries(config1.savedWindowLayout));
-    if(allEnt.length>100){
-        allEnt.sort((a,b)=>(a[1].time??0)-(b[1].time??0));
-        for(let t1=0;allEnt.length-100;t1++){
-            delete config1.savedWindowLayout[allEnt[t1][0]]
-        }
-        await SavePersistentConfig(__name__);
-    }
+    
     if(layout1==null){
         layout1={top:0,left:0}
         for(let t1=0;t1<window.innerHeight/2;t1+=20){
@@ -130,35 +146,41 @@ export let openNewWindow=async function(contentVNode:React.VNode,options?:OpenNe
             }
         }
     }
-    
-    let WindowComponentClass=options.WindowComponentClass??WindowComponent
-    let windowVNode=<WindowComponentClass ref={windowRef} onClose={async ()=>{
-        handle.close();
-    }} onComponentDidUpdate={()=>{
-        NewWindowHandleLists.dispatchEvent(new Event('change'));
-    }} titleBarButton={[{
-        icon:getIconUrl('minus.svg'),
-        onClick:async()=>handle.hide()
-    }]} title={options.title} {... (options.windowOptions??{})}
-    ><WorkspaceWindowContext.Provider value={{lastWindow:handle}}>{contentVNode}</WorkspaceWindowContext.Provider></WindowComponentClass>;
-    handle.windowVNode=windowVNode;
-    appendFloatWindow(windowVNode,true);
-    NewWindowHandleLists.value.push(handle);
-    if(options.parentWindow!=undefined){
-        options.parentWindow.children.add(handle);
-    }
-    NewWindowHandleLists.dispatchEvent(new Event('change'));
+    let windowRef=context.result!.windowRef;
     let window1=await windowRef.waitValid();
     window1.setState({layout:{...layout1}})
     if(options.layoutHint!=undefined){
-        let saveLayout=new DebounceCall(handle.saveWindowPosition,3000);
-        onWindowLayoutChange=()=>{
-            saveLayout.call()
+        context.result!.saveWindowPosition=async ()=>{
+            config1=await GetPersistentConfig(__name__);
+            config1.savedWindowLayout![options.layoutHint!]={time:GetCurrentTime().getTime(),...(await windowRef.waitValid()).state.layout};
+            let allEnt=Array.from(Object.entries(config1.savedWindowLayout!));
+            if(allEnt.length>16){
+                allEnt.sort((a,b)=>(a[1].time??0)-(b[1].time??0));
+                for(let t1=0;allEnt.length-16;t1++){
+                    delete config1.savedWindowLayout![allEnt[t1][0]]
+                }
+            }
+            await SavePersistentConfig(__name__);
         }
+        let saveLayout=new DebounceCall(()=>context.result!.saveWindowPosition!(),3000);
+        let onWindowLayoutChange=()=>{saveLayout.call()}
         window1.addEventListener('move',onWindowLayoutChange);
         window1.addEventListener('resize',onWindowLayoutChange);
+        context.result!.waitClose().then(()=>{
+            window1.removeEventListener('move',onWindowLayoutChange);
+            window1.removeEventListener('resize',onWindowLayoutChange);
+        })
     }
-    return handle;
+}})
+
+export let openNewWindow=async function(contentVNode:React.VNode,options?:OpenNewWindopwOption):Promise<NewWindowHandle>{
+    let context={contentVNode,request:options??{},result:null}
+    let handlers=openNewWindowPipeline.arr();
+    for(let t1 of handlers){
+        await t1.handler(context);
+    }
+    assert(context.result!=null);
+    return context.result;
 }
 
 

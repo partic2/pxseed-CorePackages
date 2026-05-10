@@ -1,15 +1,13 @@
 
 import * as React from 'preact'
-import {DomComponentGroup, DomRootComponent, ReactRefEx, ReactRender, css} from 'partic2/pComponentUi/domui'
-import { RemoteRunCodeContext } from 'partic2/CodeRunner/RemoteCodeContext'
-import {getPersistentRegistered, importRemoteModule,persistent,ServerHostRpcName,ServerHostWorker1RpcName, WebWorker1RpcName} from 'partic2/pxprpcClient/registry'
+import { ReactRefEx, ReactRender, css} from 'partic2/pComponentUi/domui'
+import {getPersistentRegistered, importRemoteModule,ServerHostWorker1RpcName} from 'partic2/pxprpcClient/registry'
 import { GetCurrentTime, Ref2, Task, assert, future, requirejs, throwIfAbortError } from 'partic2/jsutils1/base'
 import { BuildUrlFromJsEntryModule, GetJsEntry, GetPersistentConfig, getResourceManager, path, RequestDownload, SavePersistentConfig, selectFile, useDeviceWidth } from 'partic2/jsutils1/webutils'
 import {promptWithForm, SimpleReactForm1} from 'partic2/pComponentUi/input'
-import {alert, appendFloatWindow, confirm, prompt, css as windowCss, WindowComponent} from 'partic2/pComponentUi/window'
+import {alert, appendFloatWindow, confirm, prompt, css as windowCss, WindowComponent, removeFloatWindow, rootWindowsList, ensureRootWindowContainer} from 'partic2/pComponentUi/window'
 var registryModuleName='partic2/packageManager/registry';
 import {TaskLocalRef,Singleton, utf8conv} from 'partic2/CodeRunner/jsutils2'
-import {RemotePxseedJsIoServer} from 'partic2/pxprpcClient/bus'
 
 export var __name__=requirejs.getLocalRequireModule(require);
 //remote code context
@@ -18,7 +16,7 @@ import * as registryModType from 'partic2/packageManager/registry'
 import type { PxseedConfig } from 'pxseedBuildScript/buildlib'
 import {openWorkspaceWindowFor, openWorkspaceWithProfile} from 'partic2/JsNotebook/workspace'
 import { PlainTextEditorInput, TextEditor } from 'partic2/pComponentUi/texteditor'
-import { NewWindowHandle, NewWindowHandleLists, openNewWindow, setBaseWindowView, WorkspaceWindowContext  } from 'partic2/pComponentUi/workspace'
+import { NewWindowHandle, NewWindowHandleLists, openNewWindow, openNewWindowPipeline, setBaseWindowView, WorkspaceWindowContext  } from 'partic2/pComponentUi/workspace'
 
 
 let i18n={
@@ -71,9 +69,7 @@ let remoteModule={
 
 import {getIconUrl} from 'partic2/pxseedMedia1/index1'
 import { ReactDragController } from 'partic2/pComponentUi/transform'
-import { RpcExtendServer1 } from 'pxprpc/extend'
-import { Server } from 'pxprpc/base'
-import { rpcId } from 'partic2/pxprpcClient/rpcworker'
+
 
 let resourceManager=getResourceManager(__name__);
 
@@ -552,14 +548,40 @@ import2env('partic2/packageManager/registry');`,
     
 }
 
-export let renderPackagePanel=async()=>{
-    useDeviceWidth();
+
+export let floatTaskListView={
+    ref:new ReactRefEx() as ReactRefEx<WindowComponent>|null,
+    component:null as React.VNode|null,
+    event:new EventTarget()
+}
+
+let renderPackagePanel=async()=>{
     openNewWindow(<PackagePanel/>,{title:i18n.packageManager,layoutHint:__name__+'.PackagePanel',windowOptions:{closeIcon:null}});
-    appendFloatWindow(<WindowComponent keepTop={true} noTitleBar={true} noResizeHandle={true} windowDivClassName={windowCss.borderlessWindowDiv}>
+    if(floatTaskListView.ref!=null){
+        floatTaskListView.component=<WindowComponent keepTop={true} ref={floatTaskListView.ref}
+        noTitleBar={true} noResizeHandle={true} windowDivClassName={windowCss.borderlessWindowDiv}>
         <WindowListIcon/>
-    </WindowComponent>)
+    </WindowComponent>
+        appendFloatWindow(floatTaskListView.component)
+    }
     
 };
+
+export function disableFloatTaskListView(){
+    if(floatTaskListView.component!=null){
+        removeFloatWindow(floatTaskListView.component);
+    }
+    floatTaskListView.ref=null;
+    floatTaskListView.component=null;
+}
+
+export function setFloatTaskListViewVisible(visible:boolean){
+    if(visible){
+        floatTaskListView.ref?.current?.activate();
+    }else{
+        floatTaskListView.ref?.current?.hide();
+    }
+}
 
 export async function openPackageMainWindow(appInfo:{pkgName:string,beforeUnload?:()=>Promise<void>},...args:Parameters<typeof openNewWindow>){
     if(args[1]==undefined){
@@ -593,8 +615,9 @@ export async function openPackageMainWindow(appInfo:{pkgName:string,beforeUnload
     return windowHandler;
 }
 
-let config:{
+export let config:{
     startupExecuteFunction?:Record<string,{once:boolean,module:string,functionName:string,arguments?:any[]}>,
+    mobileMode?:boolean
 }={}
 
 export let webuiStartupExecuteFunction={
@@ -622,11 +645,24 @@ export let webuiStartupExecuteFunction={
 }
 
 
-
 export async function main(cmd:string){
     if(cmd=='webui'){
-        renderPackagePanel();
+        useDeviceWidth();
         config=await GetPersistentConfig(__name__);
+        ensureRootWindowContainer();
+        if(config.mobileMode==undefined){
+            let windowWidth=(await (await rootWindowsList.waitValid()).container.waitValid()).offsetWidth;
+            config.mobileMode=windowWidth<800;
+        }
+        if(config.mobileMode){
+            let setMobileDefaultFullScreenName=__name__+'.setMobileDefaultFullScreen';
+            if(openNewWindowPipeline.arr().find(t1=>t1.name==setMobileDefaultFullScreenName)==undefined){
+                openNewWindowPipeline.arr().push({name:setMobileDefaultFullScreenName,handler:async (context)=>{
+                    (await context.result!.windowRef.waitValid()).setMaximized(true);
+                }})
+            }
+        }
+        renderPackagePanel();
         for(let t1 of await webuiStartupExecuteFunction.iter()){
             import(t1[1].module).then(mod=>mod[t1[1].functionName](...(t1[1].arguments??[]))).catch(()=>{});
             if(t1[1].once){

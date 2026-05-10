@@ -70,7 +70,6 @@ export class DefaultWindowComponent extends ReactEventTarget<WindowComponentProp
         window.removeEventListener('reisze',this._triggerResize);
     }
     async makeCenter(){
-
         let width=0;
         let height=0;
         let stableCount=0;
@@ -86,7 +85,6 @@ export class DefaultWindowComponent extends ReactEventTarget<WindowComponentProp
                 stableCount++;
             }
             if(stableCount>=3)break;
-
             let wndWidth=(rootWindowsList.current?.container.current?.offsetWidth)??0;
             let wndHeight=(rootWindowsList.current?.container.current?.offsetHeight)??0;
             if(width>wndWidth-5)width=wndWidth-5;
@@ -172,15 +170,25 @@ export class DefaultWindowComponent extends ReactEventTarget<WindowComponentProp
     }
     protected beforeMaximizeSize:{left:number,top:number,width?:number|string,height?:number|string}|null=null;
     async onMaximizeClick(){
-        if(this.beforeMaximizeSize!=null){
-            this.setState({layout:{...this.beforeMaximizeSize}});
-            this.beforeMaximizeSize=null;
-        }else{
+        await this.setMaximized(!this.getMaximized());
+    }
+    getMaximized(){
+        return this.beforeMaximizeSize!=null;
+    }
+    async setMaximized(maximized:boolean){
+        if(maximized){
             this.beforeMaximizeSize={...this.state.layout};
             let containerDiv=await this.rref.container.waitValid();
             this.setState({layout:{left:0,top:0,
                 width:(containerDiv.offsetParent as HTMLElement).offsetWidth,
                 height:(containerDiv.offsetParent as HTMLElement).offsetHeight}});
+            this._triggerResize();
+        }else{
+            if(this.beforeMaximizeSize!=null){
+                this.setState({layout:{...this.beforeMaximizeSize}});
+                this._triggerResize();
+            }
+            this.beforeMaximizeSize=null;
         }
     }
     renderWindowMain(){
@@ -300,7 +308,7 @@ export class WindowsList extends React.Component<{divStyle?:React.CSSProperties}
 }
 
 
-let rootWindowsList=new ReactRefEx<WindowsList>();
+export let rootWindowsList=new ReactRefEx<WindowsList>();
 let windowDomRootComponent:DomDivComponent|null=null;
 export function ensureRootWindowContainer(){
     if(windowDomRootComponent==null){
