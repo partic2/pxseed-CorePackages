@@ -1,4 +1,4 @@
-import { Readable,Writable } from "stream";
+import { Duplex, Readable,Writable } from "stream";
 import {ArrayBufferConcat, ArrayWrap2, assert, CanceledError, future, requirejs} from 'partic2/jsutils1/base'
 import { Io } from "pxprpc/base";
 import { Server, Socket } from "net";
@@ -188,6 +188,7 @@ import { WebSocket } from 'ws'
 import { WebSocketIo } from "pxprpc/backend";
 
 import { WebSocketServerConnection } from 'partic2/tjshelper/httpprot';
+import tls from "tls";
 
 export class NodeWsConnectionAdapter2 implements WebSocketServerConnection{
     protected priv__cached=new ArrayWrap2<Uint8Array|string>();
@@ -257,4 +258,43 @@ export class NodeWritableDataSink implements UnderlyingSink<Uint8Array>{
 		this.nodeWritable.write(chunk)
 	}
 }
+
+
+export class TlsStream{
+
+    protected nodeDuplex?:Duplex
+    protected tlsConn?:tls.TLSSocket
+    r:ReadableStream=new ReadableStream();
+    w:WritableStream=new WritableStream();
+	constructor(protected underlying:{r:ReadableStream<Uint8Array>,w:WritableStream},public servername?:string){}
+    async connect():Promise<{r:ReadableStream<Uint8Array>,w:WritableStream}>{
+        this.nodeDuplex=Duplex.fromWeb({readable:this.underlying.r as any,writable:this.underlying.w});
+        this.tlsConn=tls.connect({servername:this.servername,socket:this.nodeDuplex})
+        this.r=new ReadableStream(new NodeReadableDataSource(this.tlsConn));
+        this.w=new WritableStream(new NodeWritableDataSink(this.tlsConn));
+        return this;
+    }
+	closed=false;
+	close(){
+		if(!this.closed){
+			this.closed=true;
+			this.underlying.w.close();
+			this.underlying.r.cancel()
+			this.w?.close();
+            this.tlsConn?.destroy();
+		}
+	}
+}
+
+import type {HttpClient} from 'partic2/tjshelper/httpprot'
+
+export async function newHttpClientForNodeJs(){
+    let {HttpClient}=await import('partic2/tjshelper/httpprot');
+    let {buildTjs} =await import('partic2/tjshelper/tjsbuilder');
+    let client=new HttpClient();
+    client.setConnectorTjs((await buildTjs()).connect);
+    client.makeSsl=async (underlying,servername)=>new TlsStream(underlying,servername).connect()
+    return client
+}
+
 
