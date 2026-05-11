@@ -1,11 +1,11 @@
 
 import { GenerateRandomString, GetCurrentTime, assert, requirejs, sleep } from 'partic2/jsutils1/base';
 import { FloatLayerComponent, ReactRefEx, css as css1 } from 'partic2/pComponentUi/domui';
-import { CodeContextEvent, ConsoleDataEventData, RunCodeContext } from './CodeContext';
+import { CodeContextEvent, RunCodeContext } from './CodeContext';
 import * as React from 'preact'
 import { DynamicPageCSSManager, globalInputState, GlobalInputStateTracer } from 'partic2/jsutils1/webutils';
 import { TextEditor } from 'partic2/pComponentUi/texteditor';
-import { CodeContextRemoteObjectFetcher, fromSerializableObject, inspectCodeContextVariable, CodeCompletionItem, toSerializableObject, CodeCellListData } from './Inspector';
+import { fromSerializableObject, inspectCodeContextVariable, CodeCompletionItem, toSerializableObject, CodeCellListData,CodeCompletionContext, ConsoleDataEventData, RemoteCodeContextInspector, ensureJavascriptInspectorForCodeContextInstalled } from './Inspector';
 import { ObjectViewer } from './Component1';
 import { text2html } from 'partic2/pComponentUi/utils';
 import { FlattenArraySync,DebounceCall, ThrottleCall } from './jsutils2';
@@ -57,6 +57,7 @@ function countBracket(s:string){
     return bracketMatch;
 }
 
+
 export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
     rref={
         codeInput:new ReactRefEx<TextEditor>(),
@@ -78,7 +79,7 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
                 let cellOutput=runStatus.stringResult;
                 this.setState({cellOutput,resultVariable});
             }else{
-                let cellOutput=await inspectCodeContextVariable(new CodeContextRemoteObjectFetcher(this.codeContext!),[resultVariable],{maxDepth:1});
+                let cellOutput=await inspectCodeContextVariable(await ensureJavascriptInspectorForCodeContextInstalled(this.codeContext!),[resultVariable],{maxDepth:1});
                 this.setState({cellOutput,resultVariable,errorCatched:runStatus.err});
             }
         }catch(e){
@@ -125,7 +126,7 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
     }
     protected requestCodeComplete=new DebounceCall(async ()=>{
         this.setState({
-            codeCompleteCandidate:await this.codeContext!.codeComplete(
+            codeCompleteCandidate:await (await ensureJavascriptInspectorForCodeContextInstalled(this.codeContext!)).requestCodeCompletion(
                 this.getCellInput(),
                 this.rref.codeInput.current!.getTextCaretOffset())
         });
@@ -218,8 +219,8 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
         this.setState({focusingCompletionCandidate:0,codeCompleteCandidate:null,extraTooltips:null});
     }
     protected insertCodeComplete(cc:CodeCompletionItem){
-        let caret=this.rref.codeInput.current!.getTextCaretOffset();
-        let delCount=caret-cc.replaceRange[0];
+        this.rref.codeInput.current!.setTextCaretOffset(cc.replaceRange[1]);
+        let delCount=cc.replaceRange[1]-cc.replaceRange[0];
         this.rref.codeInput.current!.deleteText(delCount);
         this.rref.codeInput.current!.insertText(cc.candidate);
         this.props.onInputChange?.(this);
@@ -248,8 +249,7 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
     }
     protected async onBtnClearOutputs(){
         if(this.state.resultVariable!=null){
-            this.codeContext!.jsExec(
-                `delete codeContext.localScope['${this.state.resultVariable}']`).catch(()=>{})
+            this.codeContext!.callFunction('deleteVariables',[[this.state.resultVariable]]);
         }
         this.props.onClearOutputs?.();
         this.setCellOutput('',null);
@@ -331,8 +331,7 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
     async close(){
         if(this.state.resultVariable!=null){
             try{
-                await this.codeContext!.jsExec(
-                    `delete codeContext.localScope['${this.state.resultVariable}']`)
+                this.codeContext!.callFunction('deleteVariables',[[this.state.resultVariable]]);
             }catch(e){};
         }
     }
@@ -369,6 +368,7 @@ export class DefaultCodeCellList extends React.Component<
             if(this.state.codeContext!=null){
                 this.state.codeContext.event.removeEventListener('console.data',this.onConsoleData as any);
             }
+            ensureJavascriptInspectorForCodeContextInstalled(this.props.codeContext!);
             this.props.codeContext!.event.addEventListener('console.data',this.onConsoleData as any);
             this.setState({codeContext:this.props.codeContext!});
         }
@@ -447,7 +447,9 @@ export class DefaultCodeCellList extends React.Component<
                         this.props.onRun?.(v.key);
                         this.lastRunCellKey=v.key;
                         if(v.key==this.state.list.at(-1)?.key){
-                            this.newCell(v.key);
+                            await this.newCell(v.key);
+                            let cc=await this.state.list.at(-1)!.ref.waitValid();
+                            await cc.setAsEditTarget()
                         }
                     }}
                     onFocusChange={(focusin)=>{
@@ -471,10 +473,10 @@ export class DefaultCodeCellList extends React.Component<
     }
     componentDidUpdate(){
         if(this.__initCellValue!==null && this.state.codeContext!=null){
-            this.__initCellValue.forEach((val,index)=>{
+            this.__initCellValue.forEach(async (val,index)=>{
                 this.state.list[index].ref.current!.setCellInput(val.input);
                 val.output[0]=fromSerializableObject(
-                    val.output[0],{fetcher:new CodeContextRemoteObjectFetcher(this.state.codeContext!),accessPath:[val.output[1]??'']});
+                    val.output[0],{fetcher:await ensureJavascriptInspectorForCodeContextInstalled(this.state.codeContext!),accessPath:[val.output[1]??'']});
                 this.state.list[index].ref.current!.setCellOutput(...val.output);
             })
             this.__initCellValue=null;

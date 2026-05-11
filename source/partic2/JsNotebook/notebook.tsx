@@ -1,7 +1,7 @@
 
 import { CodeContextEvent, LocalRunCodeContext, RunCodeContext } from 'partic2/CodeRunner/CodeContext';
 import { CodeCell, CodeCellList } from 'partic2/CodeRunner/WebUi';
-import { GenerateRandomString, GetCurrentTime, IamdeeScriptLoader, WaitUntil, assert, future, logger, requirejs, sleep } from 'partic2/jsutils1/base';
+import { GenerateRandomString, GetCurrentTime, IamdeeScriptLoader, Task, WaitUntil, assert, future, logger, requirejs, sleep } from 'partic2/jsutils1/base';
 import * as React from 'preact'
 
 import {ClientInfo, createIoPipe, getAttachedRemoteRigstryFunction, getPersistentRegistered, getRegistered, importRemoteModule, listRegistered, persistent, ServerHostWorker1RpcName} from 'partic2/pxprpcClient/registry'
@@ -219,7 +219,6 @@ class NotebookViewer extends React.Component<{context:WorkspaceContext,path:stri
         for(let codeCell of copy){
             let input1=await codeCell.rref.codeInput.waitValid();
             let code=input1.getPlainText();
-            let caret=input1.getTextCaretOffset();
             if(code.length>10000)continue;
             await __inited__;
             let hlcode=await webworkercall.prismHighlightJS(code);
@@ -231,9 +230,14 @@ class NotebookViewer extends React.Component<{context:WorkspaceContext,path:stri
                         hlcode+='<div><br/></div>';
                     }
                 }
-                //if(/[^\n]\n$/.test(hlcode))hlcode+='\n';
+                let caret=null;
+                if(input1.isEditing()){
+                    caret=input1.getTextCaretOffset();
+                }
                 input1.setHtml(hlcode);
-                input1.setTextCaretOffset(caret);
+                if(caret!=null){
+                    input1.setTextCaretOffset(caret);
+                }
             }
         }
     },200);
@@ -271,20 +275,10 @@ class RunCodeReplView extends React.Component<{
     }
     rpc?:ClientInfo
     async onCellRun(cellKey:string){
-        let cellList=(await this.rref.list.waitValid()).getCellList();
+        let ccl=await this.rref.list.waitValid();
+        let cellList=ccl.getCellList();
         if(cellList.length>=(this.props.maxCellCount??100)){
-            (await this.rref.list.waitValid()).deleteCell(cellList.at(0)!.key);
-        }
-        if(cellList.at(-1)?.key==cellKey){
-            this.autoScrollToBottom=true;
-        }
-        let runCellAt=cellList.findIndex(t1=>t1.key===cellKey);
-        if(runCellAt==cellList.length-1){
-            let nextCell=await (await this.rref.list.waitValid()).newCell(cellKey);
-            (await this.rref.list.waitValid()).setCurrentEditing(nextCell);
-        }else{
-            let nextCell=cellList[runCellAt+1].key;
-            (await this.rref.list.waitValid()).setCurrentEditing(nextCell);
+            ccl.deleteCell(cellList.at(0)!.key);
         }
     }
     async doRunCode(code:string){
@@ -298,18 +292,19 @@ class RunCodeReplView extends React.Component<{
         await cc.runCode();
     }
     protected autoScrollToBottom=true;
-    protected savedScrollHight:number=0;
-    protected async _keepScrollState(){
-        let cont=await this.rref.container.waitValid();
+    protected *_keepScrollState(){
+        let cont=yield* Task.yieldWrap(this.rref.container.waitValid());
         while(this.rref.container.current!=null){
-            if(this.autoScrollToBottom && cont.scrollHeight!=this.savedScrollHight){
+            if(this.autoScrollToBottom){
                 cont=this.rref.container.current;
                 cont.scrollTo({top:cont.scrollHeight,behavior:'smooth'});
-                this.savedScrollHight=cont.scrollHeight;
             }
-            await sleep(100);
+            yield sleep(200);
         }
-        
+    }
+    componentWillUnmount(): void {
+        this._scrollTask?.abort();
+        this._scrollTask=null;
     }
     protected codeCellHighlightQueue=new Set<CodeCell>();
     protected DoCodeCellsHightlight=new DebounceCall(async ()=>{
@@ -319,30 +314,44 @@ class RunCodeReplView extends React.Component<{
             let input1=await codeCell.rref.codeInput.waitValid();
             let code=input1.getPlainText();
             if(code.length>10000)continue;
-            let caret=input1.getTextCaretOffset();
             await __inited__;
             let hlcode=await webworkercall.prismHighlightJS(code);
             if(/[^\n]\n$/.test(hlcode))hlcode+='\n';
+            let caret=null;
+            if(input1.isEditing()){
+                caret=input1.getTextCaretOffset();
+            }
             input1.setHtml(hlcode);
-            input1.setTextCaretOffset(caret);
+            if(caret!=null){
+                input1.setTextCaretOffset(caret);
+            }
         }
     },200);
     protected async onCellInputChange(codeCell:CodeCell){
         this.codeCellHighlightQueue.add(codeCell);
         this.DoCodeCellsHightlight.call();
     }
-    inited=false;
+    _scrollTask:Task<void>|null=null;
     async beforeRender(){
-        if(!this.inited){
-            this.inited=true;
-            this._keepScrollState();
+        if(this._scrollTask==null){
+            let that=this;
+            this._scrollTask=Task.fork(function*(){
+                yield* that._keepScrollState();
+            }).run()
         }
     }
+    onContainerScroll=new DebounceCall(async ()=>{
+        let cont=await this.rref.container.waitValid();
+        console.info('#1 scrollState'+(cont.scrollHeight-(cont.scrollTop+cont.clientHeight)))
+        if(cont.scrollHeight-(cont.scrollTop+cont.clientHeight)<15){
+            this.autoScrollToBottom=true;
+        }
+    },300);
     render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined; }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChild {
         this.beforeRender();
         return <div ref={this.rref.container} style={{
             overflowY:'auto',border:'0px',padding:'0px',margin:'0px',width:'100%',height:'100%',...this.props.containerStyle}} 
-        onMouseDown={()=>this.autoScrollToBottom=false} onTouchStart={()=>this.autoScrollToBottom=false} onWheel={()=>this.autoScrollToBottom=false}>
+         onPointerDown={()=>this.autoScrollToBottom=false} onScroll={()=>this.onContainerScroll.call()}>
             <CodeCellList codeContext={this.props.codeContext} onRun={(key)=>this.onCellRun(key)} ref={this.rref.list} cellProps={{
                 runCodeKey:'Enter',
                 onInputChange:(target)=>this.onCellInputChange(target)

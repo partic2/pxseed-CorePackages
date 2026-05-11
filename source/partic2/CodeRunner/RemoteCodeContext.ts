@@ -1,6 +1,6 @@
 
 import {defaultFuncMap,RpcExtendClient1,RpcExtendClientCallable,RpcExtendClientObject,RpcExtendServerCallable} from 'pxprpc/extend'
-import { CodeContextEvent, CodeContextEventTarget,  LocalRunCodeContext,  RunCodeContext,jsExecLib } from './CodeContext';
+import { CodeContextEvent, CodeContextEventTarget,  LocalRunCodeContext,  RunCodeContext } from './CodeContext';
 
 
 import { assert, future, GenerateRandomString, mutex, throwIfAbortError } from 'partic2/jsutils1/base';
@@ -14,11 +14,6 @@ setupAsyncHook()
 
 export let __name__='partic2/CodeRunner/RemoteCodeContext';
 
-/* 
-remote code call like this
-*/
-async function __temp1(arg:any,lib:typeof jsExecLib){
-}
 
 export class RunCodeContextConnector{
     [RpcSerializeMagicMark]:{}
@@ -47,16 +42,13 @@ export class RunCodeContextConnector{
     async runCode(source: string,resultVariable?:string): Promise<{stringResult:string|null,err:string|null}>{
         return this.value.runCode(source,resultVariable);
     }
-    async codeComplete(code: string, caret: number):Promise<CodeCompletionItem[]>{
-        return this.value.codeComplete(code,caret)
-    }
-    async jsExec(source: string): Promise<string>{
-        return this.value.jsExec(source);
+    async callFunction(name:string,args:string[]){
+        return this.value.callFunction(name,args)
     }
 }
 
 export async function createConnectorWithNewRunCodeContext():Promise<RunCodeContextConnector>{
-    let codeContext=new jsExecLib.LocalRunCodeContext();
+    let codeContext=new LocalRunCodeContext();
     let t1=new RunCodeContextConnector(codeContext)
     t1.close=()=>codeContext.close()
     return t1;
@@ -81,6 +73,7 @@ export class RemoteRunCodeContext implements RunCodeContext{
         }
         this.doInit();
     }
+    
     event=new RemoteCodeContextEventTarget(this);
     protected async pullEventLoop(){
         try{
@@ -122,13 +115,9 @@ export class RemoteRunCodeContext implements RunCodeContext{
         await this.inited.get();
         return await this._remoteContext!.runCode(source,resultVariable);
     }
-    async codeComplete(code: string, caret: number) {
+    async callFunction(name: string, args: any[]): Promise<any> {
         await this.inited.get();
-        return await this._remoteContext!.codeComplete(code,caret);
-    }
-    async jsExec(source: string): Promise<string> {
-        await this.inited.get();
-        return await this._remoteContext!.jsExec(source);
+        return await this._remoteContext!.callFunction(name,args);
     }
     close(): void {
         let t1=this._remoteContext;
@@ -144,7 +133,7 @@ export class RemoteRunCodeContext implements RunCodeContext{
 
 
 export async function connectToCodeContextFromCode(connectCode:string){
-    let r=await (new Function('lib',`return (async ()=>{${connectCode}})()`)(jsExecLib));
+    let r=await (new Function('lib',`return (async ()=>{${connectCode}})()`)({importModule:(moduleName:string)=>import(moduleName)}));
     return r
 }
 /*

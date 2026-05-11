@@ -1,7 +1,8 @@
-import type { LocalRunCodeContext, RunCodeContext } from "./CodeContext";
+import { CodeContextEvent, LocalRunCodeContext, RunCodeContext, TaskLocalEnv } from "./CodeContext";
 import { ArrayBufferToBase64, ArrayWrap2, Base64ToArrayBuffer, GenerateRandomString, future, mutex, requirejs, sleep, throwIfAbortError } from "partic2/jsutils1/base";
 import { SimpleFileSystem, defaultFileSystem, ensureDefaultFileSystem, installedRequirejsResourceProvider } from "./JsEnviron";
 import { getWWWRoot } from "partic2/jsutils1/webutils";
+import { OnConsoleData } from "./jsutils2";
 
 const __name__=requirejs.getLocalRequireModule(require);
 
@@ -104,45 +105,22 @@ export function toSerializableObject(v:any,opt:Partial<typeof DefaultSerializing
     }
 }
 
-export interface RemoteCodeContextInspector{
-    fetch(accessPath:(string|number)[],opt:Partial<
-        typeof DefaultSerializingOption
-    >):Promise<any>;
-    invoke(accessPath:(string|number)[],args:any[]):Promise<any>
+let remoteName={
+    accessVariableAsSerializableObject:'__priv_'+__name__+'.accessVariableAsSerializableObject',
+    requestCodeCompletion:'__priv_'+__name__+'.requestCodeCompletion'
 }
 
-export class CodeContextRemoteObjectFetcher implements RemoteCodeContextInspector{
+export class RemoteCodeContextInspector{
     constructor(public codeContext:RunCodeContext){}
-    
-    async fetch(accessPath: (string|number)[], opt: Partial<
+    async fetchObject(accessPath:(string|number)[],opt:Partial<
         typeof DefaultSerializingOption
-    >){
-        let accessChain=accessPath.map(v=>typeof(v)==='string'?`['${v}']`:`[${v}]`).join('')
-        let resp=await this.codeContext!.jsExec(`
-            return JSON.stringify(
-                lib.toSerializableObject(
-                    codeContext.localScope${accessChain},
-                    ${JSON.stringify(opt)}
-                ))`);
-        return fromSerializableObject(JSON.parse(resp),{fetcher:this,accessPath});
+    >):Promise<any>{
+        let resp=await this.codeContext!.callFunction(remoteName.accessVariableAsSerializableObject,[accessPath,opt]);
+        return fromSerializableObject(resp,{fetcher:this,accessPath});
     }
-    async invoke(accessPath: (string | number)[], args: any[]): Promise<any> {
-        let accessChain=accessPath.map(v=>typeof(v)==='string'?`['${v}']`:`[${v}]`).join('')
-        let resp=await this.codeContext!.jsExec(`
-            return JSON.stringify(
-                lib.toSerializableObject(
-                    codeContext.localScope${accessChain}(...lib.fromSerializableObject(${JSON.stringify(toSerializableObject(args,{
-                        maxDepth:0x7ffffffff,
-                        maxKeyCount:0x7fffffff,
-                        enumerateMode:'for in'
-                    }))},{})),
-                    ${JSON.stringify({
-                        maxDepth:0x7fffffff,
-                        maxKeyCount:0x7fffffff,
-                        enumerateMode:'for in'
-                    })}
-                ))`);
-        return JSON.parse(resp);
+    async requestCodeCompletion(code: string, caret: number):Promise<CodeCompletionItem[]>{
+        let resp=await this.codeContext!.callFunction(remoteName.requestCodeCompletion,[code,caret]);
+        return resp;
     }
 }
 
@@ -156,7 +134,7 @@ export class UnidentifiedObject{
     }
     async identify(opt:Partial<typeof DefaultSerializingOption>){
         opt={...DefaultSerializingOption,...opt};
-        return await this.fetcher?.fetch(this.accessPath,{...opt})
+        return await this.fetcher?.fetchObject(this.accessPath,{...opt})
     }
     toJSON(key?:string){
         return {
@@ -486,7 +464,9 @@ export const builtInCompletionHandlers={
             replaceRange[1]=replaceRange[0]+importExpr[2].length;
             let importName=importExpr[2];
             let t1=await importNameCompletion(importName);
-            context.completionItems.push(...t1.map(v=>({type:'literal',candidate:v,replaceRange})))
+            let lastSlashOffset=importName.lastIndexOf('/')+1;
+            replaceRange[0]+=lastSlashOffset;
+            context.completionItems.push(...t1.map(v=>({type:'literal',candidate:v.substring(lastSlashOffset),replaceRange})))
         }
         importExpr=behind.match(/import\s.*from\s*(['"])([^'"]+)$/);
         if(importExpr!=null){
@@ -494,7 +474,9 @@ export const builtInCompletionHandlers={
             replaceRange[1]=replaceRange[0]+importExpr[2].length;
             let importName=importExpr[2];
             let t1=await importNameCompletion(importName);
-            context.completionItems.push(...t1.map(v=>({type:'literal',candidate:v,replaceRange})))
+            let lastSlashOffset=importName.lastIndexOf('/')+1;
+            replaceRange[0]+=lastSlashOffset;
+            context.completionItems.push(...t1.map(v=>({type:'literal',candidate:v.substring(lastSlashOffset),replaceRange})))
         }
     },
     customFunctionParameterCompletion:async (context:CodeCompletionContext)=>{
@@ -531,6 +513,91 @@ export const builtInCompletionHandlers={
     }
 }
 
+
+
+function jsonStringifyResolveCircular(obj:any) {
+  let seen = new Map();
+  let path:string[] = [];
+  return JSON.stringify(obj, (key, value) => {
+    if (value && typeof value === 'object') {
+      if (seen.has(value)) {
+        return `[Circular -> ${seen.get(value).join('.')}]`;
+      }
+      seen.set(value, [...path, key]);
+    }
+    return value;
+  });
+}
+
+//Emit on console data output.
+export interface ConsoleDataEventData{
+    level:string,
+    message:string
+}
+
+
+
+export async function installJavascriptInspectorForCodeContext(codeContext:LocalRunCodeContext){
+    if(codeContext.localScope.autoClosable[__name__+'.consoleDataHookForCodeContext']==undefined){
+        const onConsoleLogListener=(level:string,argv:any)=>{
+            let outputTexts:string[]=[];
+            for(let t1 of argv){
+                if(typeof t1=='object'){
+                    outputTexts.push(jsonStringifyResolveCircular(t1));
+                }else{
+                    outputTexts.push(t1);
+                }
+            }
+            let evt=new CodeContextEvent<ConsoleDataEventData>('console.data',{
+                data:{
+                    level,
+                    message:outputTexts.join(' ')
+                }
+            });
+            codeContext.event.dispatchEvent(evt);
+        }
+        codeContext.localScope.autoClosable[__name__+'.consoleDataHookForCodeContext']={close:()=>{
+            OnConsoleData.delete(onConsoleLogListener);
+        }}
+        OnConsoleData.add(onConsoleLogListener);
+    }
+    if(codeContext.localScope[remoteName.accessVariableAsSerializableObject]==undefined){
+        codeContext.localScope[remoteName.accessVariableAsSerializableObject]=(accessPath:Array<number|string>,serializeOption:any)=>{
+            let obj=TaskLocalEnv.get();
+            for(let t1 of accessPath){
+                obj=obj[t1];
+            }
+            return toSerializableObject(obj,serializeOption);
+        }
+    }
+    if(codeContext.localScope[remoteName.requestCodeCompletion]==undefined){
+        codeContext.localScope[remoteName.requestCodeCompletion]=async (code: string, caret: number)=>{
+            let completeContext={
+                code,caret,codeContext:codeContext,completionItems:[] as CodeCompletionItem[]
+            }
+            for(let t1 of defaultCompletionHandlers){
+                //Mute error
+                try{
+                    await t1(completeContext);
+                }catch(e:any){
+                    throwIfAbortError(e);
+                }
+            }
+            return completeContext.completionItems;
+        }
+    }
+}
+
+let codeContextAttachedInspector=Symbol(__name__+'.codeContextAttachedInspector')
+
+export async function ensureJavascriptInspectorForCodeContextInstalled(codeContext:RunCodeContext):Promise<RemoteCodeContextInspector>{
+    if((codeContext as any)[codeContextAttachedInspector]==undefined){
+        await codeContext.runCode(`(await import('${__name__}')).installJavascriptInspectorForCodeContext(__priv_codeContext)`,'');
+        (codeContext as any)[codeContextAttachedInspector]=new RemoteCodeContextInspector(codeContext);
+    }
+    return (codeContext as any)[codeContextAttachedInspector];
+}
+
 export class CodeCellListData{
     cellList=new Array<{cellInput:string,cellOutput:[any,string|null],key:string}>();
     consoleOutput:{[cellKey:string]:{content:string}}={};
@@ -544,7 +611,7 @@ export class CodeCellListData{
     }
 }
 
-export const defaultCompletionHandlers:Array<(context:CodeCompletionContext)=>Promise<void>>=[
+export let defaultCompletionHandlers:Array<(context:CodeCompletionContext)=>Promise<void>>=[
     builtInCompletionHandlers.checkIsInStringLiteral,
     builtInCompletionHandlers.propertyCompletion,
     builtInCompletionHandlers.importStatementCompletion,

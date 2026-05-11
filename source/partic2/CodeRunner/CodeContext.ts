@@ -5,10 +5,8 @@ import * as acorn from 'acorn'
 import { requirejs } from 'partic2/jsutils1/base';
 import * as jsutils1 from 'partic2/jsutils1/base'
 
-import { toSerializableObject, fromSerializableObject, 
-    defaultCompletionHandlers, CodeCompletionItem} from './Inspector';
 import { addAsyncHook, addAutoAsyncAwait, JsSourceReplacePlan, setupAsyncHook } from './pxseedLoader';
-import { OnConsoleData, TaskLocalRef } from './jsutils2';
+import { TaskLocalRef } from './jsutils2';
 
 
 acorn.defaultOptions.allowAwaitOutsideFunction=true;
@@ -50,24 +48,18 @@ export interface RunCodeContext{
     //'runCode' will process source before execute, depend on the implemention.
     // Only string result will be stored into 'stringResult', otherwise null will be stored.
     // If error occured, The "resultVariable" will store the catched object. and err=catched.toString()
+    // if resultVariable equals '', result will not be stored.
     runCode(source:string,resultVariable?:string):Promise<{stringResult:string|null,err:string|null}>;
 
-    //jsExec run code in globalThis scope, and different from runCode, never process source before execute.
-    //'code' has signature like '__jsExecSample' below. Promise will be resolved. Only string result will be returned, otherwise '' will be returned.
-    jsExec(code:string):Promise<string>;
-
-    codeComplete(code:string,caret:number):Promise<CodeCompletionItem[]>;
+    //Call function this.localScope[name]. To ensure can be used in RemoteCodeContext, params and result should only include JSON-serializable Object/Uint8Array/{[RpcSerializeMagicMark]:{}}
+    callFunction(name:string,args:any[]):Promise<any>
 
     event:CodeContextEventTarget;
 
     close():void;
 
 }
-//RunCodeContext.jsExec run code like this
-async function __jsExecSample(lib:typeof jsExecLib,codeContext:LocalRunCodeContext):Promise<string>{
-    //Your code
-    return '';
-}
+
 
 export class CodeContextEvent<T=any> extends Event{
     public data:T|undefined=undefined;
@@ -76,11 +68,7 @@ export class CodeContextEvent<T=any> extends Event{
         this.data=initDict?.data;
     }
 }
-//Emit on console data output.
-export interface ConsoleDataEventData{
-    level:string,
-    message:string
-}
+
 
 export async function enableDebugger(){
     try{
@@ -89,6 +77,8 @@ export async function enableDebugger(){
         }
     }catch(err){};
 }
+
+
 
 async function defaultCodeTranspilingProcessor(processContext:{source:string,_ENV:any}){
     let replacePlan=new JsSourceReplacePlan(processContext.source);
@@ -109,49 +99,39 @@ export class LocalRunCodeContext implements RunCodeContext{
         //this CodeContext
         __priv_codeContext:undefined,
         //import implemention
-        __priv_import:(module:string)=>{
-            let imp=this.importHandler(module);
+        __priv_import:async (module:string)=>{
+            let imp=await this.importHandler(module);
             return imp;
         },
         __topLevelTranspileDirective:{},
         __transpile__:(directive:any,source:any)=>source,
         //some utils provide by codeContext
-        __priv_jsExecLib:jsExecLib,
         //custom source processor for 'runCode' _ENV.__priv_processSource, run before builtin processor.
         __priv_sourceProcessors:[{name:__name__+'.defaultCodeTranspilingProcessor',process:defaultCodeTranspilingProcessor}] as {process:(processContext:{source:string,_ENV:any})=>PromiseLike<void>|void,name:string}[],
+        callModuleFunction:async (module:string,func:string,args:any[])=>{
+            let imp=await this.importHandler(module);
+            return await imp[func](...args)
+        },
         event:this.event,
         CodeContextEvent,
         Task:jsutils1.Task,
         tasks:{} as Record<string,jsutils1.Task<any>>,
         //Will be close when LocalRunCodeContext is closing.
         autoClosable:{} as Record<string,{close?:()=>void}>,
+        deleteVariables:(names:string[])=>{
+            for(let n of names){
+                delete this.localScope[n];
+            }
+        },
         close:()=>{
             this.close();
         }
     };
     localScopeProxy;
-    protected onConsoleLogListener=(level:string,argv:any)=>{
-        let outputTexts:string[]=[];
-        for(let t1 of argv){
-            if(typeof t1=='object'){
-                outputTexts.push(JSON.stringify(toSerializableObject(t1,{})));
-            }else{
-                outputTexts.push(t1);
-            }
-        }
-        let evt=new CodeContextEvent<ConsoleDataEventData>('console.data',{
-            data:{
-                level,
-                message:outputTexts.join(' ')
-            }
-        });
-        this.event.dispatchEvent(evt);
-    }
     constructor(){
-        OnConsoleData.add(this.onConsoleLogListener);
         this.localScope.__priv_codeContext=this;
         this.localScope._ENV=this.localScope;
-        this.localScope.console={...console};
+        this.localScope.console=console;
         this.localScopeProxy=new Proxy(this.localScope,{
             has:()=>true,
             get:(target,p)=>{
@@ -168,7 +148,6 @@ export class LocalRunCodeContext implements RunCodeContext{
         });
     }
     close(): void {
-        OnConsoleData.delete(this.onConsoleLogListener);
         this.event.dispatchEvent(new CodeContextEvent('close'));
         for(let [k1,v1] of Object.entries(this.localScope.autoClosable as Record<string,{close?:()=>void}>)){
             if(v1.close!=undefined){
@@ -176,15 +155,25 @@ export class LocalRunCodeContext implements RunCodeContext{
             }
         }
     }
-    async jsExec(code:string): Promise<string> {
-        let r=new Function('lib','codeContext',`return (async ()=>{${code}})();`)(jsExecLib,this)
-        if(r instanceof Promise){
-            r=await r;
-        }
-        if((typeof r)==='string'){
-            return r;
-        }
-        return '';
+    async callFunction(name: string, args: any[]): Promise<any> {
+        let taskName=__name__+'.task-'+jsutils1.GenerateRandomString();
+        let that=this;
+        let t=jsutils1.Task.fork(function*(){
+            let curtask=jsutils1.Task.currentTask!;
+            curtask.name=taskName;
+            that.localScope.tasks[taskName]=curtask;
+            TaskLocalEnv.set(that.localScope);
+            try{
+                let r=that.localScope[name](...args);
+                if(typeof r==='object' && 'then' in r){
+                    r=yield r;
+                }
+                return r;
+            }finally{
+                delete that.localScope.tasks[taskName];
+            }
+        }).run();
+        return await t;
     }
     async processSource(source:string):Promise<{modifiedSource:string,declaringVariableNames:string[]}>{
         let replacePlan=new JsSourceReplacePlan(source);
@@ -307,11 +296,11 @@ export class LocalRunCodeContext implements RunCodeContext{
         let proc1=await this.processSource(source);
         try{
             let result=await this.runCodeInScope(proc1.modifiedSource);
-            this.localScope[resultVariable]=result;
+            if(resultVariable!=='')this.localScope[resultVariable]=result;
             let stringResult=(typeof(result)==='string')?result:null;
             return {stringResult,err:null}
         }catch(e:any){
-            this.localScope[resultVariable]=e;
+            if(resultVariable!=='')this.localScope[resultVariable]=e;
             return {stringResult:null,err:e.toString()}
         }
     }
@@ -334,25 +323,4 @@ export class LocalRunCodeContext implements RunCodeContext{
         }).run();
         return await r;
     }
-    completionHandlers=[
-        ...defaultCompletionHandlers
-    ]
-    async codeComplete(code: string, caret: number) {
-        let completeContext={
-            code,caret,codeContext:this,completionItems:[] as CodeCompletionItem[]
-        }
-        for(let t1 of this.completionHandlers){
-            //Mute error
-            try{
-                await t1(completeContext);
-            }catch(e:any){
-                jsutils1.throwIfAbortError(e);
-            }
-        }
-        return completeContext.completionItems;
-    }
-}
-
-export var jsExecLib={
-    jsutils1,LocalRunCodeContext,toSerializableObject,fromSerializableObject,importModule:(name:string)=>import(name),enableDebugger
 }

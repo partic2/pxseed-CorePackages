@@ -1,7 +1,7 @@
 import { GenerateRandomString, requirejs, throwIfAbortError } from "partic2/jsutils1/base";
 import { GetPersistentConfig, SavePersistentConfig } from "partic2/jsutils1/webutils";
 import { LocalRunCodeContext } from "./CodeContext";
-import { CodeContextRemoteObjectFetcher, inspectCodeContextVariable, toSerializableObject } from "./Inspector";
+import { ensureJavascriptInspectorForCodeContextInstalled, inspectCodeContextVariable, RemoteCodeContextInspector, toSerializableObject } from "./Inspector";
 import { getAttachedRemoteRigstryFunction, RpcWorker } from "partic2/pxprpcClient/registry";
 
 let remoteObjectFetchConfig={maxDepth:3,maxKeyCount:50,enumerateMode:'for in' as 'for in'}
@@ -43,12 +43,16 @@ await __t1(_ENV);
 
 export class SimpleCli{
     codeContext=new LocalRunCodeContext();
-    remoteObjectFetcher=new CodeContextRemoteObjectFetcher(this.codeContext);
+    remoteObjectFetcher!:RemoteCodeContextInspector
+    protected __inited=(async ()=>{
+        this.remoteObjectFetcher=await ensureJavascriptInspectorForCodeContextInstalled(this.codeContext);
+    })();
     constructor(public stdin:ReadableStreamDefaultReader<Uint8Array>,
                 public stdout:WritableStreamDefaultWriter<Uint8Array>,
-                public stderr:WritableStreamDefaultWriter<Uint8Array>){
+                public stderr:WritableStreamDefaultWriter<Uint8Array>){    
     }
     async evalInput(jscode:string){
+        await this.__inited;
         try{
             let result=await this.codeContext.runCode(jscode,'_');
             if(result.err!=null){
@@ -79,6 +83,7 @@ export class SimpleCli{
         await this.stdout.write(encode('\n>'));
     }
     async initEnv(){
+        await this.__inited;
         let {config}=await getConfig();
         for(let script of Object.values(config.initScript)){
             try{
@@ -91,6 +96,7 @@ export class SimpleCli{
         }
     }
     async repl(){
+        await this.__inited;
         this.stdout.write(encode('>'));
         while(true){
             let input1=await this.stdin.read();

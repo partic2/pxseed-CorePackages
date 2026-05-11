@@ -133,17 +133,23 @@ export async function initNotebookCodeEnv(_ENV:any,opt?:{codePath?:string}){
             replaceRange[1]=replaceRange[0]+importName2[2].length;
             let importName=importName2[2];
             let t1=await importNameCompletion(importName);
-            context.completionItems.push(...t1.map(v=>({type:'literal',candidate:v,replaceRange})))
+            let lastSlashOffset=importName.lastIndexOf('/')+1;
+            replaceRange[0]+=lastSlashOffset;
+            context.completionItems.push(...t1.map(v=>({type:'literal',candidate:v.substring(lastSlashOffset),replaceRange})))
         }
     }
     let {path}=await import('partic2/jsutils1/webutils');
     _ENV.fs.loadScript[CustomFunctionParameterCompletionSymbol]=makeFunctionCompletionWithFilePathArg0(path.dirname(_ENV.fs.codePath??''));
     if(_ENV.fs.simple!=undefined){
         _ENV.fs.simple.readAll[CustomFunctionParameterCompletionSymbol]=makeFunctionCompletionWithFilePathArg0(undefined);
+        _ENV.fs.simple.read[CustomFunctionParameterCompletionSymbol]=makeFunctionCompletionWithFilePathArg0(undefined);
         _ENV.fs.simple.writeAll[CustomFunctionParameterCompletionSymbol]=makeFunctionCompletionWithFilePathArg0(undefined);
+        _ENV.fs.simple.write[CustomFunctionParameterCompletionSymbol]=makeFunctionCompletionWithFilePathArg0(undefined);
         _ENV.fs.simple.listdir[CustomFunctionParameterCompletionSymbol]=makeFunctionCompletionWithFilePathArg0(undefined);
         _ENV.fs.simple.filetype[CustomFunctionParameterCompletionSymbol]=makeFunctionCompletionWithFilePathArg0(undefined);
         _ENV.fs.simple.delete2[CustomFunctionParameterCompletionSymbol]=makeFunctionCompletionWithFilePathArg0(undefined);
+        _ENV.fs.simple.mkdir[CustomFunctionParameterCompletionSymbol]=makeFunctionCompletionWithFilePathArg0(undefined);
+        _ENV.fs.simple.rename[CustomFunctionParameterCompletionSymbol]=makeFunctionCompletionWithFilePathArg0(undefined);
     }
     _ENV.globalThis=globalThis;
     _ENV.fetch=defaultHttpClient.fetch.bind(defaultHttpClient)

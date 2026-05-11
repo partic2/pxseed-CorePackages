@@ -240,6 +240,13 @@ export class TextEditor extends ReactEventTarget<TextEditorProps,{}>{
     scrollToBottom(){
         this.rref.div1.current!.scrollTop=this.rref.div1.current!.scrollHeight;
     }
+    isEditing(){
+        return document.activeElement!=null && 
+            this.rref.div1.current!=null && 
+            ((document.activeElement===this.rref.div1.current) ||
+                ((document.activeElement!.compareDocumentPosition(this.rref.div1.current!)&Node.DOCUMENT_POSITION_CONTAINS)!=0)
+            )
+    }
 }
 
 export class PlainTextEditorInput extends TextEditor{
