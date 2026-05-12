@@ -20,7 +20,6 @@
     "preact": "^10.27.2",
     "rollup": "^3.29.4",
     "typescript": "~5.8.3",
-    "ws": "^8.16.0",
     "isomorphic-git": "^1.32.1",
     "buffer": "^6.0.3"
   },

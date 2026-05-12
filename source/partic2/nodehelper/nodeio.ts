@@ -184,62 +184,11 @@ export async function createIoPxseedJsUrl(url:string){
 }
 
 
-import { WebSocket } from 'ws'
 import { WebSocketIo } from "pxprpc/backend";
 
 import { WebSocketServerConnection } from 'partic2/tjshelper/httpprot';
 import tls from "tls";
 
-export class NodeWsConnectionAdapter2 implements WebSocketServerConnection{
-    protected priv__cached=new ArrayWrap2<Uint8Array|string>();
-    closed:boolean=false;
-    constructor(public ws:WebSocket){
-        this.ws.on('message',(data,isbin)=>{
-            let chunk
-            if(data instanceof ArrayBuffer){
-                chunk=new Uint8Array(data)
-            }else if(data instanceof Buffer){
-                chunk=new Uint8Array(data.buffer,data.byteOffset,data.byteLength);
-            }else if(data instanceof Array){
-                chunk=new Uint8Array(ArrayBufferConcat(data));
-            }else{
-                chunk=data;
-            }
-            this.priv__cached.queueSignalPush(chunk);
-        });
-        ws.on('close',(code,reason)=>{
-            this.closed=true;
-            this.priv__cached.cancelWaiting();
-        });
-    }
-    async send(obj: Uint8Array | string | Array<Uint8Array>): Promise<void> {
-        if(obj instanceof Array){
-            obj=new Uint8Array(ArrayBufferConcat(obj));
-        }
-        return new Promise((resolve,reject)=>this.ws.send(obj,(err)=>{
-            if(err==null)resolve();
-            reject(err);
-        }));
-    }
-    async receive(): Promise<Uint8Array | string> {
-        try{
-            let wsdata=await this.priv__cached.queueBlockShift();
-            return wsdata;
-        }catch(e){
-            if(e instanceof CanceledError && this.closed){
-                this.ws.close();
-                throw new Error('closed.')
-            }else{
-                this.ws.close();
-                throw e;
-            }
-        }
-    }
-    close(): void {
-        this.ws.close();
-    }
-    
-}
 
 globalThis.WebSocket=WebSocket as any;
 
@@ -247,7 +196,7 @@ export class NodeReadableDataSource implements UnderlyingDefaultSource<any>{
 	constructor(public nodeReadable:Readable){}
     start(controller: ReadableStreamDefaultController<any>){
         this.nodeReadable.on('data',(chunk)=>controller.enqueue(chunk))
-        this.nodeReadable.on('error',(err)=>{controller.error();controller.close();});
+        this.nodeReadable.on('error',(err)=>{try{controller.error(err);controller.close()}catch(err){}});
         this.nodeReadable.on('end',()=>controller.close());
     }
 }

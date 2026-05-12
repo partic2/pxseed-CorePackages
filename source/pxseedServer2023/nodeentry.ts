@@ -13,8 +13,7 @@ import {dirname,join as pathJoin} from 'path'
 import { Server as PxprpcBaseServer } from 'pxprpc/base'
 import { GetUrlQueryVariable2, getWWWRoot, lifecycle } from 'partic2/jsutils1/webutils';
 import { ChildProcess, spawn } from 'child_process';
-import {WebSocketServer } from 'ws'
-import { NodeReadableDataSource, NodeWsConnectionAdapter2 } from 'partic2/nodehelper/nodeio';
+import { NodeReadableDataSource, NodeWritableDataSink } from 'partic2/nodehelper/nodeio';
 import { createIoPipe, isServerHost } from 'partic2/pxprpcClient/registry';
 import { RpcExtendClient1 } from 'pxprpc/extend';
 import { WebSocketIo } from 'pxprpc/backend';
@@ -25,46 +24,10 @@ export {config}
 export let ensureInit=new future<number>();
 
 
-export let WsServer={
-    ws:new WebSocketServer({noServer:true}),
-    handle:async function(req: IncomingMessage, socket: Duplex, head: Buffer){
-        let url=new URL(req.url!,`http://${req.headers.host}`);
-        let request=new Request(url,{
-            method:req.method,
-            headers:Object.entries(req.headers).map(t1=>{
-                if(typeof t1[1]!=='string'){
-                    return [t1[0],(t1[1]??'').toString()] as [string,string]
-                }else{
-                    return t1 as [string,string];
-                }
-            })
-        });
-        let accepted=false;
-        await defaultHttpHandler.onwebsocket({
-            request,
-            accept:async ()=>{
-                accepted=true;
-                return new Promise((resolve)=>this.ws.handleUpgrade(req,socket,head,(client)=>{
-                    resolve(new NodeWsConnectionAdapter2(client))
-                }));
-            }
-        });
-        if(!accepted){
-            if(url.pathname in this.router){
-                this.ws.handleUpgrade(req,socket,head,(client,req)=>{
-                    this.router[url.pathname](new NodeWsConnectionAdapter2(client) as any,req.url,req.headers);
-                })
-            }else{
-                socket.end();
-            }
-        }        
-    },
-    //compatibility ONLY
-    router:{} as {[path:string]:(io:Io,url:string|undefined,headers?:IncomingHttpHeaders)=>void}
-}
 
 
-WsServer.ws.on('error',(err)=>console.log(err));
+
+
 
 export let httpServ=new Server();
 //To keep compatibility with old Koa server, koa server can override it and deligate request to default handler.
@@ -95,6 +58,8 @@ export let httpOnRequest=new Ref2(async (nodereq:IncomingMessage,noderes: Server
 });
 
 import { defaultHttpHandler } from './pxseedhttpserver';
+import { WebSocketServerStreamHandler } from 'partic2/tjshelper/httpprot';
+import { ExtendStreamReader, utf8conv } from 'partic2/CodeRunner/jsutils2';
 
 
 let noderunJs=getWWWRoot()+'/noderun.js'
@@ -153,8 +118,57 @@ export async function startServer(){
     //(await import('inspector')).open(9229,'127.0.0.1',true);
     console.info('argv',process.argv);
     await loadConfig()
-    httpServ.on('upgrade',(req,socket,head)=>{
-        WsServer.handle(req,socket,head)
+    httpServ.on('upgrade',async (nodereq,socket,head)=>{
+        if(nodereq.headers['upgrade']?.toLowerCase()==='websocket'){
+            let stream={
+                r:new ExtendStreamReader(new ReadableStream(new NodeReadableDataSource(socket)).getReader()),
+                w:new WritableStream(new NodeWritableDataSink(socket)).getWriter()
+            }
+            stream.r.unshiftBuffer(new Uint8Array(head.buffer,head.byteOffset,head.byteLength));
+            let url=new URL(nodereq.url!,`http://${nodereq.headers.host}`);
+            let req=new Request(url,{
+                method:nodereq.method,
+                headers:Object.entries(nodereq.headers).map(t1=>{
+                    if(typeof t1[1]!=='string'){
+                        return [t1[0],(t1[1]??'').toString()] as [string,string]
+                    }else{
+                        return t1 as [string,string];
+                    }
+                }),
+            });
+            async function simpleWriteResponse(resp:Response){
+                let headersString=new Array<string>();
+                resp.headers.forEach((val,key)=>{
+                    headersString.push(`${key}: ${val}`);
+                });
+                await stream.w.write(utf8conv(
+                    [
+                        `HTTP/1.1 ${resp.status} ${resp.statusText}`,
+                        ...headersString,
+                        '\r\n'
+                    ].join('\r\n'))
+                );
+            }
+            let p={
+                _ws:null as null|WebSocketServerStreamHandler,
+                request:req,
+                accept:async function(){
+                    if(this._ws==null){
+                        this._ws=new WebSocketServerStreamHandler(stream.r,stream.w);
+                        let resp=await this._ws.switchToWebsocketResponse(req)
+                        await simpleWriteResponse(resp);
+                    }
+                    return this._ws;
+                }
+            };
+            await defaultHttpHandler.onwebsocket(p);
+            if(p._ws==null){
+                await simpleWriteResponse(new Response("Unsupported",{status:426}));
+                socket.destroy();
+            }else{
+                await p._ws.closed.get();
+            }
+        }
     });
     httpServ.on('request',(req,res)=>{
         httpOnRequest.get()(req,res);
