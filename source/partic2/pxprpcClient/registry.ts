@@ -684,7 +684,7 @@ export let persistent={
     save:async function(){
         let config=await GetPersistentConfig(__name__);
         config.registered=Array.from(registered.entries()).map(v=>({name:v[0],url:v[1].url}));
-        await SavePersistentConfig(__name__);
+        await SavePersistentConfig(__name__,config);
     },
     load:async function() {
         let config=await GetPersistentConfig(__name__);

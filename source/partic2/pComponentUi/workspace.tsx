@@ -90,7 +90,7 @@ openNewWindowPipeline.arr().push({name:__name__+'.openNewWindowCreateWindow',han
         async forgetWindowPosition(){
             config1=await GetPersistentConfig(__name__);
             delete config1.savedWindowLayout![options.layoutHint!]
-            await SavePersistentConfig(__name__);
+            await SavePersistentConfig(__name__,config1);
         },
         windowRef,windowVNode:null as any,
         children:new Set<NewWindowHandle>()
@@ -123,7 +123,7 @@ openNewWindowPipeline.arr().push({name:__name__+'.openNewWindowLayoutWindow',han
     if(options.layoutHint!=undefined && config1.savedWindowLayout[options.layoutHint]!=undefined){
         layout1=partial(config1.savedWindowLayout[options.layoutHint],['left','top','width','height']) as any;
         config1.savedWindowLayout[options.layoutHint].time=GetCurrentTime().getTime();
-        await SavePersistentConfig(__name__);
+        await SavePersistentConfig(__name__,config1);
     }
     
     if(layout1==null){
@@ -152,7 +152,8 @@ openNewWindowPipeline.arr().push({name:__name__+'.openNewWindowLayoutWindow',han
     if(options.layoutHint!=undefined){
         context.result!.saveWindowPosition=async ()=>{
             config1=await GetPersistentConfig(__name__);
-            config1.savedWindowLayout![options.layoutHint!]={time:GetCurrentTime().getTime(),...(await windowRef.waitValid()).state.layout};
+            if(config1.savedWindowLayout==undefined)config1.savedWindowLayout={};
+            config1.savedWindowLayout[options.layoutHint!]={time:GetCurrentTime().getTime(),...(await windowRef.waitValid()).state.layout};
             let allEnt=Array.from(Object.entries(config1.savedWindowLayout!));
             if(allEnt.length>16){
                 allEnt.sort((a,b)=>(a[1].time??0)-(b[1].time??0));
@@ -160,7 +161,7 @@ openNewWindowPipeline.arr().push({name:__name__+'.openNewWindowLayoutWindow',han
                     delete config1.savedWindowLayout![allEnt[t1][0]]
                 }
             }
-            await SavePersistentConfig(__name__);
+            await SavePersistentConfig(__name__,config1);
         }
         let saveLayout=new DebounceCall(()=>context.result!.saveWindowPosition!(),3000);
         let onWindowLayoutChange=()=>{saveLayout.call()}

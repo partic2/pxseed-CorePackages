@@ -134,7 +134,7 @@ export async function registerServiceWorkerStartupModule(s:string){
     let startupModules=new Set(swconfig.startupModules??[]);
     startupModules.add(s);
     swconfig.startupModules=Array.from(startupModules);
-    await SavePersistentConfig(serviceworkerName);
+    await SavePersistentConfig(serviceworkerName,swconfig);
     worker.call(serviceworkerName,'loadServiceWorkerModule',[s])
 }
 
@@ -145,7 +145,7 @@ export async function unregisterServiceWorkerStartupModule(s:string){
     let startupModules=new Set(swconfig.startupModules??[]);
     startupModules.delete(s);
     swconfig.startupModules=Array.from(startupModules);
-    await SavePersistentConfig(serviceworkerName);
+    await SavePersistentConfig(serviceworkerName,swconfig);
 }
 
 export async function reloadServiceWorkerAndCache(){
@@ -302,7 +302,7 @@ export let SimpleGETCache={
         }else{
             found.policy=policy;
         }
-        SavePersistentConfig(__name__);
+        SavePersistentConfig(__name__,config);
     },
     getAllCachePolicy:async function(){
         await this.ensurePersitentConfigLoaded();

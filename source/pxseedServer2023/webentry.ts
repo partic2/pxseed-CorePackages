@@ -24,8 +24,9 @@ export async function updatePxseedServerConfig(pxprpcKey?:string|null){
     if(pxprpcKey===undefined){
         pxprpcKey=GetUrlQueryVariable('__pxprpcKey')
     }
-    (await GetPersistentConfig(__name__)).pxprpcKey=pxprpcKey;
-    await SavePersistentConfig(__name__);
+    let config1=(await GetPersistentConfig(__name__));
+    config1.pxprpcKey=pxprpcKey;
+    await SavePersistentConfig(__name__,config1);
     if(getRegistered(ServerHostRpcName)!=null){
         await removeClient(ServerHostRpcName);
     }

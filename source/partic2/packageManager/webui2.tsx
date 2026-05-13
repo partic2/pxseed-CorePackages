@@ -625,13 +625,13 @@ export let webuiStartupExecuteFunction={
         config=await GetPersistentConfig(__name__)
         config.startupExecuteFunction=config.startupExecuteFunction??{};
         config.startupExecuteFunction[id]=functionInfo;
-        await SavePersistentConfig(__name__)
+        await SavePersistentConfig(__name__,config)
     },
     async delete(id:string){
         config=await GetPersistentConfig(__name__)
         config.startupExecuteFunction=config.startupExecuteFunction??{};
         delete config.startupExecuteFunction[id];
-        await SavePersistentConfig(__name__)
+        await SavePersistentConfig(__name__,config)
     },
     async get(id:string){
         config=await GetPersistentConfig(__name__);

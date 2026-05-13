@@ -37,7 +37,7 @@ await __t1(_ENV);
 `
     return {
         config:config as moduleConfig,
-        save:()=>SavePersistentConfig(__name__)
+        save:()=>SavePersistentConfig(__name__,config)
     }
 }
 

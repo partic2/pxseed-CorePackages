@@ -153,6 +153,7 @@ export class RegistryUI extends React.Component<{},{selected:string|null,filter:
     async doAdd(){
         let addCard=new ReactRefEx<AddCard>();
         let dlg=await prompt(<AddCard ref={addCard}/>,'New rpc client');
+        (await addCard.waitValid()).setAddClientInfo({name:'user:',url:''});
         if(await dlg.response.get()==='ok'){
             let {url,name}=(await addCard.waitValid()).getAddClientInfo();
             await addClient(url,name);
@@ -217,7 +218,7 @@ export class RegistryUI extends React.Component<{},{selected:string|null,filter:
             config=await GetPersistentConfig(__name__);
         }
         config!.lastFilter=newFilter;
-        await SavePersistentConfig(__name__);
+        await SavePersistentConfig(__name__,config);
         this.setState({filter:newFilter});
     }
     render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined; }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChild {

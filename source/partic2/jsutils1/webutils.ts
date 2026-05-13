@@ -383,24 +383,18 @@ export async function useKvStorePrefix(wwwroot?:string,prefix?:string){
     }
 }
 
-var cachedPersistentConfig:{[modname:string]:any}={};
-export async function GetPersistentConfig(modname:string){
-    if(cachedPersistentConfig[modname]==undefined){
-        cachedPersistentConfig[modname]={};
-    }
+export async function GetPersistentConfig(name:string){
     let kvs=await kvStore();
-    let cfg=await kvs.getItem(modname+'/config');
-    let ccfg=cachedPersistentConfig[modname];
-    for(let t1 in ccfg){delete ccfg[t1]};
-    Object.assign(ccfg,cfg)
-    return ccfg;
+    let cfg=await kvs.getItem(name+'/config');
+    if(cfg==undefined){
+        cfg={}
+    }
+    return cfg;
     
 }
-export async function SavePersistentConfig(modname:string){
-    if(cachedPersistentConfig[modname]!=undefined){
-        let kvs=await kvStore();
-        return await kvs.setItem(modname+'/config',cachedPersistentConfig[modname]);
-    }
+export async function SavePersistentConfig(name:string,config:any){
+    let kvs=await kvStore();
+    return await kvs.setItem(name+'/config',config);
 }
 
 //WorkerThread feature require a custom AMD loader https://github.com/partic2/partic2-iamdee
@@ -620,6 +614,24 @@ let getResourceManagerImpl=(modNameOrLocalRequire:string|typeof require)=>{
             assert(resp.ok,'fetch failed with error HTTP error:'+resp.status+' '+resp.statusText)
             assert(resp.body!=null);
             return resp.body;
+        },
+        async getConfig(path2?:string):Promise<any>{
+            path2=path2??'.';
+            if(path2.startsWith('/')){
+                path2=path2.substring(1)
+            }else{
+                path2=path.join(modNameOrLocalRequire,path2);
+            }
+            return await GetPersistentConfig(path2)
+        },
+        async saveConfig(config:any,path2?:string):Promise<any>{
+            path2=path2??'.';
+            if(path2.startsWith('/')){
+                path2=path2.substring(1)
+            }else{
+                path2=path.join(modNameOrLocalRequire,path2);
+            }
+            return await SavePersistentConfig(path2,config)
         }
     }
 }
