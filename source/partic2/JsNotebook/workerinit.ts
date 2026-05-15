@@ -1,14 +1,12 @@
 import { defaultFileSystem, ensureDefaultFileSystem, installRequireProvider, SimpleFileSystem } from "partic2/CodeRunner/JsEnviron";
 import { assert, future, GenerateRandomString, requirejs, sleep, Task } from "partic2/jsutils1/base";
 import { ClientInfo, createIoPipe, getConnectionFromUrl, getPersistentRegistered, importRemoteModule, rpcWorkerInitModule, ServerHostRpcName } from "partic2/pxprpcClient/registry";
-import { LocalRunCodeContext, RunCodeContext } from "partic2/CodeRunner/CodeContext";
+import { BaseCodeCellListData, LocalRunCodeContext, newCodeCellListData, RunCodeContext } from "partic2/CodeRunner/CodeContext";
 import { createConnectorWithNewRunCodeContext, RunCodeContextConnector } from "partic2/CodeRunner/RemoteCodeContext";
 import { utf8conv } from "partic2/CodeRunner/jsutils2";
 import { RpcExtendClient1, RpcExtendServer1 } from "pxprpc/extend";
 import { Client, Server } from "pxprpc/base";
-import { CodeCellListData, CodeCompletionContext } from "partic2/CodeRunner/Inspector";
 import type {} from 'partic2/tjshelper/txikijs'
-import { TjsUtilsProcess } from "./tjseasyapi";
 import { defaultHttpClient } from "partic2/jsutils1/webutils";
 
 export var __name__='partic2/JsNotebook/workerinit'
@@ -57,16 +55,16 @@ export class NotebookFileData{
         let r=JSON.parse(utf8conv(data));
         if(r.rpc!=undefined)this.rpc=r.rpc;
         this.startupScript=r.startupScript??'';
-        this.cells=r.cells??new CodeCellListData().saveTo();
+        this.cells=r.cells??newCodeCellListData.get()().saveTo();
     }
     getCellsData(){
-        let cld=new CodeCellListData();
+        let cld=newCodeCellListData.get()();
         if(this.cells!=null){
             cld.loadFrom(this.cells);
         }
         return cld;
     }
-    setCellsData(ccld:CodeCellListData){
+    setCellsData(ccld:BaseCodeCellListData){
         this.cells=ccld.saveTo();
     }
     async getRpcClient(){
@@ -115,6 +113,15 @@ export async function initNotebookCodeEnv(_ENV:any,opt?:{codePath?:string}){
             this.codePath=path;
             await cc.runCode(js);
             this.codePath=savedCodePath;
+        },
+        loadNotebook:async function(path:string){
+            assert(this.simple!=undefined);
+            if(path.startsWith('.')){
+                assert(this.codePath!=undefined )
+                path=dirname2(this.codePath)+path.substring(1);
+            }
+            let codeContext=await runNotebook(path,'all cells') as LocalRunCodeContext;
+            return codeContext.localScope;
         }
     };
     _ENV.fs=fs;
@@ -123,33 +130,6 @@ export async function initNotebookCodeEnv(_ENV:any,opt?:{codePath?:string}){
         for(let [k1,v1] of Object.entries(mod)){
             _ENV[k1]=v1;
         }
-    }
-    let {CustomFunctionParameterCompletionSymbol,importNameCompletion,makeFunctionCompletionWithFilePathArg0}=(await import('partic2/CodeRunner/Inspector'));
-    _ENV.import2env[CustomFunctionParameterCompletionSymbol]=async (context:CodeCompletionContext)=>{
-        let param=context.code.substring(context.funcParamStart!,context.caret);
-        let importName2=param.match(/\(\s*(['"])([^'"]+)$/);
-        if(importName2!=null){
-            let replaceRange:[number,number]=[context.funcParamStart!+param.lastIndexOf(importName2[1])+1,0];
-            replaceRange[1]=replaceRange[0]+importName2[2].length;
-            let importName=importName2[2];
-            let t1=await importNameCompletion(importName);
-            let lastSlashOffset=importName.lastIndexOf('/')+1;
-            replaceRange[0]+=lastSlashOffset;
-            context.completionItems.push(...t1.map(v=>({type:'literal',candidate:v.substring(lastSlashOffset),replaceRange})))
-        }
-    }
-    let {path}=await import('partic2/jsutils1/webutils');
-    _ENV.fs.loadScript[CustomFunctionParameterCompletionSymbol]=makeFunctionCompletionWithFilePathArg0(path.dirname(_ENV.fs.codePath??''));
-    if(_ENV.fs.simple!=undefined){
-        _ENV.fs.simple.readAll[CustomFunctionParameterCompletionSymbol]=makeFunctionCompletionWithFilePathArg0(undefined);
-        _ENV.fs.simple.read[CustomFunctionParameterCompletionSymbol]=makeFunctionCompletionWithFilePathArg0(undefined);
-        _ENV.fs.simple.writeAll[CustomFunctionParameterCompletionSymbol]=makeFunctionCompletionWithFilePathArg0(undefined);
-        _ENV.fs.simple.write[CustomFunctionParameterCompletionSymbol]=makeFunctionCompletionWithFilePathArg0(undefined);
-        _ENV.fs.simple.listdir[CustomFunctionParameterCompletionSymbol]=makeFunctionCompletionWithFilePathArg0(undefined);
-        _ENV.fs.simple.filetype[CustomFunctionParameterCompletionSymbol]=makeFunctionCompletionWithFilePathArg0(undefined);
-        _ENV.fs.simple.delete2[CustomFunctionParameterCompletionSymbol]=makeFunctionCompletionWithFilePathArg0(undefined);
-        _ENV.fs.simple.mkdir[CustomFunctionParameterCompletionSymbol]=makeFunctionCompletionWithFilePathArg0(undefined);
-        _ENV.fs.simple.rename[CustomFunctionParameterCompletionSymbol]=makeFunctionCompletionWithFilePathArg0(undefined);
     }
     _ENV.globalThis=globalThis;
     _ENV.fetch=defaultHttpClient.fetch.bind(defaultHttpClient)
@@ -161,15 +141,17 @@ export async function initNotebookCodeEnv(_ENV:any,opt?:{codePath?:string}){
 }
 
 
-export async function createRunCodeContextConnectorForNotebookFile(notebookFilePath:string){
+export async function createRunCodeContextConnectorForNotebookFile(notebookFilePath:string,opt?:{setupInspectorHelper?:boolean}){
     await __inited__;
-    
     if(!runningRunCodeContextForNotebookFile.has(notebookFilePath)){
         let connector=await createConnectorWithNewRunCodeContext();
+        await ensureDefaultFileSystem();
         if(connector.value instanceof LocalRunCodeContext){
             await initNotebookCodeEnv(connector.value.localScope,{codePath:notebookFilePath});
+            if(opt?.setupInspectorHelper===true){
+                (await import('./inspector')).setupInspectorHelper(connector.value.localScope)
+            }
         }
-        await ensureDefaultFileSystem();
         let nbd=new NotebookFileData();
         let fileData=await defaultFileSystem!.readAll(notebookFilePath);
         if(fileData!=null && fileData.length>0){

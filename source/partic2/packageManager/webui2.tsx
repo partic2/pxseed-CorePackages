@@ -12,9 +12,8 @@ import {TaskLocalRef,Singleton, utf8conv} from 'partic2/CodeRunner/jsutils2'
 export var __name__=requirejs.getLocalRequireModule(require);
 //remote code context
 
-import * as registryModType from 'partic2/packageManager/registry'
+import type * as registryModType from 'partic2/packageManager/registry'
 import type { PxseedConfig } from 'pxseedBuildScript/buildlib'
-import {openWorkspaceWindowFor, openWorkspaceWithProfile} from 'partic2/JsNotebook/workspace'
 import { PlainTextEditorInput, TextEditor } from 'partic2/pComponentUi/texteditor'
 import { NewWindowHandle, NewWindowHandleLists, openNewWindow, openNewWindowPipeline, setBaseWindowView, WorkspaceWindowContext  } from 'partic2/pComponentUi/workspace'
 
@@ -455,6 +454,7 @@ class PackagePanel extends React.Component<{},{
     }
     async openNotebook(){
         try{
+            let {openWorkspaceWithProfile}=await import('partic2/JsNotebook/workspace')
             let nbw=await openWorkspaceWithProfile.openJSNotebookFirstProfileWorkspace({
                 defaultRpc:ServerHostWorker1RpcName,
                 defaultStartupScript:`import2env('partic2/jsutils1/base');

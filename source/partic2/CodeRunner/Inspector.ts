@@ -1,4 +1,4 @@
-import { CodeContextEvent, LocalRunCodeContext, RunCodeContext, TaskLocalEnv } from "./CodeContext";
+import { CodeContextEvent, JsonStringifyWithCircular, LocalRunCodeContext, newCodeCellListData, RunCodeContext, TaskLocalEnv } from "./CodeContext";
 import { ArrayBufferToBase64, ArrayWrap2, Base64ToArrayBuffer, GenerateRandomString, future, mutex, requirejs, sleep, throwIfAbortError } from "partic2/jsutils1/base";
 import { SimpleFileSystem, defaultFileSystem, ensureDefaultFileSystem, installedRequirejsResourceProvider } from "./JsEnviron";
 import { getWWWRoot } from "partic2/jsutils1/webutils";
@@ -73,6 +73,8 @@ export function toSerializableObject(v:any,opt:Partial<typeof DefaultSerializing
             return {[serializingEscapeMark]:'ArrayBuffer',
                 value:ArrayBufferToBase64(v)
             }
+        }else if(v instanceof UnidentifiedObject || v instanceof MiscObject){
+            return v.toJSON();
         }else{
             let r={} as Record<string,any>;
             let keys=listProps(v);
@@ -107,7 +109,8 @@ export function toSerializableObject(v:any,opt:Partial<typeof DefaultSerializing
 
 let remoteName={
     accessVariableAsSerializableObject:'__priv_'+__name__+'.accessVariableAsSerializableObject',
-    requestCodeCompletion:'__priv_'+__name__+'.requestCodeCompletion'
+    requestCodeCompletion:'__priv_'+__name__+'.requestCodeCompletion',
+    requestExtraTooltips:'__priv_'+__name__+'.requestExtraTooltips'
 }
 
 export class RemoteCodeContextInspector{
@@ -120,6 +123,10 @@ export class RemoteCodeContextInspector{
     }
     async requestCodeCompletion(code: string, caret: number):Promise<CodeCompletionItem[]>{
         let resp=await this.codeContext!.callFunction(remoteName.requestCodeCompletion,[code,caret]);
+        return resp;
+    }
+    async requestExtraTooltips(code:string,caret:number):Promise<string|null>{
+        let resp=await this.codeContext!.callFunction(remoteName.requestExtraTooltips,[code,caret]);
         return resp;
     }
 }
@@ -138,7 +145,7 @@ export class UnidentifiedObject{
     }
     toJSON(key?:string){
         return {
-            [serializingEscapeMark]:'unidentified',isArray:false,keyCount:this.keyCount
+            [serializingEscapeMark]:'unidentified',isArray:false,keyCount:this.keyCount,accessPath:this.accessPath
         }
     }
 }
@@ -170,7 +177,6 @@ export class MiscObject{
 export function fromSerializableObject(v:any,opt:{
     fetcher?:RemoteCodeContextInspector,
     accessPath?:(string|number)[],
-    referenceGlobal?:any    // For 'RemoteReference' instance.
 }):any{
     if(opt.accessPath==undefined)opt.accessPath=[];
     if((typeof(v)!=='object')||(v===null)){
@@ -191,7 +197,7 @@ export function fromSerializableObject(v:any,opt:{
                     }
                     t1.fetcher=opt.fetcher;
                     t1.keyCount=keyCount;
-                    t1.accessPath=opt.accessPath;
+                    t1.accessPath=v.accessPath??opt.accessPath;
                     return t1;
                 };
                 case 'date':{
@@ -310,7 +316,7 @@ export async function importNameCompletion(partialName:string){
     }catch(err){}
     
     try{
-    await ensureDefaultFileSystem();
+        await ensureDefaultFileSystem();
         let moduleDir=getWWWRoot().replace(/\\/g,'/');
         if(!moduleDir.startsWith('/')){
             moduleDir='/'+moduleDir;
@@ -339,43 +345,6 @@ export async function importNameCompletion(partialName:string){
     return Array.from(candidate);
 }
 
-export async function filepathCompletion(partialPath:string,codeContext:LocalRunCodeContext,current?:string){
-    let sfs=codeContext.localScope.fs.simple as SimpleFileSystem;
-    let pathPart=partialPath.split(/[\\\/]/);
-    let dirPart=pathPart.slice(0,pathPart.length-1);
-    let partialName=pathPart.at(-1)??'';
-    if(current!=undefined && dirPart.length>0 && dirPart[0]=='.'){
-        dirPart=[...current.split(/[\\\/]/),...dirPart.slice(1)];
-    }
-    try{
-        let children=await sfs.listdir(dirPart.join('/'));
-        return {
-            at:partialPath.length-partialName.length,
-            children:children.filter(child=>child.name.startsWith(partialName))
-        };
-    }catch(e:any){
-        throwIfAbortError(e);
-    }
-    return {
-        at:partialPath.length-partialName.length,
-        children:[]
-    };
-}
-
-export function makeFunctionCompletionWithFilePathArg0(current:string|undefined){
-    return async (context:CodeCompletionContext)=>{
-        let param=context.code.substring(context.funcParamStart!,context.caret);
-        let loadPath2=param.match(/\(\s*(['"])([^'"]+)$/);
-        if(loadPath2!=null){
-            let replaceRange:[number,number]=[context.funcParamStart!+param.lastIndexOf(loadPath2[1])+1,0];
-            replaceRange[1]=replaceRange[0]+loadPath2[2].length;
-            let loadPath=loadPath2[2];
-            let t1=await filepathCompletion(loadPath,context.codeContext,current);
-            replaceRange[0]=replaceRange[0]+t1.at;
-            context.completionItems.push(...t1.children.map(v=>({type:'literal',candidate:v.name,replaceRange})))
-        }
-    }
-}
 
 export interface CodeCompletionItem{
     type:string,
@@ -384,13 +353,65 @@ export interface CodeCompletionItem{
 }
 
 export const CustomFunctionParameterCompletionSymbol=Symbol(__name__+'.CustomFunctionParameterCompletionSymbol');
+export const CustomObjectTooltipsSymbol=Symbol(__name__+'.CustomObjectTooltipsSymbol');
+
+
 export interface CodeCompletionContext{
     [k:string]:any,
     code:string,
     caret:number,
     completionItems:Array<CodeCompletionItem>,
     codeContext:LocalRunCodeContext,
-    funcParamStart?:number
+}
+
+export interface TooltipsContext{
+    [k:string]:any,
+    code:string,
+    caret:number,
+    tooltips:string|null,
+    codeContext:LocalRunCodeContext
+}
+
+
+export const builtInTooltipsHandlers={
+    getCalleeInFuncCallExpr:async (context:{[k:string]:any,caret:number,code:string})=>{
+        let behind=context.code.substring(0,context.caret);
+        let rBracketCnt=0;
+        let paramStart=-1;
+        for(let t1=behind.length;t1>=0;t1--){
+            let ch=behind.charAt(t1);
+            if(ch=='('){
+                rBracketCnt--;
+                if(rBracketCnt<0){
+                    paramStart=t1;
+                    break;
+                };
+            }else if(ch==')'){
+                rBracketCnt++
+            }
+        }
+        if(paramStart<0){
+            return;
+        }
+        let funcName=behind.substring(0,paramStart).match(/[0-9a-zA-Z_.\[\]'"]+$/);
+        if(funcName==null)return;
+        try{
+            let funcObj=new Function('_ENV',`return _ENV.${funcName};`)(context.codeContext.localScope);
+            context.calleeInFuncCallExpr=funcObj
+            context.funcParamStart=paramStart;
+        }catch(e:any){
+            throwIfAbortError(e);
+        }
+    },
+    customFunctionTooltips:async (context:TooltipsContext)=>{
+        if(context.calleeInFuncCallExpr!=undefined){
+            let funcObj=context.calleeInFuncCallExpr
+            if(CustomObjectTooltipsSymbol in funcObj){
+                let customTooltips=funcObj[CustomObjectTooltipsSymbol] as (ctx:TooltipsContext)=>Promise<void>;
+                await customTooltips(context as any);
+            }
+        }
+    }
 }
 
 export const builtInCompletionHandlers={
@@ -424,7 +445,7 @@ export const builtInCompletionHandlers={
         }
         let obj1:any;
         try{
-            obj1=await context.codeContext.runCodeInScope(`return ${objExpr};`);
+            obj1=new Function('_ENV',`return _ENV.${objExpr};`)(context.codeContext.localScope);
         }catch(e:any){
             throwIfAbortError(e);
         }
@@ -479,55 +500,20 @@ export const builtInCompletionHandlers={
             context.completionItems.push(...t1.map(v=>({type:'literal',candidate:v.substring(lastSlashOffset),replaceRange})))
         }
     },
+    getCalleeInFuncCallExpr:builtInTooltipsHandlers.getCalleeInFuncCallExpr,
     customFunctionParameterCompletion:async (context:CodeCompletionContext)=>{
-        let behind=context.code.substring(0,context.caret);
-        let rBracketCnt=0;
-        let paramStart=-1;
-        for(let t1=behind.length;t1>=0;t1--){
-            let ch=behind.charAt(t1);
-            if(ch=='('){
-                rBracketCnt--;
-                if(rBracketCnt<0){
-                    paramStart=t1;
-                    break;
-                };
-            }else if(ch==')'){
-                rBracketCnt++
-            }
-        }
-        if(paramStart<0){
-            return;
-        }
-        let funcName=behind.substring(0,paramStart).match(/[0-9a-zA-Z_.\[\]'"]+$/);
-        if(funcName==null)return;
-        try{
-            let funcObj=await context.codeContext.runCodeInScope(`return ${funcName};`);
+        if(context.calleeInFuncCallExpr!=undefined){
+            let funcObj=context.calleeInFuncCallExpr
             if(CustomFunctionParameterCompletionSymbol in funcObj){
                 let customCompletion=funcObj[CustomFunctionParameterCompletionSymbol] as (ctx:CodeCompletionContext)=>Promise<void>;
-                context.funcParamStart=paramStart;
                 await customCompletion(context as any);
             }
-        }catch(e:any){
-            throwIfAbortError(e);
         }
     }
 }
 
 
 
-function jsonStringifyResolveCircular(obj:any) {
-  let seen = new Map();
-  let path:string[] = [];
-  return JSON.stringify(obj, (key, value) => {
-    if (value && typeof value === 'object') {
-      if (seen.has(value)) {
-        return `[Circular -> ${seen.get(value).join('.')}]`;
-      }
-      seen.set(value, [...path, key]);
-    }
-    return value;
-  });
-}
 
 //Emit on console data output.
 export interface ConsoleDataEventData{
@@ -535,15 +521,13 @@ export interface ConsoleDataEventData{
     message:string
 }
 
-
-
 export async function installJavascriptInspectorForCodeContext(codeContext:LocalRunCodeContext){
     if(codeContext.localScope.autoClosable[__name__+'.consoleDataHookForCodeContext']==undefined){
         const onConsoleLogListener=(level:string,argv:any)=>{
             let outputTexts:string[]=[];
             for(let t1 of argv){
                 if(typeof t1=='object'){
-                    outputTexts.push(jsonStringifyResolveCircular(t1));
+                    outputTexts.push(JsonStringifyWithCircular(t1));
                 }else{
                     outputTexts.push(t1);
                 }
@@ -586,6 +570,35 @@ export async function installJavascriptInspectorForCodeContext(codeContext:Local
             return completeContext.completionItems;
         }
     }
+    if(codeContext.localScope[remoteName.requestExtraTooltips]==undefined){
+        codeContext.localScope.deleteVariables[CustomObjectTooltipsSymbol]=(context:TooltipsContext)=>{
+            context.tooltips='TYPE:deleteVariables(names:string[])=>void'
+        }
+        codeContext.localScope.callModuleFunction[CustomObjectTooltipsSymbol]=(context:TooltipsContext)=>{
+            context.tooltips='TYPE:callModuleFunction(module:string,func:string,args:any[])=>Promise&lt;any&gt;'
+        }
+        codeContext.localScope[remoteName.requestExtraTooltips]=async (code:string,caret:number)=>{
+            let tooltipsContext={
+                code,caret,codeContext:codeContext,tooltips:null
+            }
+            for(let t1 of defaultTooltipsHandlers){
+                //Mute error
+                try{
+                    await t1(tooltipsContext);
+                }catch(e:any){
+                    throwIfAbortError(e);
+                }
+            }
+            return tooltipsContext.tooltips;
+        }
+    }
+    if(globalThis?.process?.versions?.node!=undefined && codeContext.localScope['__priv_enableDebugger']==undefined){
+        codeContext.localScope['__priv_enableDebugger']=async function(){
+            try{
+                (await import('inspector')).open(9229);
+            }catch(err){};
+        }
+    }
 }
 
 let codeContextAttachedInspector=Symbol(__name__+'.codeContextAttachedInspector')
@@ -598,22 +611,16 @@ export async function ensureJavascriptInspectorForCodeContextInstalled(codeConte
     return (codeContext as any)[codeContextAttachedInspector];
 }
 
-export class CodeCellListData{
-    cellList=new Array<{cellInput:string,cellOutput:[any,string|null],key:string}>();
-    consoleOutput:{[cellKey:string]:{content:string}}={};
-    loadFrom(data:string){
-        let loaded=fromSerializableObject(JSON.parse(data),{});
-        this.cellList=loaded.cellList;
-        this.consoleOutput=loaded.consoleOutput;
-    }
-    saveTo():string{
-        return JSON.stringify(toSerializableObject({cellList:this.cellList,consoleOutput:this.consoleOutput},{}));
-    }
-}
 
 export let defaultCompletionHandlers:Array<(context:CodeCompletionContext)=>Promise<void>>=[
     builtInCompletionHandlers.checkIsInStringLiteral,
     builtInCompletionHandlers.propertyCompletion,
     builtInCompletionHandlers.importStatementCompletion,
+    builtInCompletionHandlers.getCalleeInFuncCallExpr,
     builtInCompletionHandlers.customFunctionParameterCompletion,
+]
+
+export let defaultTooltipsHandlers:Array<(context:TooltipsContext)=>Promise<void>>=[
+    builtInTooltipsHandlers.getCalleeInFuncCallExpr,
+    builtInTooltipsHandlers.customFunctionTooltips
 ]

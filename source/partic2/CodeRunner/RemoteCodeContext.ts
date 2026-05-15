@@ -8,7 +8,6 @@ import {easyCallRemoteJsonFunction, getAttachedRemoteRigstryFunction, RpcSeriali
 import {getRpcFunctionOn} from 'partic2/pxprpcBinding/utils'
 import { Io } from 'pxprpc/base';
 import { setupAsyncHook } from './jsutils2';
-import type { CodeCompletionItem } from './Inspector';
 
 setupAsyncHook()
 

@@ -116,7 +116,7 @@ class NotebookViewer extends React.Component<{context:WorkspaceContext,path:stri
         try{
             let code=await connectToRemoteCodeContext(await rpc.ensureConnected(),
             `return (await lib.importModule('partic2/JsNotebook/workerinit')).createRunCodeContextConnectorForNotebookFile(
-                ${JSON.stringify(this.props.path)}
+                ${JSON.stringify(this.props.path)},${JSON.stringify({setupInspectorHelper:true})}
             )`);
             if(this.state.codeContext!=undefined){
                 if(opt==undefined){

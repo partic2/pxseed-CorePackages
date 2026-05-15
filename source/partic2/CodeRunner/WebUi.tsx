@@ -1,11 +1,11 @@
 
 import { GenerateRandomString, GetCurrentTime, assert, requirejs, sleep } from 'partic2/jsutils1/base';
 import { FloatLayerComponent, ReactRefEx, css as css1 } from 'partic2/pComponentUi/domui';
-import { CodeContextEvent, RunCodeContext } from './CodeContext';
+import { CodeContextEvent, newCodeCellListData, RunCodeContext } from './CodeContext';
 import * as React from 'preact'
 import { DynamicPageCSSManager, globalInputState, GlobalInputStateTracer } from 'partic2/jsutils1/webutils';
 import { TextEditor } from 'partic2/pComponentUi/texteditor';
-import { fromSerializableObject, inspectCodeContextVariable, CodeCompletionItem, toSerializableObject, CodeCellListData,CodeCompletionContext, ConsoleDataEventData, RemoteCodeContextInspector, ensureJavascriptInspectorForCodeContextInstalled } from './Inspector';
+import { fromSerializableObject, inspectCodeContextVariable, CodeCompletionItem, ConsoleDataEventData, RemoteCodeContextInspector, ensureJavascriptInspectorForCodeContextInstalled, toSerializableObject } from './Inspector';
 import { ObjectViewer } from './Component1';
 import { text2html } from 'partic2/pComponentUi/utils';
 import { FlattenArraySync,DebounceCall, ThrottleCall } from './jsutils2';
@@ -125,12 +125,21 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
             </div>;
     }
     protected requestCodeComplete=new DebounceCall(async ()=>{
-        this.setState({
-            codeCompleteCandidate:await (await ensureJavascriptInspectorForCodeContextInstalled(this.codeContext!)).requestCodeCompletion(
+        let codeCompleteCandidate=await (await ensureJavascriptInspectorForCodeContextInstalled(this.codeContext!)).requestCodeCompletion(
                 this.getCellInput(),
-                this.rref.codeInput.current!.getTextCaretOffset())
+                this.rref.codeInput.current!.getTextCaretOffset());
+        this.setState({
+            codeCompleteCandidate
         });
     },200);
+    protected requestTooltips=new DebounceCall(async ()=>{
+        let extraTooltips=await (await ensureJavascriptInspectorForCodeContextInstalled(this.codeContext!)).requestExtraTooltips(
+                this.getCellInput(),
+                this.rref.codeInput.current!.getTextCaretOffset());
+        this.setState({
+            extraTooltips
+        });
+    },200)
     protected getRunCodeKey(){
         return this.props.runCodeKey??'Ctl+Ent';
     }
@@ -199,6 +208,11 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
         }
         if((inputData.char!=null&&inputData.char.search(/[a-zA-Z_\.\/]/)>=0)||inputData.type==='deleteContentBackward'){
             this.requestCodeComplete.call();
+        }
+        if(inputData.char=='('){
+            this.requestTooltips.call();
+        }else{
+            this.setState({extraTooltips:null})
         }
         this.props.onInputChange?.(this);
     }
@@ -483,10 +497,10 @@ export class DefaultCodeCellList extends React.Component<
         }
     }
     saveTo():string{
-        let cellData=new CodeCellListData();
+        let cellData=newCodeCellListData.get()();
         cellData.cellList=this.state.list.map((cell,index)=>({
                 cellInput:cell.ref.current!.getCellInput(),
-                cellOutput:cell.ref.current!.getCellOutput(),
+                cellOutput:toSerializableObject(cell.ref.current!.getCellOutput(),{}),
                 key:cell.key
             }));
         cellData.consoleOutput=this.state.consoleOutput;
@@ -494,7 +508,7 @@ export class DefaultCodeCellList extends React.Component<
     }
     async loadFrom(data:string){
         try{
-            let cellData=new CodeCellListData();
+            let cellData=newCodeCellListData.get()();
             cellData.loadFrom(data);;
             while(this.state.list.length<cellData.cellList.length){
                 this.state.list.push({ref:new ReactRefEx<CodeCell>(),key:GenerateRandomString()});

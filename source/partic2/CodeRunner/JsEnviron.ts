@@ -3,8 +3,6 @@ import { ArrayBufferConcat, ArrayWrap2, GenerateRandomString, GetCurrentTime, Ia
 import { CKeyValueDb, getWWWRoot, kvStore, path } from "partic2/jsutils1/webutils";
 import type {} from 'partic2/tjshelper/txikijs'
 import { ClientInfo } from "partic2/pxprpcClient/registry";
-import type { LocalRunCodeContext } from "./CodeContext";
-import { type CodeCompletionContext } from "./Inspector";
 import { RpcExtendClient1 } from "pxprpc/extend";
 import { utf8conv } from "./jsutils2";
 import { buildTjs } from "partic2/tjshelper/tjsbuilder";

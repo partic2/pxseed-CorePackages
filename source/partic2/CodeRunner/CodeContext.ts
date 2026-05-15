@@ -70,24 +70,118 @@ export class CodeContextEvent<T=any> extends Event{
 }
 
 
-export async function enableDebugger(){
-    try{
-        if(globalThis?.process?.versions?.node!=undefined){
-            (await import('inspector')).open(9229);
-        }
-    }catch(err){};
-}
-
-
-
-async function defaultCodeTranspilingProcessor(processContext:{source:string,_ENV:any}){
+async function defaultCodeTranspilingProcessor(processContext:{source:string,_ENV:any,declVars:string[]}){
     let replacePlan=new JsSourceReplacePlan(processContext.source);
     await addAutoAsyncAwait(replacePlan,processContext._ENV.__topLevelTranspileDirective??{})
     processContext.source=replacePlan.apply();
 }
 
+async function builtinCodeContextSourceProcessor(processContext:{source:string,_ENV:any,declVars:string[]}){
+    let {source}=processContext;
+    let replacePlan=new JsSourceReplacePlan(source);
+    let result=acorn.parse(source,{allowAwaitOutsideFunction:true,ecmaVersion:'latest',allowReturnOutsideFunction:true});
+    replacePlan.parsedAst=result;
+    let foundDecl=[] as string[];
+
+    function parseDeclStat(decl:acorn.VariableDeclarator[]){
+        let declNames:string[]=[];
+        decl.forEach(v=>{
+            if(v.id.type==='Identifier'){
+                declNames.push(v.id.name);
+            }else if(v.id.type==='ObjectPattern'){
+                declNames.push(...v.id.properties.map(v2=>(v2 as any).value.name))
+            }else if(v.id.type==='ArrayPattern'){
+                declNames.push(...v.id.elements.filter(v2=>v2!=null).map(v2=>(v2 as acorn.Identifier).name))
+            }
+        });
+        return {declNames};
+    }
+    acornWalk.ancestor(result,{
+        VariableDeclaration(node,state,ancestors){
+            //Performance issue.
+            if(ancestors.find(v=>v.type.endsWith('FunctionExpression')))return;
+            if(ancestors.find(v=>['BlockStatement'].includes(v.type))!==undefined && node.kind!=='var')return;
+            if((['ForStatement','ForOfStatement'].includes(ancestors.at(-2)?.type??''))){
+                if(node.kind=='var'){
+                    let {declNames}=parseDeclStat(node.declarations);
+                    foundDecl.push(...declNames)
+                    let declaratorStart=node.declarations[0].start;
+                    replacePlan.plan.push({start:node.start,end:declaratorStart,newString:''});
+                    return;
+                }else{
+                    return;
+                }
+            }
+            let {declNames}=parseDeclStat(node.declarations);
+            foundDecl.push(...declNames)
+            let declaratorStart=node.declarations[0].start;
+            let declaratorEnd=node.declarations.at(-1)!.end;
+            replacePlan.plan.push({start:node.start,end:declaratorStart,newString:';('});
+            replacePlan.plan.push({start:declaratorEnd,end:declaratorEnd,newString:')'})
+        },
+        FunctionDeclaration(node,state,ancestors){
+            if(node.expression || 
+                ancestors.find(v=>v.type==='FunctionExpression')!=undefined){
+                return;
+            }
+            if(node.id==null)return;
+            foundDecl.push(node.id.name);
+            let funcType1=source.substring(node.start,node.id.start);
+            replacePlan.plan.push({start:node.start,end:node.id.end,newString:node.id.name+'='+funcType1});
+        },
+        ClassDeclaration(node,state,ancestors){
+            if(ancestors.find(v=>v.type==='FunctionExpression')!=undefined){
+                return;
+            }
+            if(node.id==null)return;
+            foundDecl.push(node.id.name);
+            let clsType1=source.substring(node.start,node.id.start);
+            replacePlan.plan.push({start:node.start,end:node.id.end,newString:node.id.name+'='+clsType1});
+        },
+        ImportExpression(node,state,ancestors){
+            replacePlan.plan.push({start:node.start,end:node.start+6,newString:'_ENV.__priv_import'})
+        },
+        ImportDeclaration(node,state,ancestor){
+            if(node.specifiers.length===1 && node.specifiers[0].type==='ImportNamespaceSpecifier'){
+                let spec=node.specifiers[0];
+                replacePlan.plan.push({start:node.start,end:node.end,newString:`${spec.local.name}=await _ENV.__priv_import('${node.source.value}');`})
+                foundDecl.push(spec.local.name)
+            }else if(node.specifiers.length>0 && node.specifiers[0].type==='ImportSpecifier'){
+                let specs=node.specifiers as acorn.ImportSpecifier[];
+                let importStat=[`{let __timp=(await _ENV.__priv_import('${node.source.value}'));`]
+                for(let spec of specs){
+                    importStat.push(`_ENV.${spec.local.name}=__timp.${(spec.imported as acorn.Identifier).name};`)
+                    foundDecl.push(spec.local.name)
+                }
+                importStat.push('}')
+                replacePlan.plan.push({start:node.start,end:node.end,newString:importStat.join('')});
+            }else if(node.specifiers.length===1 && node.specifiers[0].type==='ImportDefaultSpecifier'){
+                let spec=node.specifiers[0];
+                replacePlan.plan.push({start:node.start,end:node.end,newString:`${spec.local.name}=(await _ENV.__priv_import('${node.source.value}')).default;`})
+                foundDecl.push(spec.local.name)
+            }else{
+                replacePlan.plan.push({start:node.start,end:node.end,newString:``});
+            }
+        }
+    });
+    let lastStat=result.body.at(-1);
+    addAsyncHook(replacePlan);
+    if(lastStat!=undefined){
+        if(lastStat.type.includes('Expression')){
+            replacePlan.plan.push({
+                start:lastStat.start,
+                end:lastStat.start,
+                newString:' return '
+            });
+        }
+    }
+    let modifiedSource=replacePlan.apply();
+    processContext.source=modifiedSource;
+    processContext.declVars.push(...foundDecl);
+}
+
 export let __internal__={
-    defaultCodeTranspilingProcessor
+    defaultCodeTranspilingProcessor,builtinCodeContextSourceProcessor
 }
 
 export class LocalRunCodeContext implements RunCodeContext{
@@ -103,16 +197,19 @@ export class LocalRunCodeContext implements RunCodeContext{
             let imp=await this.importHandler(module);
             return imp;
         },
+        //transpiler
         __topLevelTranspileDirective:{},
         __transpile__:(directive:any,source:any)=>source,
         //some utils provide by codeContext
-        //custom source processor for 'runCode' _ENV.__priv_processSource, run before builtin processor.
-        __priv_sourceProcessors:[{name:__name__+'.defaultCodeTranspilingProcessor',process:defaultCodeTranspilingProcessor}] as {process:(processContext:{source:string,_ENV:any})=>PromiseLike<void>|void,name:string}[],
+        __priv_sourceProcessors:[
+            {name:__name__+'.defaultCodeTranspilingProcessor',process:defaultCodeTranspilingProcessor},
+            {name:__name__+'.builtinCodeContextSourceProcessor',process:builtinCodeContextSourceProcessor}
+        ] satisfies {process:(processContext:{source:string,_ENV:any,declVars:string[]})=>PromiseLike<void>|void,name:string}[],
         callModuleFunction:async (module:string,func:string,args:any[])=>{
             let imp=await this.importHandler(module);
             return await imp[func](...args)
         },
-        event:this.event,
+        event:null,
         CodeContextEvent,
         Task:jsutils1.Task,
         tasks:{} as Record<string,jsutils1.Task<any>>,
@@ -129,6 +226,7 @@ export class LocalRunCodeContext implements RunCodeContext{
     };
     localScopeProxy;
     constructor(){
+        this.localScope.event=this.event;
         this.localScope.__priv_codeContext=this;
         this.localScope._ENV=this.localScope;
         this.localScope.console=console;
@@ -147,13 +245,19 @@ export class LocalRunCodeContext implements RunCodeContext{
             }
         });
     }
-    close(): void {
-        this.event.dispatchEvent(new CodeContextEvent('close'));
-        for(let [k1,v1] of Object.entries(this.localScope.autoClosable as Record<string,{close?:()=>void}>)){
-            if(v1.close!=undefined){
-                v1.close();
-            }
-        }
+    async close() {
+        try{
+            this.event.dispatchEvent(new CodeContextEvent('close'));
+            let that=this;
+            await jsutils1.Task.fork(function*(){
+                TaskLocalEnv.set(that.localScope);
+                for(let [k1,v1] of Object.entries(that.localScope.autoClosable as Record<string,{close?:()=>void}>)){
+                    if(v1.close!=undefined){
+                        try{v1.close()}catch(err){};
+                    }
+                }
+            }).run();
+        }catch(err){}
     }
     async callFunction(name: string, args: any[]): Promise<any> {
         let taskName=__name__+'.task-'+jsutils1.GenerateRandomString();
@@ -175,114 +279,9 @@ export class LocalRunCodeContext implements RunCodeContext{
         }).run();
         return await t;
     }
-    async processSource(source:string):Promise<{modifiedSource:string,declaringVariableNames:string[]}>{
-        let replacePlan=new JsSourceReplacePlan(source);
-        let result=acorn.parse(source,{allowAwaitOutsideFunction:true,ecmaVersion:'latest',allowReturnOutsideFunction:true});
-        replacePlan.parsedAst=result
-        let foundDecl=[] as string[];
-
-        function parseDeclStat(decl:acorn.VariableDeclarator[]){
-            let declNames:string[]=[];
-            decl.forEach(v=>{
-                if(v.id.type==='Identifier'){
-                    declNames.push(v.id.name);
-                }else if(v.id.type==='ObjectPattern'){
-                    declNames.push(...v.id.properties.map(v2=>(v2 as any).value.name))
-                }else if(v.id.type==='ArrayPattern'){
-                    declNames.push(...v.id.elements.filter(v2=>v2!=null).map(v2=>(v2 as acorn.Identifier).name))
-                }
-            });
-            return {declNames};
-        }
-        acornWalk.ancestor(result,{
-            VariableDeclaration(node,state,ancestors){
-                //Performance issue.
-                if(ancestors.find(v=>v.type.endsWith('FunctionExpression')))return;
-                if(ancestors.find(v=>['BlockStatement'].includes(v.type))!==undefined && node.kind!=='var')return;
-                if((['ForStatement','ForOfStatement'].includes(ancestors.at(-2)?.type??''))){
-                    if(node.kind=='var'){
-                        let {declNames}=parseDeclStat(node.declarations);
-                        foundDecl.push(...declNames)
-                        let declaratorStart=node.declarations[0].start;
-                        replacePlan.plan.push({start:node.start,end:declaratorStart,newString:''});
-                        return;
-                    }else{
-                        return;
-                    }
-                }
-                let {declNames}=parseDeclStat(node.declarations);
-                foundDecl.push(...declNames)
-                let declaratorStart=node.declarations[0].start;
-                let declaratorEnd=node.declarations.at(-1)!.end;
-                replacePlan.plan.push({start:node.start,end:declaratorStart,newString:';('});
-                replacePlan.plan.push({start:declaratorEnd,end:declaratorEnd,newString:')'})
-            },
-            FunctionDeclaration(node,state,ancestors){
-                if(node.expression || 
-                    ancestors.find(v=>v.type==='FunctionExpression')!=undefined){
-                    return;
-                }
-                if(node.id==null)return;
-                foundDecl.push(node.id.name);
-                let funcType1=source.substring(node.start,node.id.start);
-                replacePlan.plan.push({start:node.start,end:node.id.end,newString:node.id.name+'='+funcType1});
-            },
-            ClassDeclaration(node,state,ancestors){
-                if(ancestors.find(v=>v.type==='FunctionExpression')!=undefined){
-                    return;
-                }
-                if(node.id==null)return;
-                foundDecl.push(node.id.name);
-                let clsType1=source.substring(node.start,node.id.start);
-                replacePlan.plan.push({start:node.start,end:node.id.end,newString:node.id.name+'='+clsType1});
-            },
-            ImportExpression(node,state,ancestors){
-                replacePlan.plan.push({start:node.start,end:node.start+6,newString:'_ENV.__priv_import'})
-            },
-            ImportDeclaration(node,state,ancestor){
-                if(node.specifiers.length===1 && node.specifiers[0].type==='ImportNamespaceSpecifier'){
-                    let spec=node.specifiers[0];
-                    replacePlan.plan.push({start:node.start,end:node.end,newString:`${spec.local.name}=await _ENV.__priv_import('${node.source.value}');`})
-                    foundDecl.push(spec.local.name)
-                }else if(node.specifiers.length>0 && node.specifiers[0].type==='ImportSpecifier'){
-                    let specs=node.specifiers as acorn.ImportSpecifier[];
-                    let importStat=[`{let __timp=(await _ENV.__priv_import('${node.source.value}'));`]
-                    for(let spec of specs){
-                        importStat.push(`_ENV.${spec.local.name}=__timp.${(spec.imported as acorn.Identifier).name};`)
-                        foundDecl.push(spec.local.name)
-                    }
-                    importStat.push('}')
-                    replacePlan.plan.push({start:node.start,end:node.end,newString:importStat.join('')});
-                }else if(node.specifiers.length===1 && node.specifiers[0].type==='ImportDefaultSpecifier'){
-                    let spec=node.specifiers[0];
-                    replacePlan.plan.push({start:node.start,end:node.end,newString:`${spec.local.name}=(await _ENV.__priv_import('${node.source.value}')).default;`})
-                    foundDecl.push(spec.local.name)
-                }else{
-                    replacePlan.plan.push({start:node.start,end:node.end,newString:``});
-                }
-            }
-        });
-        let lastStat=result.body.at(-1);
-        addAsyncHook(replacePlan);
-        if(lastStat!=undefined){
-            if(lastStat.type.includes('Expression')){
-                replacePlan.plan.push({
-                    start:lastStat.start,
-                    end:lastStat.start,
-                    newString:' return '
-                });
-            }
-        }
-        let modifiedSource=replacePlan.apply();
-        return {
-            declaringVariableNames:foundDecl,
-            modifiedSource
-        }
-    }
-    async runCode(source:string,resultVariable?:string){
-        resultVariable=resultVariable??'_'
+    async processSource(source:string){
         let that=this;
-        let processContext={_ENV:this.localScope,source}
+        let processContext={_ENV:this.localScope,source,declVars:new Array<string>()}
         await jsutils1.Task.fork(function*(){
             TaskLocalEnv.set(that.localScope);
             for(let processor of that.localScope.__priv_sourceProcessors){
@@ -292,10 +291,14 @@ export class LocalRunCodeContext implements RunCodeContext{
                 }
             }
         }).run();
-        source=processContext.source;
-        let proc1=await this.processSource(source);
+        return processContext
+    }
+    async runCode(source:string,resultVariable?:string){
+        resultVariable=resultVariable??'_'
+        let processResult=await this.processSource(source)
+        source=processResult.source;
         try{
-            let result=await this.runCodeInScope(proc1.modifiedSource);
+            let result=await this.runCodeInScope(source);
             if(resultVariable!=='')this.localScope[resultVariable]=result;
             let stringResult=(typeof(result)==='string')?result:null;
             return {stringResult,err:null}
@@ -304,7 +307,7 @@ export class LocalRunCodeContext implements RunCodeContext{
             return {stringResult:null,err:e.toString()}
         }
     }
-    async runCodeInScope(source:string){
+    protected async runCodeInScope(source:string){
         let withBlockBegin='with(_ENV){';
         let code=new Function('_ENV',withBlockBegin+
         'return (async ()=>{Promise.__onAsyncEnter();try{\n'+source+'\n}finally{Promise.__onAsyncExit();}})();}');
@@ -324,3 +327,32 @@ export class LocalRunCodeContext implements RunCodeContext{
         return await r;
     }
 }
+
+export function JsonStringifyWithCircular(obj: any) {
+    let seen = new Map();
+    let path: string[] = [];
+    return JSON.stringify(obj, (key, value) => {
+        if (value && typeof value === 'object') {
+            if (seen.has(value)) {
+                return `[Circular -> ${seen.get(value).join('.')}]`;
+            }
+            seen.set(value, [...path, key]);
+        }
+        return value;
+    });
+}
+
+export class BaseCodeCellListData{
+    cellList=new Array<{cellInput:string,cellOutput:[any,string|null],key:string}>();
+    consoleOutput:{[cellKey:string]:{content:string}}={};
+    loadFrom(data:string){
+        let loaded=JSON.parse(data)
+        this.cellList=loaded.cellList;
+        this.consoleOutput=loaded.consoleOutput;
+    }
+    saveTo():string{
+        return JsonStringifyWithCircular({cellList:this.cellList,consoleOutput:this.consoleOutput});
+    }
+}
+
+export let newCodeCellListData=new jsutils1.Ref2(()=>new BaseCodeCellListData());

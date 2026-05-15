@@ -5,9 +5,9 @@ import {ArrayBufferConcat, ArrayWrap2, GenerateRandomString, assert, logger, req
 import { getNodeCompatApi, __internal__ as utilsi, withConsole } from 'pxseedBuildScript/util';
 import { defaultFileSystem, ensureDefaultFileSystem, getSimpleFileSysteNormalizedWWWRoot } from 'partic2/CodeRunner/JsEnviron';
 import { NotebookFileData, runNotebook } from 'partic2/JsNotebook/workerinit';
-import { CodeCellListData } from 'partic2/CodeRunner/Inspector';
 import { ServerHostWorker1RpcName } from 'partic2/pxprpcClient/registry';
 import {defaultGitClient, fetchPackage, __internal__ as pkgfetcheri} from './pkgfetcher'
+import { newCodeCellListData } from 'partic2/CodeRunner/CodeContext';
 
 export let __name__=requirejs.getLocalRequireModule(require);
 
@@ -707,7 +707,7 @@ export async function sendOnStartupEventForAllPackages(){
     let startupNotebook=getSimpleFileSysteNormalizedWWWRoot()+'/'+path.join(__name__,'..','notebook','startup.ijsnb');
     if(await defaultFileSystem!.filetype(startupNotebook)=='none'){
         let nbd=new NotebookFileData();
-        let ccld=new CodeCellListData();
+        let ccld=newCodeCellListData.get()();
         ccld.cellList.push({cellInput:`//All cells in this notebook will be executed when server(and packageManager) started.`,cellOutput:[null,''],key:GenerateRandomString()});
         nbd.setCellsData(ccld);
         nbd.rpc=ServerHostWorker1RpcName;

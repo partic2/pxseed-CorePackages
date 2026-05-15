@@ -15,7 +15,7 @@ import {NotebookFileData, __internal__ as workeriniti} from './workerinit'
 import { SimpleReactForm1, ValueCheckBox } from 'partic2/pComponentUi/input';
 import {prompt} from 'partic2/pComponentUi/window'
 import { assert, GenerateRandomString } from 'partic2/jsutils1/base';
-import { CodeCellListData } from 'partic2/CodeRunner/Inspector';
+import { newCodeCellListData } from '../CodeRunner/CodeContext';
 const __name__='partic2/JsNotebook/workspace'
 
 
@@ -129,7 +129,7 @@ export class WorkspaceContext{
             let t1=path.join(currPath,'notebook.ijsnb');
             this.startupProfile={currPath,openedFiles:[t1]};
             if(await this.fs!.filetype(t1)==='none'){
-                let ccld=new CodeCellListData();
+                let ccld=newCodeCellListData.get()();
                 ccld.cellList.push(
                     {'cellInput': '//_ENV is the default "global" context for Code Cell \n_ENV',
                     'cellOutput': ['', null],
@@ -219,7 +219,7 @@ async function openJSNotebookFirstProfileWorkspace(opt:{
                 let nbfdata=new NotebookFileData();
                 nbfdata.rpc=rpc1;
                 nbfdata.startupScript=opt.defaultStartupScript??'';
-                let ccldata=new CodeCellListData();
+                let ccldata=newCodeCellListData.get()();
                 ccldata.cellList.push(...opt.sampleCode.map(t1=>({
                     cellInput:t1,
                     cellOutput:[null,null] as any,key:GenerateRandomString()
