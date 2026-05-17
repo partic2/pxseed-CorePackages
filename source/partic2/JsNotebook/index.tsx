@@ -23,10 +23,15 @@ let {RpcChooser}=notebooki;
 
 class MainView extends React.Component<{}>{
     renderChooser(){
-        return <div style={{border:'solid 1px black'}}><RpcChooser onChoose={async (rpc)=>{this.openWorkspaceForRpc(rpc)}}/></div>
+        return <div style={{border:'solid 1px black'}}>
+            <RpcChooser onChoose={async (rpc)=>{this.openWorkspaceForRpc(rpc)}}/>
+            <h2>Or <a href="javascript:;" onClick={(ev)=>{
+                this.openWorkspaceForRpc('<No RPC>')
+            }}>Don't use RPC</a></h2>
+            </div>
     }
     openWorkspaceForRpc(rpc:any){
-        if(rpc=='local window'){
+        if(rpc=='<No RPC>'){
             return openWorkspaceWindowFor('local window');
         }else if(rpc instanceof ClientInfo){
             return openWorkspaceWindowFor(rpc)

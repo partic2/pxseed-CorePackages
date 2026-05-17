@@ -58,7 +58,7 @@ export function setupInspectorHelper(_ENV:any){
             }
         }
         _ENV.fs.loadScript[CustomFunctionParameterCompletionSymbol]=makeFunctionCompletionWithFilePathArg0(path.dirname(_ENV.fs.codePath??''));
-        _ENV.fs.runNotebook[CustomFunctionParameterCompletionSymbol]=makeFunctionCompletionWithFilePathArg0(path.dirname(_ENV.fs.codePath??''));
+        _ENV.fs.loadNotebook[CustomFunctionParameterCompletionSymbol]=makeFunctionCompletionWithFilePathArg0(path.dirname(_ENV.fs.codePath??''));
         if(_ENV.fs.simple!=undefined){
             _ENV.fs.simple.readAll[CustomFunctionParameterCompletionSymbol]=makeFunctionCompletionWithFilePathArg0(undefined);
             _ENV.fs.simple.read[CustomFunctionParameterCompletionSymbol]=makeFunctionCompletionWithFilePathArg0(undefined);
@@ -70,5 +70,6 @@ export function setupInspectorHelper(_ENV:any){
             _ENV.fs.simple.mkdir[CustomFunctionParameterCompletionSymbol]=makeFunctionCompletionWithFilePathArg0(undefined);
             _ENV.fs.simple.rename[CustomFunctionParameterCompletionSymbol]=makeFunctionCompletionWithFilePathArg0(undefined);
         }
-    }catch(err){}
+    }catch(err){
+    }
 }

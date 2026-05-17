@@ -1,4 +1,4 @@
-import { ArrayBufferConcat, ArrayWrap2, GenerateRandomString, future, mutex, requirejs, sleep } from "partic2/jsutils1/base";
+import { ArrayBufferConcat, ArrayWrap2, GenerateRandomString, assert, future, mutex, requirejs, sleep } from "partic2/jsutils1/base";
 import { GetPersistentConfig, SavePersistentConfig,IWorkerThread, CreateWorkerThread, lifecycle, GetUrlQueryVariable, getWWWRoot } from "partic2/jsutils1/webutils";
 import { WebMessage, WebSocketIo } from "pxprpc/backend";
 import { Client, Io, Serializer, Server } from "pxprpc/base";
@@ -38,9 +38,9 @@ interface RpcRemoteObjectPool{
 }
 class RemoteObjectPoolDefaultImpl extends Map<string,{[RpcSerializeMagicMark]:any}> implements RpcRemoteObjectPool{
     delete(key: string): boolean {
-        let t1=this.get(key) as any;
-        if(t1!=null && typeof t1.close==='function'){
-            t1.close();
+        let t1=this.get(key);
+        if(t1!=undefined && t1[RpcSerializeMagicMark].autoClose===true && typeof (t1 as any).close==='function'){
+            (t1 as any).close();
         }
         return super.delete(key);
     }
@@ -88,6 +88,10 @@ interface CallJsonFunctionResonse{
         stack:string
     }
 }
+
+let proxyDefault={
+
+}
 defaultFuncMap[__name__+'.callJsonFunction']=new RpcExtendServerCallable(async (
     requestJson:string,
     extraBytes:Uint8Array,
@@ -128,6 +132,8 @@ defaultFuncMap[__name__+'.callJsonFunction']=new RpcExtendServerCallable(async (
             thisObject=objectPool.get(request.object);
         }
         extraBytesArray=new Array();
+        let callable=thisObject[request.method];
+        assert(typeof callable==='function',thisObject.constructor.name+'.'+request.method+' is not callable');
         return [
             JSON.stringify({result:(await thisObject[request.method](...request.params))??null},(key,value)=>{
                 if(value instanceof Uint8Array){
@@ -141,13 +147,11 @@ defaultFuncMap[__name__+'.callJsonFunction']=new RpcExtendServerCallable(async (
                     return {[RpcSerializeMagicMark]:true,t:'Int8Array',i:extraBytesArray.length-1};
                 }else if(typeof value==='object' && value!==null && value[RpcSerializeMagicMark]!=undefined){
                     let markProp=value[RpcSerializeMagicMark];
-                    if(markProp.id===undefined){
-                        markProp.id=GenerateRandomString(8)
-                    }
+                    let id=GenerateRandomString();
                     if(objectPool!=null){
-                        objectPool.set(markProp.id,value)
+                        objectPool.set(id,value)
                     }
-                    return {[RpcSerializeMagicMark]:{t:'RpcRemoteObject',...markProp}}
+                    return {[RpcSerializeMagicMark]:{t:'RpcRemoteObject',...markProp,id}}
                 }else{
                     return value;
                 }
@@ -411,13 +415,15 @@ class RemoteRegistryFunctionImpl implements RemoteRegistryFunction{
                     let funcs=this;
                     if(markProp.t==='RpcRemoteObject'){
                         let p=new Proxy(value,{
-                            get(target,p){
+                            get(target,prop){
+                                if(prop===RpcSerializeMagicMark)return target[prop];
                                 //Avoid triggle by Promise.resolve
-                                if(p==='then')return undefined;
-                                if(p===RpcSerializeMagicMark)return target[p];
-                                if(p==='close')return async ()=>funcs.freeObjectInRemoteObjectPool(target)
+                                if(prop==='then')return target[prop];
+                                //Avoid triggle by JSON.stringify
+                                if(prop==='toJSON')return target[prop];
+                                if(prop==='close')return async ()=>funcs.freeObjectInRemoteObjectPool(target);
                                 return async (...params:any[])=>{
-                                    return await funcs.callJsonFunction(target,p as string,params);
+                                    return await funcs.callJsonFunction(target,prop as string,params);
                                 }
                             }
                         });
@@ -710,11 +716,14 @@ export async function importRemoteModule(rpc:RpcExtendClient1,moduleName:string)
     let funcs:RemoteRegistryFunction|null=null;
     funcs=await getAttachedRemoteRigstryFunction(rpc);
     let proxyModule=new Proxy({},{
-        get(target,p){
+        get(target,prop){
             //Avoid triggle by Promise.resolve
-            if(p==='then')return undefined;
+            if(prop==='then')return undefined;
+            //Avoid triggle by JSON.stringify
+            if(prop==='toJSON')return undefined;
+            if(prop==='close')return async ()=>{};
             return async (...params:any[])=>{
-                return await funcs.callJsonFunction(moduleName,p as string,params);
+                return await funcs.callJsonFunction(moduleName,prop as string,params);
             }
         }
     });

@@ -1,12 +1,13 @@
 
 
 import * as React from 'preact'
-import { ClientInfo, addClient, removeClient, getRegistered, listRegistered, persistent, listPersistentRegistered, ServerHostRpcName, isServerHost, easyCallRemoteJsonFunction, getPersistentRegistered } from './registry';
+import { ClientInfo, addClient, removeClient, getRegistered, listRegistered, persistent, listPersistentRegistered, ServerHostRpcName, isServerHost, easyCallRemoteJsonFunction, getPersistentRegistered, importRemoteModule } from './registry';
 import { ReactRefEx, css, event } from 'partic2/pComponentUi/domui';
 import { prompt,alert} from 'partic2/pComponentUi/window';
 import { ArrayWrap2, assert, GenerateRandomString, requirejs } from 'partic2/jsutils1/base';
 import { rpcId } from './rpcworker';
 import { DynamicPageCSSManager, GetPersistentConfig, SavePersistentConfig,path } from 'partic2/jsutils1/webutils';
+import { RpcExtendClient1 } from 'pxprpc/extend';
 
 let css2={
     rpcClientCard:GenerateRandomString()
@@ -80,6 +81,10 @@ class AddCard extends React.Component<{},{
 
 let config:{lastFilter?:string}|null=null;
 
+export class RegistryInfoProvider{
+
+}
+
 async function pullFromServerHost(){
     let rpc=await getPersistentRegistered(ServerHostRpcName);
     if(rpc!=undefined && !await isServerHost()){
@@ -131,36 +136,44 @@ async function pushToServerHost(){
     }
 }
 
-export class RegistryUI extends React.Component<{},{selected:string|null,filter:string}>{
+export class RegistryUI extends React.Component<{rpc?:RpcExtendClient1},
+    {selected:string|null,filter:string,clients?:Array<[string,{url:string,name:string}|ClientInfo]>}>{
     rref={div:React.createRef<HTMLDivElement>()}
     async doLoadConfig(){
-        await listPersistentRegistered();
         if(config==null){
             config=await GetPersistentConfig(__name__);
             if(config!.lastFilter!=undefined){
                 this.setState({filter:config!.lastFilter})
             }
         }
-        this.forceUpdate(()=>{
+        let r=await this._getRegistyModule();
+        this.setState({clients:await r.listPersistentRegistered()},()=>{
             let div=this.rref.div.current
             div?.dispatchEvent(new Event(event.layout,{bubbles:true}))
-        })
+        });
     }
     componentDidMount(): void {
         this.doLoadConfig()
         this.setState({selected:null,filter:''});
     }
+    protected async _getRegistyModule(){
+        if(this.props.rpc==undefined){
+            return await import('./registry')
+        }else{
+            return await importRemoteModule(this.props.rpc,path.join(__name__,'..','registry')) as typeof import('./registry')
+        }
+    }
     async doAdd(){
         let addCard=new ReactRefEx<AddCard>();
         let dlg=await prompt(<AddCard ref={addCard}/>,'New rpc client');
-        (await addCard.waitValid()).setAddClientInfo({name:'user:',url:''});
+        (await addCard.waitValid()).setAddClientInfo({name:'user.',url:''});
         if(await dlg.response.get()==='ok'){
             let {url,name}=(await addCard.waitValid()).getAddClientInfo();
-            await addClient(url,name);
+            let r=await this._getRegistyModule();
+            await r.addClient(url,name);
         }
         dlg.close();
-        await persistent.save();
-        this.forceUpdate();
+        await this.doLoadConfig();
     }
     async doEdit(){
         let selected=this.state.selected!;
@@ -168,21 +181,21 @@ export class RegistryUI extends React.Component<{},{selected:string|null,filter:
         let dlg=await prompt(<AddCard ref={addCard}/>,'New rpc client');
         (await addCard.waitValid()).setAddClientInfo({
             name:selected,
-            url:getRegistered(selected)?.url??''
+            url:this.state.clients!.find(t1=>t1[0]==selected)![1].url
         });
         if(await dlg.response.get()==='ok'){
             let {url,name}=(await addCard.waitValid()).getAddClientInfo();
-            await removeClient(selected);
-            await addClient(url,name);
+            let r=await this._getRegistyModule();
+            await r.removeClient(selected);
+            await r.addClient(url,name);
         }
         dlg.close();
-        await persistent.save();
-        this.forceUpdate();
+        await this.doLoadConfig();
     }
     async doRemove(){
-        await removeClient(this.state.selected!);
-        await persistent.save();
-        this.forceUpdate();
+        let r=await this._getRegistyModule();
+        await r.removeClient(this.state.selected!);
+        await this.doLoadConfig();
     }
     async doSelect(selected:string){
         this.setState({selected})
@@ -190,13 +203,13 @@ export class RegistryUI extends React.Component<{},{selected:string|null,filter:
     async doDisconnect(){
         let conn=getRegistered(this.state.selected!);
         await conn!.disconnect();
-        this.forceUpdate();
+        await this.doLoadConfig();
     }
     async doSyncWithServer(){
         try{
             await pullFromServerHost();
             await pushToServerHost();
-            this.forceUpdate();
+            await this.doLoadConfig();
         }catch(err:any){
             alert(err.toString()+err.stack)
         }
@@ -208,7 +221,7 @@ export class RegistryUI extends React.Component<{},{selected:string|null,filter:
         }catch(e:any){
             await alert(e.toString());
         }
-        this.forceUpdate();
+        await this.doLoadConfig();
     }
     getSelected(){
         return this.state.selected;
@@ -225,17 +238,21 @@ export class RegistryUI extends React.Component<{},{selected:string|null,filter:
         let btns=[] as {label:string,handler:()=>any}[];
         let sel2=getRegistered(this.state.selected??'');
         if(sel2){
-            if(sel2.connected()){
-                btns.push({label:'Disconnect',handler:()=>this.doDisconnect()});
-            }else{
-                btns.push({label:'Connect',handler:()=>this.doConnect()});
+            if(this.props.rpc==undefined){
+                if(sel2.connected()){
+                    btns.push({label:'Disconnect',handler:()=>this.doDisconnect()});
+                }else{
+                    btns.push({label:'Connect',handler:()=>this.doConnect()});
+                }
             }
-            btns.push({label:'Edit',handler:()=>this.doEdit()});
+            btns.push({label:'Edit/Copy',handler:()=>this.doEdit()});
             btns.push({label:'Remove',handler:()=>this.doRemove()});
         }
         btns.push({label:'Add',handler:()=>this.doAdd()})
-        btns.push({label:'SyncWithServer',handler:()=>this.doSyncWithServer()});
-        let allClients=Array.from(listRegistered());
+        if(this.props.rpc==undefined){
+            btns.push({label:'SyncWithServer',handler:()=>this.doSyncWithServer()});
+        }
+        let allClients=(this.state.clients??[]);
         allClients.sort((a,b)=>(a[0]<b[0])?-1:(a[0]===b[0]?0:1))
         return <div className={[css.simpleCard,css.flexColumn].join(' ')} ref={this.rref.div}>
             <div className={css.flexRow}>
@@ -251,12 +268,11 @@ export class RegistryUI extends React.Component<{},{selected:string|null,filter:
                     this.state.selected===ent[0]?css.selected:''].join(' ')}
                     onClick={()=>this.doSelect(ent[0])}>
                     <div>{ent[0]}</div><hr/><div>{ent[1]!.url.toString()}</div><hr/>
-                    <div>{ent[1]!.connected()?'connected':'disconnected'}</div>
+                    {this.props.rpc==undefined?<div>{(ent[1] as ClientInfo)!.connected()?'connected':'disconnected'}</div>:''}
                 </div>
             })}
-        
         <hr/>
-        <div style={{wordBreak:'break-all'}}>RPC id for this scope:{rpcId.get()}</div>
+        {this.props.rpc==undefined?<div style={{wordBreak:'break-all'}}>RPC id:{rpcId.get()}</div>:''}
         </div>
     }
 }
