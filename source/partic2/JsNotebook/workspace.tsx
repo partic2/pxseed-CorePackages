@@ -217,7 +217,7 @@ async function openJSNotebookFirstProfileWorkspace(opt:{
             let openedFiles:string[]=[]
             if(opt.sampleCode!=undefined && await workspace.fs!.filetype(nbdir+'/sample.ijsnb')=='none'){
                 let nbfdata=new NotebookFileData();
-                nbfdata.rpc=rpc1;
+                nbfdata.rpc=rpc1.name;
                 nbfdata.startupScript=opt.defaultStartupScript??'';
                 let ccldata=newCodeCellListData.get()();
                 ccldata.cellList.push(...opt.sampleCode.map(t1=>({

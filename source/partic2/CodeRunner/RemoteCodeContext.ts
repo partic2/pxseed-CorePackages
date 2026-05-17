@@ -41,7 +41,7 @@ export class RunCodeContextConnector{
     async runCode(source: string,resultVariable?:string): Promise<{stringResult:string|null,err:string|null}>{
         return this.value.runCode(source,resultVariable);
     }
-    async callFunction(name:string,args:string[]){
+    async callFunction(name:string,args:any[]){
         return this.value.callFunction(name,args)
     }
 }
@@ -97,9 +97,8 @@ export class RemoteRunCodeContext implements RunCodeContext{
         try{
             await (await getAttachedRemoteRigstryFunction(this.client1)).loadModule(__name__);
             if(this._remoteContext==undefined){
-                this._remoteContext=await easyCallRemoteJsonFunction(this.client1,__name__,'connectToCodeContextFromCode',[
-                    `return (await lib.importModule('partic2/CodeRunner/RemoteCodeContext')).createConnectorWithNewRunCodeContext()`
-                ])
+                this._remoteContext=await easyCallRemoteJsonFunction(this.client1,__name__,
+                    'createConnectorWithNewRunCodeContext',[])
             }
             this.inited.setResult(true);
             this.pullEventLoop();
@@ -128,17 +127,4 @@ export class RemoteRunCodeContext implements RunCodeContext{
             })().catch(()=>{})
         }
     };
-}
-
-
-export async function connectToCodeContextFromCode(connectCode:string){
-    let r=await (new Function('lib',`return (async ()=>{${connectCode}})()`)({importModule:(moduleName:string)=>import(moduleName)}));
-    return r
-}
-/*
-    client1:The pxprpc client.
-    connectCode: The remote code to get the RunCodeContexConnector. eg: `return (await lib.importModule('partic2/CodeRunner/RemoteCodeContext')).createConnectorWithNewRunCodeContext()`
-*/
-export async function connectToRemoteCodeContext(client1:RpcExtendClient1,connectCode:string):Promise<RemoteRunCodeContext>{
-    return new RemoteRunCodeContext(client1,await easyCallRemoteJsonFunction(client1,__name__,'connectToCodeContextFromCode',[connectCode]));
 }
