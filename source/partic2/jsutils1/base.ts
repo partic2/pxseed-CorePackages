@@ -268,7 +268,7 @@ export async function sleep<T>(milliSeconds: number, arg?: T): Promise<T> {
             }else if(milliSeconds>1000){
                 //Better performance?
                 currentTask.getAbortSignal().addEventListener('abort',onAbort);
-                defer.push(()=>currentTask.getAbortSignal().removeEventListener)
+                defer.push(()=>currentTask.getAbortSignal().removeEventListener('abort',onAbort))
             }
         }
         const timer=setTimeout(()=>resolve(arg as any),milliSeconds);
@@ -650,6 +650,9 @@ for (let i = 0; i < b64chars.length; i++) {
     b64lookup[b64chars.charCodeAt(i)] = i;
 }
 export function ArrayBufferToBase64(buffer: ArrayBuffer|Uint8Array): string{
+    if(typeof (buffer as any).toBase64==='function'){
+        return (buffer as any).toBase64();
+    }
     let bytes:Uint8Array;
     if(buffer instanceof ArrayBuffer){
         bytes=new Uint8Array(buffer);
@@ -674,6 +677,9 @@ export function ArrayBufferToBase64(buffer: ArrayBuffer|Uint8Array): string{
 
 
 export function Base64ToArrayBuffer(base64: string): ArrayBuffer {
+    if(typeof (Uint8Array as any).fromBase64==='function'){
+        return (Uint8Array as any).fromBase64(base64).buffer;
+    }
     for (let i = 0; i < b64chars.length; i++) {
         b64lookup[b64chars.charCodeAt(i)] = i;
     }

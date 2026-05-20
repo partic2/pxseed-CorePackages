@@ -100,11 +100,12 @@ export class TlsStream{
 		this.tjstlsc=new TjsTlsClient(this.servername);
 		let w2=this.underlying.w.getWriter();
 		let r2=this.underlying.r.getReader();
-		this.abortControl.signal.addEventListener('abort',(ev)=>{
+		let onAbort=(ev:any)=>{
 			let err=new Error();
 			err.name='AbortError'
 			this.pumpSignal.setException(err);
-		});
+		}
+		this.abortControl.signal.addEventListener('abort',onAbort);
 		;(async ()=>{
 			while(!this.abortControl.signal.aborted){
 				let next=await r2.read();
@@ -157,6 +158,7 @@ export class TlsStream{
 			}		
 		}finally{
 			this.close();
+			this.abortControl.signal.removeEventListener('abort',onAbort);
 		}
 	}
 	closed=false;
