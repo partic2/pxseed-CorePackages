@@ -133,8 +133,29 @@ class DomRootComponentProxy extends Ref2<CDomRootComponent>{
 
 export var DomRootComponent:DomRootComponentProxy
 
+export var css={
+    flexRow:GenerateRandomString(),
+    flexColumn:GenerateRandomString(),
+    selected:GenerateRandomString(),
+    simpleCard:GenerateRandomString(),
+    simpleTable:GenerateRandomString(),
+    simpleTableCell:GenerateRandomString(),
+    selectable:GenerateRandomString(),
+    floatLayer:GenerateRandomString()
+}
+
+
+
 export let __inited__=(async ()=>{
     if(globalThis.document!=undefined){
+        DynamicPageCSSManager.PutCss('.'+css.flexRow,['display:flex','flex-direction:row']);
+        DynamicPageCSSManager.PutCss('.'+css.flexColumn,['display:flex','flex-direction:column']);
+        DynamicPageCSSManager.PutCss('.'+css.selectable+':hover',['background-color:rgb(200,200,200)']);
+        DynamicPageCSSManager.PutCss('.'+css.selected,['background-color:rgb(150,150,255)'])
+        DynamicPageCSSManager.PutCss('.'+css.simpleCard,['display:inline-block','border:solid black 2px','margin:2px','padding:2px','background-color:white'])
+        DynamicPageCSSManager.PutCss('.'+css.simpleTable,['border-collapse:collapse']);
+        DynamicPageCSSManager.PutCss('.'+css.simpleTableCell,['border:solid black 2px']);
+        DynamicPageCSSManager.PutCss('.'+css.floatLayer,['position:absolute','left:0px','top:0px','width:100%','height:100%','pointer-events:none']);
         DomRootComponent=new DomRootComponentProxy(new CDomRootComponent());
         //To fix preact BUG
         try{
@@ -160,24 +181,6 @@ export abstract class ReactEventTarget<P={},S={}> extends React.Component<P,S> i
     }
 }
 
-export var css={
-    flexRow:GenerateRandomString(),
-    flexColumn:GenerateRandomString(),
-    selected:GenerateRandomString(),
-    simpleCard:GenerateRandomString(),
-    simpleTable:GenerateRandomString(),
-    simpleTableCell:GenerateRandomString(),
-    selectable:GenerateRandomString(),
-    floatLayer:GenerateRandomString()
-}
-DynamicPageCSSManager.PutCss('.'+css.flexRow,['display:flex','flex-direction:row']);
-DynamicPageCSSManager.PutCss('.'+css.flexColumn,['display:flex','flex-direction:column']);
-DynamicPageCSSManager.PutCss('.'+css.selectable+':hover',['background-color:rgb(200,200,200)']);
-DynamicPageCSSManager.PutCss('.'+css.selected,['background-color:rgb(150,150,255)'])
-DynamicPageCSSManager.PutCss('.'+css.simpleCard,['display:inline-block','border:solid black 2px','margin:2px','padding:2px','background-color:white'])
-DynamicPageCSSManager.PutCss('.'+css.simpleTable,['border-collapse:collapse']);
-DynamicPageCSSManager.PutCss('.'+css.simpleTableCell,['border:solid black 2px']);
-DynamicPageCSSManager.PutCss('.'+css.floatLayer,['position:absolute','left:0px','top:0px','width:100%','height:100%','pointer-events:none']);
 
 export var event={
     layout:'partic2-layout' as const
