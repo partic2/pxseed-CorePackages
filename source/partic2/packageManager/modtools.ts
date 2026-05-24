@@ -1,6 +1,9 @@
-import { getPersistentRegistered, importRemoteModule, ServerHostWorker1RpcName } from "partic2/pxprpcClient/registry";
+import { getConnectionFromUrl, getPersistentRegistered, importRemoteModule, ServerHostWorker1RpcName } from "partic2/pxprpcClient/registry";
 import { Singleton } from "partic2/CodeRunner/jsutils2";
-import { requirejs, Task } from "partic2/jsutils1/base";
+import { assert, requirejs, Task } from "partic2/jsutils1/base";
+import { RpcExtendClient1 } from "pxprpc/extend";
+import { Client } from "pxprpc/base";
+import { RemotePxseedJsIoServer } from "partic2/pxprpcClient/bus";
 
 let remoteMisc=new Singleton<typeof import('partic2/packageManager/misc')>(async ()=>{
     return await importRemoteModule(await (await getPersistentRegistered(ServerHostWorker1RpcName))!.ensureConnected(),
@@ -74,3 +77,17 @@ export class CHotModuleReload{
 }
 
 export let HotModuleReload=new CHotModuleReload();
+
+export async function getConnectedPxseedWebuiRpcClientFromServerHostUrl(serverHostUrl:string,index?:number){
+    let conn=await getConnectionFromUrl(serverHostUrl);
+    assert(conn!=null);
+    let prefix=`/pxprpc/pxseed_webui/partic2.packageManager.webui/`
+    let client=await new RpcExtendClient1(new Client(conn)).init()
+    let lookupresult=await RemotePxseedJsIoServer.prefixQuery(prefix,client)
+    index=index??0;
+    let choice=lookupresult.at(index);
+    if(choice==undefined){
+        return null;
+    }
+    return await new RpcExtendClient1(new Client(await RemotePxseedJsIoServer.connect(choice,client))).init();
+}

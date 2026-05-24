@@ -34,7 +34,7 @@ window.addEventListener('beforeunload',(ev)=>{
         try{
             if(await getPersistentRegistered(ServerHostRpcName)!=null){
                 RemotePxseedJsIoServer.serve(`/pxprpc/pxseed_webui/${__name__.replace(/\//g,'.')}/${rpcId.get()}`,{
-                        onConnect:(io)=>new RpcExtendServer1(new Server(io))
+                        onConnect:(io)=>new RpcExtendServer1(new Server(io)).serve()
                     }).catch((err:any)=>console.warn(err.message,err.stack));
             }
             let shw1=await getPersistentRegistered(ServerHostWorker1RpcName);

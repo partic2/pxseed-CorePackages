@@ -22,7 +22,7 @@ defaultFuncMap['JseHelper.JseIo.fhWrite']=new RpcExtendServerCallable(async(fh:t
 }).typedecl('olb->i');
 
 defaultFuncMap['JseHelper.JseIo.fhClose']=new RpcExtendServerCallable(async(fh:tjs.FileHandle)=>fh.close()).typedecl('o->');
-defaultFuncMap['JseHelper.JseIo.fhTruncate']=new RpcExtendServerCallable(async(fh:tjs.FileHandle,offset:bigint)=>fh.truncate(Number(offset))).typedecl('sl->');
+defaultFuncMap['JseHelper.JseIo.fhTruncate']=new RpcExtendServerCallable(async(fh:tjs.FileHandle,offset:bigint)=>fh.truncate(Number(offset))).typedecl('ol->');
 defaultFuncMap['JseHelper.JseIo.stat']=new RpcExtendServerCallable(async(path:string)=>{
     let fileStat=await tjs.stat(path);
     let type='unknown';
