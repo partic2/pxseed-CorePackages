@@ -56,7 +56,7 @@ export let __inited__=(async ()=>{
         let {ReactRefEx}=await import('partic2/pComponentUi/domui')
         DynamicPageCSSManager.PutCss('.'+css1.propName,['color:blue']);
         class ObjectViewerImpl extends React.Component<
-            {name:string,object:any},
+            {name:string,object:any,variableName?:string},
             {folded:boolean,displayModel?:any,lastPropObject:any,viewer:null|React.ComponentType<ObjectViewerProps>}
         >{
             constructor(props:any,ctx:any){
@@ -115,16 +115,20 @@ export let __inited__=(async ()=>{
                     if(this.props.object instanceof Array){
                         let newArr=new Array();
                         let arrayElemUpdated=false;
-                        for(let t1 of this.props.object){
-                            if(t1 instanceof UnidentifiedObject && t1.keyCount<10){
-                                newArr.push(await t1.identify({maxDepth:1}))
-                                arrayElemUpdated=true;
-                            }else{
-                                newArr.push(t1);
+                        try{
+                            for(let t1 of this.props.object){
+                                if(t1 instanceof UnidentifiedObject && t1.keyCount<10){
+                                    newArr.push(await t1.identify({maxDepth:1}))
+                                    arrayElemUpdated=true;
+                                }else{
+                                    newArr.push(t1);
+                                }
                             }
-                        }
-                        if(arrayElemUpdated){
-                            this.setState({displayModel:newArr});
+                            if(arrayElemUpdated){
+                                this.setState({displayModel:newArr});
+                            }
+                        }catch(e:any){
+                            this.setState({displayModel:[e.message,e.stack]})
                         }
                     }
                 }
@@ -139,24 +143,34 @@ export let __inited__=(async ()=>{
                     if(robj.find(t1=>t1 instanceof UnidentifiedObject)!=undefined){
                         return <a style={{color:'blue'}} onClick={async ()=>{
                             let newArr=[];
-                            for(let t1 of robj){
-                                if(t1 instanceof UnidentifiedObject){
-                                    newArr.push(await t1.identify({maxDepth:1}))
+                            try{
+                                for(let t1 of robj){
+                                    if(t1 instanceof UnidentifiedObject){
+                                        newArr.push(await t1.identify({maxDepth:1}))
+                                    }
                                 }
+                                this.setState({displayModel:newArr});
+                            }catch(e:any){
+                                this.setState({displayModel:[e.message,e.stack]})
                             }
-                            this.setState({displayModel:newArr});
                         }}>(Expand Children)</a>
                     }
                 }else{
                     if(Object.values(robj).find(t1=>t1 instanceof UnidentifiedObject)!=undefined){
                         return <a style={{color:'blue'}} onClick={async ()=>{
                             let newObj:any={};
-                            for(let t1 in robj){
-                                if(robj[t1] instanceof UnidentifiedObject){
-                                    newObj[t1]=await robj[t1].identify({maxDepth:1});
+                            try{
+                                for(let t1 in robj){
+                                    if(robj[t1] instanceof UnidentifiedObject){
+                                        newObj[t1]=await robj[t1].identify({maxDepth:1});
+                                    }else{
+                                        newObj[t1]=robj[t1];
+                                    }
                                 }
+                                this.setState({displayModel:newObj});
+                            }catch(e:any){
+                                this.setState({displayModel:[e.message,e.stack]})
                             }
-                            this.setState({displayModel:newObj});
                         }}>(Expand Children)</a>
                     }
                 }
@@ -190,7 +204,7 @@ export let __inited__=(async ()=>{
                 }else if(robj instanceof Array){
                     return <div>
                         <a className={css1.propName} onClick={()=>this.toggleFolding()}>
-                            {this.state.folded?'+':'-'} {this.props.name} ({robj.length})
+                            {this.state.folded?'+':'-'} {(this.props.variableName??'')+this.props.name} ({robj.length})
                         </a>
                         {this.renderExpandChildrenBtnIfAvailable()}<br/>
                         {(!this.state.folded)?
@@ -203,7 +217,7 @@ export let __inited__=(async ()=>{
                 }else if(robj instanceof UnidentifiedObject){
                     return <div>
                         <a className={css1.propName} onClick={()=>this.toggleFolding()}>
-                            {this.state.folded?'+':'-'} {this.props.name} ({robj.keyCount})
+                            {this.state.folded?'+':'-'} {(this.props.variableName??'')+this.props.name} ({robj.keyCount})
                         </a>
                     </div>
                 }else if(robj instanceof MiscObject){
@@ -232,7 +246,7 @@ export let __inited__=(async ()=>{
                     let keys=Object.keys(robj)
                     return <div>
                         <a className={css1.propName} onClick={()=>this.toggleFolding()}>
-                            {this.state.folded?'+':'-'}{this.props.name} ({keys.length})
+                            {this.state.folded?'+':'-'}{(this.props.variableName??'')+this.props.name} ({keys.length})
                         </a>
                         {this.renderExpandChildrenBtnIfAvailable()}<br/>
                         {(!this.state.folded)?

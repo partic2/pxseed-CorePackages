@@ -260,7 +260,7 @@ export class LocalRunCodeContext implements RunCodeContext{
         }catch(err){}
     }
     async callFunction(name: string, args: any[]): Promise<any> {
-        let taskName=__name__+'.task-'+jsutils1.GenerateRandomString();
+        let taskName='task'+jsutils1.GenerateRandomString();
         let that=this;
         let t=jsutils1.Task.fork(function*(){
             let curtask=jsutils1.Task.currentTask!;
@@ -269,12 +269,12 @@ export class LocalRunCodeContext implements RunCodeContext{
             TaskLocalEnv.set(that.localScope);
             try{
                 let r=that.localScope[name](...args);
-                if(typeof r==='object' && 'then' in r){
+                if(typeof r==='object' && r!==null && typeof r.then==='function'){
                     r=yield r;
                 }
                 return r;
             }finally{
-                delete that.localScope.tasks[taskName];
+                delete that.localScope.tasks[curtask.name];
             }
         }).run();
         return await t;
@@ -286,7 +286,7 @@ export class LocalRunCodeContext implements RunCodeContext{
             TaskLocalEnv.set(that.localScope);
             for(let processor of that.localScope.__priv_sourceProcessors){
                 let isAsync=processor.process(processContext);
-                if(isAsync!=undefined && 'then' in isAsync){
+                if(isAsync!=null && typeof isAsync==='object' && typeof isAsync.then==='function'){
                     yield isAsync;
                 }
             }
@@ -312,7 +312,7 @@ export class LocalRunCodeContext implements RunCodeContext{
         let code=new Function('_ENV',withBlockBegin+
         'return (async ()=>{Promise.__onAsyncEnter();try{\n'+source+'\n}finally{Promise.__onAsyncExit();}})();}');
         let that=this;
-        let taskName=__name__+'.task-'+jsutils1.GenerateRandomString();
+        let taskName='task'+jsutils1.GenerateRandomString();
         let r=jsutils1.Task.fork(function*(){
             let curtask=jsutils1.Task.currentTask!;
             curtask.name=taskName;
@@ -321,7 +321,7 @@ export class LocalRunCodeContext implements RunCodeContext{
             try{
                 return (yield code(that.localScopeProxy)) as any;
             }finally{
-                delete that.localScope.tasks[taskName];
+                delete that.localScope.tasks[curtask.name];
             }
         }).run();
         return await r;

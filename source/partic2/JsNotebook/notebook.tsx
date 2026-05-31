@@ -227,16 +227,16 @@ class NotebookViewer extends React.Component<{context:WorkspaceContext,path:stri
         this.DoCodeCellsHightlight.call();
     }
     render() {
-        return <div style={{width:'100%',overflow:'auto'}} onKeyDown={(ev)=>this.onKeyDown(ev)} ref={this.rref.container}>
-            <div>
+        return <div style={{width:'100%',height:'100%',display:'flex',flexDirection:'column'}} onKeyDown={(ev)=>this.onKeyDown(ev)} ref={this.rref.container}>
+            <div style={{flexGrow:'0',flexShrink:'0'}}>
             <a href="javascript:;" onClick={()=>this.openRpcChooser()}>RPC:{this.state.usingRpcName??'<No RPC>'}</a>
             <span>&nbsp;&nbsp;</span>
             <a onClick={()=>this.doSave()} href="javascript:;">Save</a>
             </div>
             {(this.codeContext!=undefined)?
-                <CodeCellList codeContext={this.codeContext!} ref={this.rref.ccl} cellProps={{
+                <div style={{flexShrink:1,minHeight:'0px'}}><CodeCellList codeContext={this.codeContext!} ref={this.rref.ccl} cellProps={{
                     onInputChange:(target)=>this.onCellInputChange(target)
-                }}/>:
+                }}/></div>:
                 'No CodeContext'
             }
         </div>
@@ -252,7 +252,6 @@ class RunCodeReplView extends React.Component<{
 }>{
     rref={
         list:new ReactRefEx<CodeCellList>(),
-        container:new ReactRefEx<HTMLDivElement>()
     }
     rpc?:ClientInfo
     async onCellRun(cellKey:string){
@@ -273,19 +272,7 @@ class RunCodeReplView extends React.Component<{
         await cc.runCode();
     }
     protected autoScrollToBottom=true;
-    protected *_keepScrollState(){
-        let cont=yield* Task.yieldWrap(this.rref.container.waitValid());
-        while(this.rref.container.current!=null){
-            if(this.autoScrollToBottom){
-                cont=this.rref.container.current;
-                cont.scrollTo({top:cont.scrollHeight,behavior:'smooth'});
-            }
-            yield sleep(200);
-        }
-    }
     componentWillUnmount(): void {
-        this._scrollTask?.abort();
-        this._scrollTask=null;
     }
     protected codeCellHighlightQueue=new Set<CodeCell>();
     protected DoCodeCellsHightlight=new DebounceCall(async ()=>{
@@ -312,31 +299,14 @@ class RunCodeReplView extends React.Component<{
         this.codeCellHighlightQueue.add(codeCell);
         this.DoCodeCellsHightlight.call();
     }
-    _scrollTask:Task<void>|null=null;
     async beforeRender(){
-        if(this._scrollTask==null){
-            let that=this;
-            this._scrollTask=Task.fork(function*(){
-                yield* that._keepScrollState();
-            }).run()
-        }
     }
-    onContainerScroll=new DebounceCall(async ()=>{
-        let cont=await this.rref.container.waitValid();
-        if(cont.scrollHeight-(cont.scrollTop+cont.clientHeight)<15){
-            this.autoScrollToBottom=true;
-        }
-    },300);
     render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined; }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChild {
         this.beforeRender();
-        return <div ref={this.rref.container} style={{
-            overflowY:'auto',border:'0px',padding:'0px',margin:'0px',width:'100%',height:'100%',...this.props.containerStyle}} 
-         onPointerDown={()=>this.autoScrollToBottom=false} onScroll={()=>this.onContainerScroll.call()}>
-            <CodeCellList codeContext={this.props.codeContext} onRun={(key)=>this.onCellRun(key)} ref={this.rref.list} cellProps={{
-                runCodeKey:'Enter',
-                onInputChange:(target)=>this.onCellInputChange(target)
-                }}/>
-        </div>
+        return <CodeCellList codeContext={this.props.codeContext} onRun={(key)=>this.onCellRun(key)} ref={this.rref.list} cellProps={{
+            runCodeKey:'Enter',
+            onInputChange:(target)=>this.onCellInputChange(target)
+            }}/>
     }
 }
 

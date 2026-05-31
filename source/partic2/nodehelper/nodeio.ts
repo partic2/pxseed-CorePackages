@@ -184,13 +184,8 @@ export async function createIoPxseedJsUrl(url:string){
 }
 
 
-import { WebSocketIo } from "pxprpc/backend";
-
-import { WebSocketServerConnection } from 'partic2/tjshelper/httpprot';
 import tls from "tls";
 
-
-globalThis.WebSocket=WebSocket as any;
 
 export class NodeReadableDataSource implements UnderlyingDefaultSource<any>{
 	constructor(public nodeReadable:Readable){}

@@ -212,7 +212,11 @@ return JSON.stringify({startupScript:jsnotebook.startupScript})
             }
         }
         let codeContextClosed=this.codeContextclosed;
-        this.connector!.runCode(`return new Promise((resolve)=>event.addEventListener('close',()=>resolve('close')))`,'').then((r)=>{
+        this.connector!.runCode(`
+        delete _ENV.tasks[Task.currentTask.name]
+        Task.currentTask.name="${__name__}.waitCloseEvent";
+        _ENV.tasks[Task.currentTask.name]=Task.currentTask;
+        return new Promise((resolve)=>event.addEventListener('close',()=>resolve('close')))`,'').then((r)=>{
             codeContextClosed.setResult();
         }).catch((err)=>log.warning(err.stack));
         await this.connector!.runCode(`await (await import('partic2/JsNotebook/workerinit')).initNotebookCodeEnv(_ENV,${
