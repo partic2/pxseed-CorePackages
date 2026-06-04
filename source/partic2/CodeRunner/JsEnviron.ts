@@ -587,9 +587,52 @@ export function setDefaultFileSystem(fs:SimpleFileSystem){
     defaultFileSystem=fs;
 }
 
-export class DirAsRootFS implements SimpleFileSystem{
-    pxprpc?: ClientInfo | undefined;
+export abstract class PathRewriteFs implements SimpleFileSystem{
+    constructor(public fs:SimpleFileSystem){}
+    async ensureInited(): Promise<void> {
+        return await this.fs.ensureInited();
+    }
+    abstract rewritePath(path:string):Promise<string>
+    async writeAll(path: string, data: Uint8Array): Promise<void> {
+        return this.fs.writeAll(await this.rewritePath(path),data);
+    }
+    async readAll(path: string): Promise<Uint8Array | null> {
+        return this.fs.readAll(await this.rewritePath(path));
+    }
+    async read(path: string, offset: number, buf: Uint8Array): Promise<number> {
+        return this.fs.read(await this.rewritePath(path),offset,buf);
+    }
+    async write(path: string, offset: number, buf: Uint8Array): Promise<number> {
+        return this.fs.write(await this.rewritePath(path),offset,buf);
+    }
+    async delete2(path: string): Promise<void> {
+        return this.fs.delete2(await this.rewritePath(path));
+    }
+    async listdir(path: string): Promise<{ name: string; type: 'dir'|'file'; }[]> {
+        return this.fs.listdir(await this.rewritePath(path));
+    }
+    async filetype(path: string): Promise<"dir" | "file" | "none"> {
+        return this.fs.filetype(await this.rewritePath(path));
+    }
+    async mkdir(path: string): Promise<void> {
+        return this.fs.mkdir(await this.rewritePath(path));
+    }
+    async rename(path: string, newPath: string): Promise<void> {
+        return this.fs.rename(await this.rewritePath(path),await this.rewritePath(newPath));
+    }
+    async dataDir(): Promise<string> {
+        return '';
+    }
+    async stat(path: string): Promise<{ atime: Date; mtime: Date; ctime: Date; birthtime: Date; size: number; }> {
+        return this.fs.stat(await this.rewritePath(path));
+    }
+    async truncate(path: string, newSize: number): Promise<void> {
+        return this.fs.truncate(await this.rewritePath(path),newSize);
+    }
+}
+export class DirAsRootFS extends PathRewriteFs{
     constructor(public fs:SimpleFileSystem,public rootDir:string){
+        super(fs);
         if(!this.rootDir.endsWith('/')){
             this.rootDir+='/';
         }
@@ -597,57 +640,23 @@ export class DirAsRootFS implements SimpleFileSystem{
     async ensureInited(): Promise<void> {
         return await this.fs.ensureInited();
     }
-    protected pConvertPath(path:string){
+    async rewritePath(path:string){
         if(path.startsWith('/')){
             return this.rootDir+path.substring(1);
         }else{
             return this.rootDir+path;
         }
     }
-    async writeAll(path: string, data: Uint8Array): Promise<void> {
-        return this.fs.writeAll(this.pConvertPath(path),data);
-    }
-    async readAll(path: string): Promise<Uint8Array | null> {
-        return this.fs.readAll(this.pConvertPath(path));
-    }
-    async read(path: string, offset: number, buf: Uint8Array): Promise<number> {
-        return this.fs.read(this.pConvertPath(path),offset,buf);
-    }
-    async write(path: string, offset: number, buf: Uint8Array): Promise<number> {
-        return this.fs.write(this.pConvertPath(path),offset,buf);
-    }
-    async delete2(path: string): Promise<void> {
-        return this.fs.delete2(this.pConvertPath(path));
-    }
-    async listdir(path: string): Promise<{ name: string; type: 'dir'|'file'; }[]> {
-        return this.fs.listdir(this.pConvertPath(path));
-    }
-    async filetype(path: string): Promise<"dir" | "file" | "none"> {
-        return this.fs.filetype(this.pConvertPath(path));
-    }
-    async mkdir(path: string): Promise<void> {
-        return this.fs.mkdir(this.pConvertPath(path));
-    }
-    async rename(path: string, newPath: string): Promise<void> {
-        return this.fs.rename(this.pConvertPath(path),this.pConvertPath(newPath));
-    }
-    async dataDir(): Promise<string> {
-        return '';
-    }
-    async stat(path: string): Promise<{ atime: Date; mtime: Date; ctime: Date; birthtime: Date; size: number; }> {
-        return this.fs.stat(this.pConvertPath(path));
-    }
-    async truncate(path: string, newSize: number): Promise<void> {
-        return this.fs.truncate(this.pConvertPath(path),newSize);
-    }
-    
 }
 
 class SimpleFileSystemDataSource implements UnderlyingSource<Uint8Array>{
     constructor(public fs:SimpleFileSystem,public path:string){}
-    public readPos=0;
+    readPos=0;
+    bufferSize=64*1024;
+    inited:Promise<void>|null=null;
     async pull(controller: ReadableStreamController<Uint8Array>): Promise<void>{
-        let readBuffer=new Uint8Array(64*1024);
+        await this.inited;
+        let readBuffer=new Uint8Array(this.bufferSize);
         let bytesRead=await this.fs.read(this.path,this.readPos,readBuffer);
         if(bytesRead==0){
             controller.close();
@@ -657,22 +666,35 @@ class SimpleFileSystemDataSource implements UnderlyingSource<Uint8Array>{
         controller.enqueue(new Uint8Array(readBuffer.buffer,0,bytesRead));
     }
 }
-function getFileSystemReadableStream(fs:SimpleFileSystem,path:string,initialSeek?:number){
+function getFileSystemReadableStream(fs:SimpleFileSystem,path:string,initialSeek?:number,opt?:{bufferSize?:number}){
     let dataSource=new SimpleFileSystemDataSource(fs,path);
+    if(opt?.bufferSize!=undefined){
+        dataSource.bufferSize=opt.bufferSize;
+    }
     if(initialSeek!=undefined)dataSource.readPos=initialSeek;
     return new ReadableStream(dataSource)
 }
 class SimpleFileSystemDataSink implements UnderlyingSink<Uint8Array>{
     public writePos=0;
     constructor(public fs:SimpleFileSystem,public path:string){}
+    inited:Promise<void>|null=null;
     async write(chunk: Uint8Array, controller: WritableStreamDefaultController): Promise<void>{
+        await this.inited;
         let writeCount=await this.fs.write(this.path,this.writePos,chunk);
         this.writePos+=writeCount
     }
 }
-function getFileSystemWritableStream(fs:SimpleFileSystem,path:string,initialSeek?:number){
+function getFileSystemWritableStream(fs:SimpleFileSystem,path:string,initialSeek?:number|'end'){
     let dataSink=new SimpleFileSystemDataSink(fs,path);
-    if(initialSeek!=undefined)dataSink.writePos=initialSeek;
+    dataSink.inited=(async ()=>{
+        if(initialSeek!=undefined){
+            if(initialSeek==='end'){
+                let {size}=await fs.stat(path);
+                initialSeek=size;
+            }
+            dataSink.writePos=initialSeek;
+        }
+    })();
     return new WritableStream(dataSink)
 }
 export let simpleFileSystemHelper={

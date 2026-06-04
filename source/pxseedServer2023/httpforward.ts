@@ -109,7 +109,9 @@ defaultFuncMap[__name__+'.fetchHttpResponse']=new RpcExtendServerCallable(async 
     }
 }).typedecl('o->b');
 defaultFuncMap[__name__+'.readHttpResponseBody']=new RpcExtendServerCallable(async (session:HttpSession)=>{
-    if(session.protocol==='http'){
+    if(session.closed){
+        throw new Error('Http session closed');
+    }else if(session.protocol==='http'){
         if(session.responseBody==null){
             return new Uint8Array(0);
         }
@@ -168,10 +170,10 @@ export class HttpRequestForwardOnRpc{
             }),{status,statusText,headers});
             rpcObjectFree.register(resp2,httpSession);
             return resp2;
-        }catch(err){
+        }catch(err:any){
             abortCtl.abort();
             httpSession.free();
-            throw err;
+            return new Response(err.toString(),{status:504})
         }
     }
     async websocket(ctl:{
@@ -223,3 +225,11 @@ export async function forwardHttpRequestToRpcWorker(prefix:string,rpc:string|nul
     httpforward.__serverHostForwardHttpRequestToRpcWorker(prefix,rpc);
 }
 
+let serverHostHttpRequestHandler:HttpRequestForwardOnRpc|null=null;
+
+export async function getServerHostHttpRequestHandler(){
+    if(serverHostHttpRequestHandler==null){
+        serverHostHttpRequestHandler=new HttpRequestForwardOnRpc(await (await getPersistentRegistered(ServerHostRpcName))!.ensureConnected());
+    }
+    return serverHostHttpRequestHandler;
+}

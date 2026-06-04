@@ -12,7 +12,7 @@ import { GetUrlQueryVariable2, getWWWRoot, path } from 'partic2/jsutils1/webutil
 import { SimpleFileServer, SimpleHttpServerRouter, WebSocketServerConnection } from 'partic2/tjshelper/httpprot';
 import { Io } from 'pxprpc/base';
 import { buildTjs } from 'partic2/tjshelper/tjsbuilder';
-import { GenerateRandomString, requirejs } from 'partic2/jsutils1/base';
+import { assert, GenerateRandomString, requirejs } from 'partic2/jsutils1/base';
 import { DirAsRootFS, TjsSfs } from 'partic2/CodeRunner/JsEnviron';
 import { getRpcClientConnectWorkerParent } from 'partic2/pxprpcClient/rpcworker';
 
@@ -36,8 +36,6 @@ export interface PxseedServer2023StartupConfig{
         subprocessConfig:PxseedServer2023StartupConfig[]
     }
     subprocessIndex?:number
-    //RegExp to block private/secret file access.
-    blockFilesMatch?:string[]
     //Usually used for source map
     serveSourceDirectory?:boolean
 };
@@ -51,14 +49,14 @@ export let config:PxseedServer2023StartupConfig={
         enabled:false,
         subprocessConfig:[]
     },
-    //pxprpcKey should be secret.
-    blockFilesMatch:['^/+www/+pxseedServer2023/+config\\.json$'],
     serveSourceDirectory:false
 };
 
 export let rootConfig={...config};
 
-let blockFileMatchRegex=new Array<RegExp>();
+export let blockStaticFileAccessIf=new Map<string,(path:string)=>Promise<boolean>>();
+
+blockStaticFileAccessIf.set(__name__+'.keepPxprpcKeySecret',async (path)=>/^\/+www\/+pxseedServer2023\/+config\.json$/.test(path))
 
 export async function setupServerPxprpcClient(){
     await addClient('pxseedjs:'+__name__+'.getConnectionForServerHost',ServerHostRpcName);
@@ -74,7 +72,6 @@ export async function loadConfig(){
         let readinConfig=JSON.parse(new TextDecoder().decode(configData));
         rootConfig=Object.assign(readinConfig);
         Object.assign(config,rootConfig);
-        blockFileMatchRegex=config.blockFilesMatch?.map(t1=>new RegExp(t1))??[];
     }catch(e){
         console.warn(`config file not found, write to ${getWWWRoot()+'/pxseedServer2023/config.json'}`)
         config.pxprpcKey=GenerateRandomString(8);
@@ -179,8 +176,8 @@ export async function setupHttpServerHandler(){
     
     fileServer.interceptor=async (path)=>{
         path='/www'+path;
-        for(let t1 of blockFileMatchRegex){
-            if(t1.test(path)){
+        for(let t1 of blockStaticFileAccessIf.values()){
+            if(await t1(path)){
                 return new Response(null,{status:403});
             }
         }
