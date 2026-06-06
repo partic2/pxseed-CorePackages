@@ -5,7 +5,7 @@ import {ArrayBufferConcat, ArrayWrap2, GenerateRandomString, assert, logger, req
 import { getNodeCompatApi, __internal__ as utilsi, withConsole } from 'pxseedBuildScript/util';
 import { defaultFileSystem, ensureDefaultFileSystem, getSimpleFileSysteNormalizedWWWRoot } from 'partic2/CodeRunner/JsEnviron';
 import { NotebookFileData, runNotebook } from 'partic2/JsNotebook/workerinit';
-import { ServerHostWorker1RpcName } from 'partic2/pxprpcClient/registry';
+import { easyCallRemoteJsonFunction, getPersistentRegistered, getRegistered, ServerHostRpcName, ServerHostWorker1RpcName } from 'partic2/pxprpcClient/registry';
 import {defaultGitClient, fetchPackage, __internal__ as pkgfetcheri} from './pkgfetcher'
 import { newCodeCellListData } from 'partic2/CodeRunner/CodeContext';
 
@@ -198,24 +198,7 @@ export interface PackageManagerOption{
         icon?:string,
         label:string
     },
-    //intercept the default upgrade action.
-    onUpgrade?:{
-        module:string,
-        //type upgradeHandlerFunc=(moduleName:string,pkgDir:string)=>Promise<void>
-        func:string
-    },
-    //intercept the default publish action.
-    onPublish?:{
-        module:string,
-        //type publishHandlerFunc=(moduleName:string,pkgDir:string)=>Promise<void>
-        func:string
-    },
     onInstalled?:{
-        module:string,
-        //type installHandlerFunc=(moduleName:string)=>void
-        func:string
-    },
-    onUninstalling?:{
         module:string,
         //type installHandlerFunc=(moduleName:string)=>void
         func:string
@@ -229,7 +212,7 @@ export interface PackageManagerOption{
         module:string,
         //type webuiStartupHandler=()=>void, this function will run in web scope.
         func:string
-    }
+    },
     dependencies?:string[],
     repositories?:{
         [name:string]:string[]
@@ -376,14 +359,8 @@ export async function installLocalPackage(path2:string){
     }
     await buildPackageAndNotfiy(pkgname);
     await updatePackagesDatabase(pxseedConfig);
-    if(pkgConfig!=null){
-        if(pkgConfig.onInstalled!=undefined){
-            try{
-                (await import(pkgConfig.onInstalled.module))[pkgConfig.onInstalled.func]();
-            }catch(e){};
-        }
-    }
     listener.onInstall.forEach((l)=>import(l.module).then(m=>m[l.func](pkgname)).catch(()=>{}));
+    await Promise.allSettled((await getPackageListeners('onInstalled')).map(t1=>import(t1.module).then(t2=>t2[t1.func]())));
 }
 
 
@@ -435,16 +412,7 @@ export async function buildPackageAndNotfiy(pkgName:string){
 }
 
 export async function uninstallPackage(pkgname:string){
-    const {fs,path,wwwroot}=await getNodeCompatApi();
-    let pkgcfg=await getPxseedConfigForPackage(pkgname);
-    if(pkgcfg!=null){
-        let pmopt=getPMOptFromPcfg(pkgcfg);
-        if(pmopt!=null && pmopt.onUninstalling!=undefined){
-            try{
-                await (await import(pmopt.onUninstalling.module))[pmopt.onUninstalling.func]?.();
-            }catch(err){};
-        }
-    }
+    const {fs}=await getNodeCompatApi();
     let dir1=await getSourceDirForPackage(pkgname);
     await fs.rm(dir1,{recursive:true}).catch(_=>{})
     dir1=await getOutputDirForPakcage(pkgname);
@@ -522,14 +490,9 @@ export async function upgradePackage(pkgname:string){
     const {fs,path,wwwroot}=await getNodeCompatApi();
     let pkgdir=await getSourceDirForPackage(pkgname)
     let pxseedConfig=await utilsi.readJson(path.join(pkgdir,'pxseed.config.json')) as PxseedConfig;
-    let pmopt=getPMOptFromPcfg(pxseedConfig);
-    if(pmopt?.onUpgrade!=undefined){
-        await (await import(pmopt.onUpgrade.module))[pmopt.onUpgrade.func](pkgname,pkgdir);
-    }else{
-        await fs.access(path.join(pkgdir,'.git'));
-        await pkgfetcheri.upgradeGitPackage(pkgdir);
-        await installLocalPackage(pkgdir);
-    }
+    await fs.access(path.join(pkgdir,'.git'));
+    await pkgfetcheri.upgradeGitPackage(pkgdir);
+    await installLocalPackage(pkgdir);
 }
 
 export async function installPackage(source:string){
@@ -686,19 +649,28 @@ export async function cleanPackageInstallCache(){
     await fs.rm(path.join(wwwroot,...__name__.split('/'),'..','__temp'),{recursive:true});
 }
 
-export async function getPackageListeners(eventType:'onServerStartup'|'onWebuiStartup'):Promise<Array<{module:string,func:string}>>{
+export async function getPackageListeners(eventType:'onServerStartup'|'onWebuiStartup'|'onInstalled'):Promise<Array<{module:string,func:string}>>{
     let result=new Array<{module:string,func:string}>()
     for await (let pkg of listPackages()){
         let pmopt=getPMOptFromPcfg(pkg);
         if(pmopt!=null){
             if(pmopt[eventType]!=null){
                 try{
-                    result.push(pmopt[eventType]);
+                    let t1={...pmopt[eventType]};
+                    if(/^\.\.?\//.test(t1.module)){
+                        t1.module=path.join(pkg.name,t1.module)
+                    }
+                    result.push(t1);
                 }catch(err){};
             }
         }
     }
     return result;
+}
+
+export async function blockHttpAccessToStaticFileInWWW(path2:string){
+    await easyCallRemoteJsonFunction(await (await getPersistentRegistered(ServerHostRpcName))!.ensureConnected(),
+        path.join(__name__,'..','onServerStartup'),'__blockHttpAccessToStaticFileInWWW',[path2]);
 }
 
 export async function sendOnStartupEventForAllPackages(){
@@ -716,3 +688,4 @@ export async function sendOnStartupEventForAllPackages(){
         await runNotebook(startupNotebook,'all cells');
     }
 }
+
