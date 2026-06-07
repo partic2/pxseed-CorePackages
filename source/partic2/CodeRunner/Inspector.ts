@@ -3,6 +3,7 @@ import { ArrayBufferToBase64, ArrayWrap2, Base64ToArrayBuffer, GenerateRandomStr
 import { SimpleFileSystem, defaultFileSystem, ensureDefaultFileSystem, installedRequirejsResourceProvider } from "./JsEnviron";
 import { getWWWRoot } from "partic2/jsutils1/webutils";
 import { OnConsoleData } from "./jsutils2";
+import { RpcSerializeMagicMark } from "partic2/pxprpcClient/registry";
 
 const __name__=requirejs.getLocalRequireModule(require);
 
@@ -82,6 +83,7 @@ export function toSerializableObject(v:any,opt:Partial<typeof DefaultSerializing
                 return {[serializingEscapeMark]:'unidentified',isArray:false,keyCount:keys.length}
             }else{
                 for(let k1 of keys){
+                    if(k1===RpcSerializeMagicMark)continue;
                     try{
                         r[k1]=toSerializableObject(v[k1],{...opt,maxDepth:opt.maxDepth!-1});
                     }catch(e:any){

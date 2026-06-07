@@ -22,82 +22,49 @@ export function wrapReadable(r:Readable):ReadStream4NodeIo{
 
 //tjs.Reader
 class ReadStream4NodeIo implements tjs.Reader{
-    protected chunkQueue=new ArrayWrap2<Buffer|null>();
+    protected chunkQueue=new ArrayWrap2<Uint8Array|'END'>();
     protected err:Error|null=null;
     constructor(protected nodeInput:Readable){
-        nodeInput.on('data',(chunk)=>{
-            this.chunkQueue.queueSignalPush(chunk);
+        nodeInput.on('data',(chunk:Buffer)=>{
+            this.chunkQueue.queueSignalPush(new Uint8Array(chunk.buffer,chunk.byteOffset,chunk.length));
         });
         nodeInput.on('end',()=>{
-            this.chunkQueue.queueSignalPush(null);
+            this.chunkQueue.queueSignalPush('END');
         });
         nodeInput.on('error',(err)=>{
-            this.chunkQueue.queueSignalPush(null);
+            this.chunkQueue.queueSignalPush('END');
             this.err=err;
         });
         nodeInput.on('close',()=>{
-            this.chunkQueue.queueSignalPush(null);
-            this.endOfStream=true;
+            this.chunkQueue.queueSignalPush('END');
         })
     }
-    protected remainbuf:Buffer|null=null;
     protected endOfStream=false;
-    protected remainoff:number=0;
     async read(buf:Uint8Array,offset?:number){
         if(this.err!=null){
             throw this.err;
         }
         offset=offset??0;
         if(this.endOfStream)return null;
-        if(this.remainbuf===null){
-            this.remainbuf=await this.chunkQueue.queueBlockShift();
-            if(this.remainbuf===null){
-                if(this.err!=null){
-                    throw this.err;
-                }
-                return null
-            }
-            this.remainoff=this.remainbuf.byteOffset;
+        let buf1=await this.chunkQueue.queueBlockShift();
+        if(buf1==='END'){
+            this.endOfStream=true;
+            return null;
         }
-        let readLen=Math.min(buf.length-offset,this.remainbuf.length-this.remainoff);
-        buf.set(new Uint8Array(this.remainbuf.buffer,this.remainbuf.byteOffset+this.remainoff,readLen),offset);
-        this.remainoff+=readLen;
-        if(this.remainbuf.length-this.remainoff===0){
-            this.remainbuf=null;
+        let readLen=Math.min(buf.length-offset,buf1.length);
+        buf.set(new Uint8Array(buf1.buffer,buf1.byteOffset,readLen),offset);
+        if(readLen<buf1.length){
+            buf1=new Uint8Array(buf1.buffer,buf1.byteOffset+readLen,buf1.length-readLen);
+            this.chunkQueue.arr().unshift(buf1);
         }
         return readLen;
-    }
-    async readFully(buf:Uint8Array){
-        let end=buf.byteOffset+buf.byteLength;
-        let start=0;
-        while(start<end){
-            let readLen=await this.read(buf,start);
-            if(readLen==null){
-                if(start<end){
-                    throw new Error('EOF occured');
-                }
-            }else{
-                start+=readLen;
-            }
-        }
-    }
-    async readAll(){
-        let buffList=[]
-        for(let t1=0;t1<1024*1024;t1++){
-            let buff=await this.chunkQueue.queueBlockShift();
-            if(buff!=null){
-                buffList.push(buff);
-            }else{
-                break;
-            }
-        }
-        return ArrayBufferConcat(buffList)
     }
 }
 
 
 export class PxprpcIoFromSocket implements Io{
-    public sock?:Socket;
+    sock?:Socket;
+    r!:ExtendStreamReader;
     async connect(opt:{
         path:string
     }|{
@@ -105,23 +72,22 @@ export class PxprpcIoFromSocket implements Io{
         port:number
     }){
         if(this.sock==undefined){
-            return new Promise<undefined>((resolve,reject)=>{
+            this.sock=await new Promise<undefined>((resolve,reject)=>{
                     this.sock=new Socket();
                     this.sock.once('error',(err)=>{
                         reject(err);
                     });
                     this.sock.connect(opt,()=>resolve(undefined));
             });
+            this.r=new ExtendStreamReader(new ReadableStream(new TjsReaderDataSource(wrapReadable(this.sock!))).getReader())
         }else{
             return this.sock;
         }
     }
     async receive(): Promise<Uint8Array> {
-        let buf1=new Uint8Array(4);
-        await wrapReadable(this.sock!).readFully(buf1);
+        let buf1=await this.r.readForNBytes(4);
         let size=new DataView(buf1.buffer).getInt32(0,true);
-        buf1=new Uint8Array(size);
-        await wrapReadable(this.sock!).readFully(buf1);
+        buf1=await this.r.readForNBytes(size);
         return buf1;
     }
     async send(data: Uint8Array[]): Promise<void> {
@@ -231,6 +197,8 @@ export class TlsStream{
 }
 
 import type {HttpClient} from 'partic2/tjshelper/httpprot'
+import { TjsReaderDataSource, TjsWriterDataSink } from "../tjshelper/tjsutil";
+import { ExtendStreamReader } from "../CodeRunner/jsutils2";
 
 export async function newHttpClientForNodeJs(){
     let {HttpClient}=await import('partic2/tjshelper/httpprot');

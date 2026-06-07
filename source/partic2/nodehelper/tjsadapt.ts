@@ -342,12 +342,15 @@ class Process {
                     term_signal:null|string
                 }>();
     constructor(public args: string | string[], public options?: tjs.ProcessOptions){
-        if(typeof args==='string'){
-            args=[args];
+        if(typeof this.args==='string'){
+            this.args=[this.args];
         }
+    }
+    async spawn(){
+        let args:string[]=this.args as string[];
         this.nodeProcess=child_process.spawn(args[0],args.slice(1),{
-            stdio:[options?.stdin,options?.stdout,options?.stderr],
-            cwd:options?.cwd,env:options?.env
+            stdio:[this.options?.stdin,this.options?.stdout,this.options?.stderr],
+            cwd:this.options?.cwd,env:this.options?.env
         });
         this.nodeProcess.on('error',(err)=>{
             this.processResult.setException(err);
@@ -395,8 +398,9 @@ class Process {
 }
 
 
-function spawn(args: string | string[], options?: tjs.ProcessOptions): Process{
-    let p = new Process(args,options)
+async function spawn(args: string | string[], options?: tjs.ProcessOptions): Promise<Process>{
+    let p = new Process(args,options);
+    await p.spawn()
     return p;
 }
 

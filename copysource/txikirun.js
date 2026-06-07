@@ -1,16 +1,10 @@
 
 addEventListener('unhandledrejection',function(ev){
-    //txikijs BUG https://github.com/quickjs-ng/quickjs/issues/39
-    //So we have to mute error before it is fixed.
-    //console.error(ev.reason);
+    //Promise error are hard to known catched or not, Now we just ignored it.
     ev.preventDefault();
 });
 addEventListener('error',function(ev){
-    if(globalThis.__workerId!=undefined){
-        console.error('worker '+globalThis.__workerId+'\n'+ev.reason);
-    }else{
-        console.error(ev.reason);
-    }
+    console.error(ev.reason);
     ev.preventDefault();
 });
 

@@ -13,6 +13,10 @@ const { constants } = require('fs');
 //To avoid unnecessary fetch error. Maybe customize fetch is better
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0"
 
+process.on('unhandledRejection',function(ev){
+    //Promise error are hard to known catched or not, Now we just ignored it.
+});
+
 //prevent unexpected exit
 process.on('uncaughtException', (error) => {
     console.error('uncaughtException', error);
