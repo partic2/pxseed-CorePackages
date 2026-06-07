@@ -19,7 +19,7 @@ export var css={
 
 export interface CodeCellProps{
     codeContext:RunCodeContext,
-    customBtns?:{label:string,cb:()=>Promise<any>}[],
+    customBtns?:{label:string,title?:string,cb:()=>Promise<any>}[],
     onRun?:()=>void,
     onRunResult?:()=>void
     onClearOutputs?:()=>void,
@@ -289,11 +289,11 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
         let result=[]
         if(this.props.customBtns!=undefined){
             for(let t1 of this.props.customBtns){
-                result.push(<a href="javascript:;" onClick={()=>t1.cb()}>{t1.label}</a>)
+                result.push(<a href="javascript:;" onClick={()=>t1.cb()} {...{title:t1.title}}>{t1.label}</a>)
             }
         }
-        result.push(<a href="javascript:;" onClick={()=>this.onBtnRun()}>Run({this.getRunCodeKey()})</a>)
-        result.push(<a href="javascript:;" onClick={()=>this.onBtnClearOutputs()}>ClearOutputs</a>)
+        result.push(<a href="javascript:;" onClick={()=>this.onBtnRun()} title={`Run cell(${this.getRunCodeKey()})`}>Run</a>)
+        result.push(<a href="javascript:;" onClick={()=>this.onBtnClearOutputs()} title={`Clear outputs`}>Clr</a>)
         result=result.map(v=>[<span>&nbsp;&nbsp;</span>,v,<span>&nbsp;&nbsp;</span>])
         return result
     }
@@ -335,7 +335,7 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
             }}}
             onInput={(target,inputData)=>this.onCellInput(target,inputData)} divClass={[css.inputCell,...(this.props.inputClass??[])]} />
             {this.state.focusin?<div style={{position:'relative',display:'flex',flexDirection:'row-reverse'}}>
-                <div style={{position:'absolute',backgroundColor:'white',maxWidth:'50%',wordBreak:'break-all'}}>
+            <div style={{position:'absolute',backgroundColor:'white',maxWidth:'50%',wordBreak:'break-all'}}>
                 <div>{this.renderActionButton()}</div>
             </div></div>:null}
             {this.renderTooltipsContent()}
@@ -468,11 +468,11 @@ export class DefaultCodeCellList extends React.Component<
         let cellDiv=v.ref.current?.rref.container.current;
         let listDiv=this.rref.container.current;
         if(cellDiv!=null && listDiv!=null){
-            if(cellDiv.offsetTop+300>listDiv.scrollTop+listDiv.clientHeight){
+            if(cellDiv.offsetTop+300>listDiv.scrollTop+listDiv.clientHeight && listDiv.clientHeight>300){
                 listDiv.scrollTo({behavior:'smooth',top:cellDiv.offsetTop+300-listDiv.clientHeight})
-            }else if(cellDiv.offsetTop<listDiv.scrollTop){
+            }else if(cellDiv.offsetTop+cellDiv.offsetHeight<listDiv.scrollTop){
                 await new Promise(requestAnimationFrame);
-                listDiv.scrollTo({behavior:'smooth',top:cellDiv.offsetTop})
+                listDiv.scrollTo({behavior:'smooth',top:cellDiv.offsetTop+cellDiv.offsetHeight})
             }
         }
     }
