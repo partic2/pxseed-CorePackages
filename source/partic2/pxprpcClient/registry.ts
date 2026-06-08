@@ -1,4 +1,4 @@
-import { ArrayBufferConcat, ArrayWrap2, GenerateRandomString, assert, future, mutex, requirejs, sleep } from "partic2/jsutils1/base";
+import { ArrayBufferConcat, ArrayWrap2, GenerateRandomString, Ref2, assert, future, mutex, requirejs, sleep } from "partic2/jsutils1/base";
 import { GetPersistentConfig, SavePersistentConfig,IWorkerThread, CreateWorkerThread, lifecycle, GetUrlQueryVariable, getWWWRoot } from "partic2/jsutils1/webutils";
 import { WebMessage, WebSocketIo } from "pxprpc/backend";
 import { Client, Io, Serializer, Server } from "pxprpc/base";
@@ -89,9 +89,6 @@ interface CallJsonFunctionResonse{
     }
 }
 
-let proxyDefault={
-
-}
 defaultFuncMap[__name__+'.callJsonFunction']=new RpcExtendServerCallable(async (
     requestJson:string,
     extraBytes:Uint8Array,
@@ -196,7 +193,6 @@ export interface RemoteRegistryFunction{
 export class RpcWorker{
     static connectingMutex:Record<string,mutex>={}
     initDone=new future<boolean>();
-    client?:RpcExtendClient1;
     protected wt?:IWorkerThread;
     conn?:Io;
     workerId='';
@@ -230,15 +226,6 @@ export class RpcWorker{
             return this.conn!;
         })
     }
-    async ensureClient(){
-        if(this.conn==undefined){
-            await this.ensureConnection();
-        }
-        if(this.client==undefined){
-            this.client=await new RpcExtendClient1(new Client(this.conn!)).init()
-        }
-        return this.client;
-    }
 }
 
 
@@ -254,29 +241,21 @@ export class ClientInfo{
         this.client?.close();
         this.client=null;
     }
-    async jsServerLoadModule(name:string){
-        let fn=await getAttachedRemoteRigstryFunction(this.client!);
-        await fn.loadModule(name)
-    }
     protected connecting=new mutex();
     async ensureConnected():Promise<RpcExtendClient1>{
-        try{
-            await this.connecting.lock();
+        return await this.connecting.exec(async ()=>{
             if(this.connected()){
                 return this.client!
             }else{
                 let io1=await getConnectionFromUrl(this.url.toString());
                 if(io1==null){
-                    let purl=new URL(this.url);
-                    throw new Error('No protocol handler for '+purl.protocol);
+                    throw new Error('No protocol handler for '+this.url);
                 }
                 this.client=new RpcExtendClient1(new Client(io1));
                 await this.client.init();
                 return this.client;
             }
-        }finally{
-            await this.connecting.unlock();
-        }
+        })
     }
     toJSON(){
         return {name:this.name,url:this.url};
@@ -520,10 +499,10 @@ export async function getAttachedRemoteRigstryFunction(client1:RpcExtendClient1)
 
 export let __internal__={
     isPxseedWorker:false,
-    isServingRpcName:{} as Record<string,future<boolean>>
+    isServingRpcName:{} as Record<string,future<boolean>>,
 }
 
-export async function getConnectionFromUrl(url:string):Promise<Io|null>{
+export let getConnectionFromUrlHandler=new Ref2(async function (url:string):Promise<Io|null>{
     let url2=new URL(url);
     if(url2.protocol=='pxpwebmessage:'){
         if(__internal__.isPxseedWorker){
@@ -592,6 +571,10 @@ export async function getConnectionFromUrl(url:string):Promise<Io|null>{
         }
     }
     return null;
+});
+
+export async function getConnectionFromUrl(url:string){
+    return getConnectionFromUrlHandler.get()(url);
 }
 
 let registered=new Map<string,ClientInfo>();
