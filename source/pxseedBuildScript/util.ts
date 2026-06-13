@@ -93,7 +93,7 @@ export async function simpleGlob(include:string[],opt:{cwd:string,includeHidenFi
     let matchResult:string[]=[];
     for await(let t1 of iterPath('',{cwd:opt.cwd,includeHidenFile:opt.includeHidenFile})){
         let matched=false;
-        const pathPart=t1.split(/[\\/]/);
+        let pathPart = t1.split(/[\\/]/).filter(t1=>t1!=='');
         for(let t2 of matchRegexps){
             let pathPartMatched=true;
             let doubleStar=t2.indexOf('**');

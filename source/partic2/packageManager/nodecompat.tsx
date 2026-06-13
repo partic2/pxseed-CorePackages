@@ -129,12 +129,12 @@ export let pathCompat={
   join(...args:string[]){
       let parts=[] as string[];
       for(let t1 of args){
-          for(let t2 of t1.split(/[\\\/]/)){
+          for(let t2 of t1.split(/[\\\/]/).filter(t1=>t1!=='')){
               if(t2==='..' && parts.length>=1){
                   parts.pop();
               }else if(t2==='.'){
                   //skip
-              }else{
+              }else if(t2!==''){
                   parts.push(t2);
               }
           }
