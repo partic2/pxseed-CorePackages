@@ -1,7 +1,7 @@
 
 import * as React from 'preact'
 import { css, DomComponent, ReactRefEx } from './domui';
-import { WindowComponentProps, css as windowCss } from './window';
+import { rootWindowsList, WindowComponentProps, css as windowCss } from './window';
 import {GenerateRandomString, GetCurrentTime, Ref2, assert, copy, future, mutex, partial, requirejs, sleep} from 'partic2/jsutils1/base'
 import { appendFloatWindow, removeFloatWindow, WindowComponent } from './window';
 import { getIconUrl } from 'partic2/pxseedMedia1/index1';
@@ -119,7 +119,7 @@ openNewWindowPipeline.arr().push({name:__name__+'.openNewWindowLayoutWindow',han
     let options=context.request;
     config1=await GetPersistentConfig(__name__);
     if(config1.savedWindowLayout==undefined){config1.savedWindowLayout={}};
-    let layout1:{left:number,top:number,width?:number|string,height?:number|string}|null=null;
+    let layout1:{left:number,top:number,width?:number,height?:number}|null=null;
     if(options.layoutHint!=undefined && config1.savedWindowLayout[options.layoutHint]!=undefined){
         layout1=partial(config1.savedWindowLayout[options.layoutHint],['left','top','width','height']) as any;
         config1.savedWindowLayout[options.layoutHint].time=GetCurrentTime().getTime();
@@ -187,15 +187,30 @@ export let openNewWindow=async function(contentVNode:React.VNode,options?:OpenNe
 
 let baseWindowComponnet:React.VNode|null=null
 let baseWindowRef=new ReactRefEx<WindowComponent>();
+
+const onRootWindowsListResize=()=>{
+    if(baseWindowRef.current!=null){
+        baseWindowRef.current.setState({layout:{left:0,top:0,
+            width:rootWindowsList.current?.container?.current?.offsetWidth,
+            height:rootWindowsList.current?.container?.current?.offsetWidth
+        }})
+    }
+}
 export function setBaseWindowView(vnode:React.VNode){
     if(baseWindowComponnet!=null){
         removeFloatWindow(baseWindowComponnet);
     }
     baseWindowComponnet=vnode;
-    appendFloatWindow(<WindowComponent disableUserInputActivate={true} noTitleBar={true} noResizeHandle={true}
-        windowDivClassName={windowCss.borderlessWindowDiv} ref={baseWindowRef} initialLayout={{left:0,top:0,width:'100%',height:'100%'}}>
+    appendFloatWindow(<WindowComponent disableUserInputActivate={true} borderless={true} ref={baseWindowRef} initialLayout={{left:0,top:0,
+        width:rootWindowsList.current?.container?.current?.offsetWidth,
+        height:rootWindowsList.current?.container?.current?.offsetWidth}}>
         {vnode}
     </WindowComponent>);
+    rootWindowsList.waitValid().then((wndList)=>{
+        if(!wndList.onResize.has(onRootWindowsListResize)){
+            wndList.onResize.add(onRootWindowsListResize);
+        }
+    });
     baseWindowRef.waitValid().then((wnd)=>wnd.activate(1));
 }
 

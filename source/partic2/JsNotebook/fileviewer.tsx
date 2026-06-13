@@ -21,7 +21,6 @@ export class FileTypeHandlerBase{
 
 
 class TextFileViewer extends React.Component<{context:WorkspaceContext,path:string},{}>{
-    
     rref={inputArea:new ReactRefEx<TextEditor>()}
     action={} as Record<string,()=>Promise<void>>;
 
@@ -40,9 +39,9 @@ class TextFileViewer extends React.Component<{context:WorkspaceContext,path:stri
         this.rref.inputArea.current!.setPlainText(new TextDecoder().decode(data))
     }
     render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined; }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChildren {
-        return <div className={css.flexColumn} style={{flexGrow:'1'}} onKeyDown={(ev)=>this.onKeyDown(ev)}>
-        <div><a onClick={()=>this.doSave()} href="javascript:;">Save</a></div>
-        <TextEditor ref={this.rref.inputArea} divClass={[css.simpleCard]}/>
+        return <div className={css.flexColumn} style={{height:'100%'}} onKeyDown={(ev)=>this.onKeyDown(ev)}>
+        <div style={{flexShrink:'0'}}><a onClick={()=>this.doSave()} href="javascript:;">Save</a></div>
+        <TextEditor divStyle={{minHeight:'0px',overflow:'auto',flexShrink:'1'}} ref={this.rref.inputArea} divClass={[css.simpleCard]}/>
         </div>
     }
 }
