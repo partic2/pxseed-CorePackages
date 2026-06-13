@@ -1,5 +1,5 @@
 
-import { ArrayWrap2, future, GenerateRandomString, requirejs } from "partic2/jsutils1/base";
+import { ArrayWrap2, CanceledError, future, GenerateRandomString, requirejs, throwIfAbortError } from "partic2/jsutils1/base";
 import type {} from 'partic2/tjshelper/txikijs'
 
 
@@ -584,10 +584,20 @@ class NodeListener implements Listener{
         }
     };
     async accept(): Promise<Connection> {
-        let sock=await this.sockQueue.queueBlockShift();
-        return new NodeConnection(sock);
+        try{
+            let sock=await this.sockQueue.queueBlockShift();
+            return new NodeConnection(sock);
+        }catch(err:any){
+            throwIfAbortError(err);
+            if(err instanceof CanceledError){
+                throw new Error('closed')
+            }else{
+                throw err;
+            }
+        }
     }
     close(): void {
+        this.sockQueue.cancelWaiting();
         this.ssoc.close();
     }
     localAddress: Address={family:0,ip:'',port:0};

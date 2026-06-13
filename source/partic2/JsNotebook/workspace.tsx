@@ -164,6 +164,7 @@ console.info(Array.from(jsutils2.u8hexconv(u8)))`,
 
 async function openJSNotebookFirstProfileWorkspace(opt:{
     defaultRpc?:string,
+    notebookInitialRpc?:string,
     defaultStartupScript?:string,
     notebookDirectory?:((c:WorkspaceContext)=>Promise<string>)|string,
     sampleCode?:string[]
@@ -184,9 +185,10 @@ async function openJSNotebookFirstProfileWorkspace(opt:{
                 if(isDir){
                     await this.props.fs!.mkdir(path.join((this.state.currPath??''),name));
                 }else if(name.endsWith('.ijsnb')){
-                    await this.props.fs!.writeAll(path.join((this.state.currPath??''),name),utf8conv(JSON.stringify({
-                        rpc:opt.defaultRpc,startupScript:opt.defaultStartupScript
-                    })))
+                    let t1=new NotebookFileData();
+                    t1.rpc=opt.notebookInitialRpc;
+                    t1.startupScript=opt.defaultStartupScript??'';
+                    await this.props.fs!.writeAll(path.join((this.state.currPath??''),name),t1.dump())
                 }else{
                     await this.props.fs!.writeAll(path.join((this.state.currPath??''),name),new Uint8Array(0));
                 }

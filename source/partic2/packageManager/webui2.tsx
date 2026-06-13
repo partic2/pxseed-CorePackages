@@ -5,7 +5,7 @@ import {getPersistentRegistered, importRemoteModule,ServerHostWorker1RpcName} fr
 import { GetCurrentTime, Ref2, Task, assert, future, requirejs, throwIfAbortError } from 'partic2/jsutils1/base'
 import { BuildUrlFromJsEntryModule, GetJsEntry, GetPersistentConfig, getResourceManager, path, RequestDownload, SavePersistentConfig, selectFile, useDeviceWidth } from 'partic2/jsutils1/webutils'
 import {promptWithForm, SimpleReactForm1} from 'partic2/pComponentUi/input'
-import {alert, appendFloatWindow, confirm, prompt, css as windowCss, WindowComponent, removeFloatWindow, rootWindowsList, ensureRootWindowContainer} from 'partic2/pComponentUi/window'
+import {alert, appendFloatWindow, confirm, prompt, css as windowCss, WindowComponent, removeFloatWindow, rootWindowsList, ensureRootWindowContainer, language} from 'partic2/pComponentUi/window'
 var registryModuleName='partic2/packageManager/registry';
 import {TaskLocalRef,Singleton, utf8conv} from 'partic2/CodeRunner/jsutils2'
 
@@ -37,7 +37,7 @@ let i18n={
     updatePackageIndex:'update package index'
 }
 
-if(navigator.language.split('-').includes('zh')){
+if(language.get().split('-').includes('zh')){
     i18n.install='安装'
     i18n.list='列出'
     i18n.filter='过滤'
@@ -52,7 +52,7 @@ if(navigator.language.split('-').includes('zh')){
     i18n.packageManager='包管理'
     i18n.done='完成'
     i18n.cleanPackageInstallCache='清除安装缓存'
-    i18n.updatePackageIndex='更新目录'
+    i18n.updatePackageIndex='更新包信息'
 }
 
 let remoteModule={
@@ -558,8 +558,7 @@ export let floatTaskListView={
 let renderPackagePanel=async()=>{
     openNewWindow(<PackagePanel/>,{title:i18n.packageManager,layoutHint:__name__+'.PackagePanel',windowOptions:{closeIcon:null}});
     if(floatTaskListView.ref!=null){
-        floatTaskListView.component=<WindowComponent keepTop={true} ref={floatTaskListView.ref}
-        noTitleBar={true} noResizeHandle={true} windowDivClassName={windowCss.borderlessWindowDiv}>
+        floatTaskListView.component=<WindowComponent keepTop={true} ref={floatTaskListView.ref} borderless={true} initialLayout={{left:0,top:0,width:0,height:0}}>
         <WindowListIcon/>
     </WindowComponent>
         appendFloatWindow(floatTaskListView.component)
