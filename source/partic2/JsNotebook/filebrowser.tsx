@@ -191,7 +191,7 @@ class FileBrowserComponent<P extends {fs:SimpleFileSystem}={fs:SimpleFileSystem}
         await this.reloadFileInfo();
     }
     protected async reloadFileInfo(){
-        this.DoFileOpen(this.state.currPath!);
+        await this.DoFileOpen(this.state.currPath!);
     }
     async DoDelete(){
         let ans=await confirm(`Delete ${this.state.selectedFiles.size} files permenantly?`)
@@ -314,8 +314,8 @@ class FileBrowserComponent<P extends {fs:SimpleFileSystem}={fs:SimpleFileSystem}
     rref={
         addressBar:new ReactRefEx<HTMLDivElement>()
     }
-    componentDidMount(): void {
-        this.reloadFileInfo();
+    async componentDidMount() {
+        await this.reloadFileInfo();
     }
     public render(){
         return (<div className={css.flexColumn} style={{height:'100%'}}>
@@ -372,6 +372,11 @@ class WorkspaceFileBrowser2 extends FileBrowserComponent<{fs:SimpleFileSystem,co
     public constructor(props?: any | undefined, context?: any){
         super(props,context)
     }
+    __didMountInited=false;
+    async componentDidMount(): Promise<void> {
+        await super.componentDidMount();
+        this.__didMountInited=true;
+    }
     async DoFileOpen(path:string,opt?:{noHistory?:boolean}){
         await super.DoFileOpen(path,opt);
         let filetype=await this.props.fs.filetype(path);
@@ -392,7 +397,7 @@ class WorkspaceFileBrowser2 extends FileBrowserComponent<{fs:SimpleFileSystem,co
                 await selectedHandle.open(path);
             }
         }else if(filetype=='dir'){
-            if(this.props.context.startupProfile!=null){
+            if(this.props.context.startupProfile!=null && this.__didMountInited){
                 this.props.context.startupProfile!.currPath=path;
                 this.props.context.saveStartupProfile();
             }
@@ -401,7 +406,7 @@ class WorkspaceFileBrowser2 extends FileBrowserComponent<{fs:SimpleFileSystem,co
     protected async promptForCurrentPath(){
         let newPathInput=new ReactRefEx<TextEditor>();
         let dlg=await prompt(<div>
-            <TextEditor divClass={[css.simpleCard]} divStyle={{minWidth:300}} ref={newPathInput}/>
+            <TextEditor divClass={[css.simpleCard]} divStyle={{minWidth:'300px',minHeight:'80px'}} ref={newPathInput}/>
             <a href="javascript:;" onClick={async ()=>{
                 let input1=await newPathInput.waitValid();
                 input1.setPlainText(this.props.context.wwwroot??'/')
