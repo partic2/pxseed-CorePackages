@@ -81,9 +81,6 @@ class AddCard extends React.Component<{},{
 
 let config:{lastFilter?:string}|null=null;
 
-export class RegistryInfoProvider{
-
-}
 
 async function pullFromServerHost(){
     let rpc=await getPersistentRegistered(ServerHostRpcName);
@@ -128,10 +125,10 @@ async function pushToServerHost(){
             }
         }
         for(let t1 of toAdd){
-            await easyCallRemoteJsonFunction(await rpc.ensureConnected(),__name__,'addClient',t1)
+            await easyCallRemoteJsonFunction(await rpc.ensureConnected(),path.join(__name__,'..','registry'),'addClient',t1)
         }
         for(let t1 of toRemove){
-            await easyCallRemoteJsonFunction(await rpc.ensureConnected(),__name__,'removeClient',[t1]);
+            await easyCallRemoteJsonFunction(await rpc.ensureConnected(),path.join(__name__,'..','registry'),'removeClient',[t1]);
         }
     }
 }
