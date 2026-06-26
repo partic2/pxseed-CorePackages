@@ -1,7 +1,7 @@
 
 import * as React from 'preact'
 import { css, DomComponent, ReactRefEx } from './domui';
-import { ensureRootWindowContainer, rootWindowsList, WindowComponentProps, css as windowCss } from './window';
+import { ensureRootWindowContainer, language, rootWindowsList, WindowComponentProps, css as windowCss } from './window';
 import {GenerateRandomString, GetCurrentTime, Ref2, assert, copy, future, mutex, partial, requirejs, sleep} from 'partic2/jsutils1/base'
 import { appendFloatWindow, removeFloatWindow, WindowComponent } from './window';
 import { getIconUrl } from 'partic2/pxseedMedia1/index1';
@@ -63,14 +63,16 @@ openNewWindowPipeline.arr().push({name:__name__+'.openNewWindowCreateWindow',han
             await closeFuture.get();
         },
         close:async function(){
-            for(let t1 of this.children){
-                t1.close();
+            if(!closeFuture.done){
+                for(let t1 of this.children){
+                    t1.close();
+                }
+                let at=NewWindowHandleLists.value.indexOf(handle);
+                if(at>=0)NewWindowHandleLists.value.splice(at,1);
+                NewWindowHandleLists.dispatchEvent(new Event('change'));
+                removeFloatWindow(windowVNode);
+                closeFuture.setResult(true);
             }
-            let at=NewWindowHandleLists.value.indexOf(handle);
-            if(at>=0)NewWindowHandleLists.value.splice(at,1);
-            NewWindowHandleLists.dispatchEvent(new Event('change'));
-            removeFloatWindow(windowVNode);
-            closeFuture.setResult(true);
         },
         async activate(){
             (await this.windowRef.waitValid()).activate();
@@ -219,4 +221,118 @@ export function setBaseWindowView(vnode:React.VNode){
 export function setOpenNewWindowImpl(impl:(contentVNode:React.VNode,options?:OpenNewWindopwOption)=>Promise<NewWindowHandle>){
     openNewWindow=impl;
 }
+
+
+let i18n={
+    caution:'',
+    ok:'',
+    cancel:'',
+    dialogBox:''
+}
+
+language.watch((r)=>{
+    let lang=r.get();
+    if(lang==='zh-CN'){
+        i18n.caution='提醒'
+        i18n.ok='确认'
+        i18n.cancel='取消';
+        i18n.dialogBox='对话框'
+    }else{
+        i18n.caution='caution'
+        i18n.ok='ok'
+        i18n.cancel='cancel';
+        i18n.dialogBox='dialog box'
+    }
+});
+
+language.set(language.get());
+
+let dialogContainer:NewWindowHandle|null=null;
+
+NewWindowHandleLists.addEventListener('change',(ev)=>{
+    if(dialogContainer!=null){
+        let hasDialog=NewWindowHandleLists.value.some(t1=>t1.parentWindow==dialogContainer);
+        if(!hasDialog){
+            dialogContainer.close();
+            dialogContainer=null;
+        }
+    }
+});
+
+export let defaultDialogBoxImplemention={
+    async alert(message:string,title?:string){
+        if(dialogContainer==null){
+            dialogContainer=await openNewWindow(<div></div>,{windowOptions:{borderless:true},title:i18n.dialogBox})
+        }
+        let result=new future<'ok'|'closed'>();
+        let newWnd=await openNewWindow(<div style={{minWidth:Math.min((rootWindowsList.current?.container.current?.offsetWidth)??0-10,300),whiteSpace:'pre-wrap'}}>
+            {message}
+            <div className={css.flexRow}>
+                <input type='button' style={{flexGrow:'1'}} onClick={()=>result.setResult('ok')} value={i18n.ok}/>
+            </div>
+        </div>,{title:title??i18n.caution,parentWindow:dialogContainer});
+        newWnd.waitClose().then(()=>result.setResult('closed'));
+        (await newWnd.windowRef.waitValid()).makeCenter();
+        let r=await result.get();
+        if(r=='ok'){
+            newWnd.close();
+        }
+    },
+    async confirm(message:string,title?:string):Promise<'ok'|'cancel'>{
+        if(dialogContainer==null){
+            dialogContainer=await openNewWindow(<div></div>,{windowOptions:{borderless:true},title:i18n.dialogBox})
+        }
+        let result=new future<'ok'|'cancel'|'closed'>();
+        let newWnd=await openNewWindow(<div style={{minWidth:Math.min((rootWindowsList.current?.container.current?.offsetWidth)??0-10,300),whiteSpace:'pre-wrap'}}>
+                {message}
+                <div className={css.flexRow}>
+                    <input type='button' style={{flexGrow:'1'}} onClick={()=>result.setResult('ok')} value={i18n.ok}/>
+                    <input type='button' style={{flexGrow:'1'}} onClick={()=>result.setResult('cancel')} value={i18n.cancel}/>
+                </div>
+            </div>,{title:title??i18n.caution,parentWindow:dialogContainer});
+        newWnd.waitClose().then(()=>result.setResult('closed'));
+        (await newWnd.windowRef.waitValid()).makeCenter();
+        let r=await result.get();
+        if(r=='closed'){
+            r='cancel';
+        }else{
+            newWnd.close();
+        }
+        return r;
+    },
+    async prompt(form:React.VNode,opt?:{
+        onButtonClick?:(clicked:'ok'|'cancel')=>void
+        title?:string,
+        noButton?:boolean
+    }|string){
+        if(dialogContainer==null){
+            dialogContainer=await openNewWindow(<div></div>,{windowOptions:{borderless:true},title:i18n.dialogBox})
+        }
+        let result=new future<'ok'|'cancel'>();
+        if(typeof opt==='string'){
+            opt={title:opt}
+        }
+        let title=opt?.title;
+        let newWnd=await openNewWindow(<div className={css.flexColumn}>
+                {form}
+                {(opt!.noButton!==true)?<div className={css.flexRow}>
+                    <input type='button' style={{flexGrow:'1'}} onClick={()=>{
+                        result.setResult('ok');
+                        opt?.onButtonClick?.('ok');
+                    }} value={i18n.ok}/>
+                    <input type='button' style={{flexGrow:'1'}} onClick={()=>{
+                        result.setResult('cancel');
+                        opt?.onButtonClick?.('cancel');
+                    }} value={i18n.cancel}/>
+                </div>:null}
+            </div>,{title:title??i18n.caution,parentWindow:dialogContainer});
+        newWnd.waitClose().then(()=>result.setResult('cancel'));
+        (await newWnd.windowRef.waitValid()).makeCenter();
+        return {
+            response:result,
+            close:()=>newWnd.close()
+        }
+    }
+};
+
 

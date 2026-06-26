@@ -1,4 +1,4 @@
-import { ArrayWrap2, GenerateRandomString } from "partic2/jsutils1/base"
+import { ArrayWrap2, future, GenerateRandomString } from "partic2/jsutils1/base"
 import { getIconUrl } from "partic2/pxseedMedia1/index1"
 import { css, ReactEventTarget, ReactRefEx } from "./domui"
 import * as React from 'preact'
@@ -55,10 +55,11 @@ export class ReactInputValueCollection extends EventTarget{
             }
         });
         this.inputRef[name]=rref;
+        this.dispatchEvent(new Event('collection-change'));
         return rref;
     }
     async waitRefValid():Promise<this>{
-        await Promise.all(Object.values(this.inputRef).map(t1=>t1.waitValid))
+        await Promise.all(Object.values(this.inputRef).map(t1=>t1.waitValid()))
         return this;
     }
     getValue(){
@@ -81,6 +82,7 @@ export class ReactInputValueCollection extends EventTarget{
     }
     forwardChangeEvent(eventTarget:EventTarget){
         this.addEventListener('change',()=>eventTarget.dispatchEvent(new Event('change')));
+        this.addEventListener('collection-change',()=>eventTarget.dispatchEvent(new Event('collection-change')));
         return this;
     }
 }
@@ -95,11 +97,17 @@ export class SimpleReactForm1<P={},S={}> extends ReactEventTarget<P&{
     constructor(props:any,ctx:any){
         super(props,ctx);
         this.eventTarget.addEventListener('change',this._onChangeListener);
+        this.eventTarget.addEventListener('collection-change',()=>{
+            if(this.__valueApplied){
+                this.__valueApplied=false;
+                requestAnimationFrame(()=>this.applyValue());
+            }
+        })
     }
     public render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined; }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChild {
-        //XXX: Is there any better place?
-        if(this.props.value!=undefined){
-            this.value=this.props.value
+        if(this.props.value!=undefined && this.__cachedValue!==this.props.value){
+            this.__cachedValue=this.props.value;
+            this.value=this.props.value;
         }
         return this.props.children?.(this);
     }
@@ -114,17 +122,23 @@ export class SimpleReactForm1<P={},S={}> extends ReactEventTarget<P&{
         return this.__cachedValue;
     }
     protected __cachedValue={};
-    protected __valueApplied:boolean=true;
+    protected __value:boolean=true;
+    protected __valueApplied=true;
+    protected applyValue(){
+        if(!this.__valueApplied){
+            if(this.__cachedValue!==null && typeof this.__cachedValue==='object'){
+                this.valueCollection.setValue(this.__cachedValue);
+            }
+            this.__valueApplied=true;
+        }
+    }
     set value(val:any){
-        this.__cachedValue={...val};
+        this.__cachedValue=val;
         if(this.__valueApplied){
             this.__valueApplied=false;
-            (async ()=>{
-                await this.valueCollection.waitRefValid();
-                this.valueCollection.setValue(this.__cachedValue);
-                this.__valueApplied=true;
-            })();
+            requestAnimationFrame(()=>this.applyValue());
         }
+        this.setState({});
     }
     addEventListener(type:'change',cb:(ev:Event)=>void):void{
         this.eventTarget.addEventListener(type,cb);
@@ -135,11 +149,14 @@ export class SimpleReactForm1<P={},S={}> extends ReactEventTarget<P&{
 }
 
 
-export async function promptWithForm(simpleReactFormVNode:React.VNode,options?:{title?:string,initialValue?:any}){
+export async function promptWithForm(simpleReactFormVNode:React.VNode,options?:{title?:string,initialValue?:any,dlg?:future<{response:future<'ok'|'cancel'>,close:()=>void}>}){
     let ref2=new ReactRefEx<SimpleReactForm1>();
     if(simpleReactFormVNode.ref!=undefined)ref2.forward([simpleReactFormVNode.ref]);
     simpleReactFormVNode.ref=ref2
     let dlg=await prompt(simpleReactFormVNode,options?.title??'prompt');
+    if(options?.dlg!=undefined){
+        options.dlg.setResult(dlg);
+    }
     if(options?.initialValue!=undefined){
         (await ref2.waitValid()).value=options.initialValue;
     }

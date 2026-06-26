@@ -135,6 +135,11 @@ class NotebookViewer extends React.Component<{context:WorkspaceContext,path:stri
         this.doLoad();
     }
     componentWillUnmount(): void {
+        if(this.codeContext!=undefined){
+            try{
+                this.codeContext.event.removeEventListener(`${__name__}.NotebookViewer`,this.__notebookViewerEventHandler)
+            }catch(err){}
+        }
     }
     async doLoad(){
         try{

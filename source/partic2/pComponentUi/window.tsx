@@ -1,11 +1,13 @@
 
 import * as React from 'preact'
 import { css as cssBase, DomDivComponent, DomRootComponent, FloatLayerComponent, ReactEventTarget, ReactRefEx, ReactRender } from './domui';
-import { future, GenerateRandomString, GetCurrentTime, Ref2, sleep } from 'partic2/jsutils1/base';
+import { future, GenerateRandomString, GetCurrentTime, Ref2, requirejs, sleep } from 'partic2/jsutils1/base';
 import { DynamicPageCSSManager } from 'partic2/jsutils1/webutils';
 import { PointTrace } from './transform';
 
 export let language=new Ref2<string>('en');
+
+let __name__=requirejs.getLocalRequireModule(require);
 
 export interface WindowComponentProps{
     closeIcon?:string|null
@@ -31,11 +33,13 @@ interface WindowComponentStats{
 
 import {getIconUrl} from 'partic2/pxseedMedia1/index1'
 
+let cssPrefix=__name__.replace(/\//g,'-');
+
 export let css={
-    defaultWindowDiv:GenerateRandomString(),
-    borderlessWindowDiv:GenerateRandomString(),
-    defaultContentDiv:GenerateRandomString(),
-    defaultTitleStyle:GenerateRandomString(),
+    defaultWindowDiv:cssPrefix+'-defaultWindowDiv',
+    borderlessWindowDiv:cssPrefix+'-borderlessWindowDiv',
+    defaultContentDiv:cssPrefix+'-defaultContentDiv',
+    defaultTitleStyle:cssPrefix+'-defaultTitleStyle',
 }
 
 DynamicPageCSSManager.PutCss('.'+css.defaultWindowDiv,['border:solid black 1px','box-sizing: border-box','pointer-events:auto']);
@@ -390,100 +394,42 @@ export function getFloatWindowVNodeList(){
     return rootWindowsList.current?.state.floatWindowVNodes??[];
 }
 
-let i18n={
-    caution:'',
-    ok:'',
-    cancel:''
-}
-
-language.watch((r)=>{
-    let lang=r.get();
-    if(lang==='zh-CN'){
-        i18n.caution='提醒'
-        i18n.ok='确认'
-        i18n.cancel='取消';
-    }else{
-        i18n.caution='caution'
-        i18n.ok='ok'
-        i18n.cancel='cancel';
-    }
-})
 
 language.set(navigator.language)
 
+export let dialogBoxProvider:{
+    alert?:(message:string,title?:string)=>Promise<void>,
+    confirm?:(message:string,title?:string)=>Promise<'ok'|'cancel'>,
+    prompt?:(form:React.VNode,opt?:{
+            onButtonClick?:(clicked:'ok'|'cancel')=>void
+            title?:string,
+            noButton?:boolean
+        }|string)=>Promise<{response:future<'ok'|'cancel'>,close:()=>void}>
+}={};
+
+
 export async function alert(message:string,title?:string){
-    let result=new future<null>();
-    let windowRef=new ReactRefEx<WindowComponent>();
-    let floatWindow1=<WindowComponent key={GenerateRandomString()} ref={windowRef}
-    title={title??i18n.caution} onClose={()=>result.setResult(null)}>
-    <div style={{minWidth:Math.min((rootWindowsList.current?.container.current?.offsetWidth)??0-10,300),whiteSpace:'pre-wrap'}}>
-        {message}
-        <div className={cssBase.flexRow}>
-            <input type='button' style={{flexGrow:'1'}} onClick={()=>result.setResult(null)} value={i18n.ok}/>
-        </div>
-    </div>
-    </WindowComponent>
-    appendFloatWindow(floatWindow1);
-    windowRef.waitValid().then((w)=>w.makeCenter());
-    await result.get();
-    removeFloatWindow(floatWindow1);
+    if(dialogBoxProvider.alert==null){
+        dialogBoxProvider.alert=(await import('./workspace')).defaultDialogBoxImplemention.alert;
+    }
+    return dialogBoxProvider.alert(message,title);
 }
 
 
 export async function confirm(message:string,title?:string){
-    let result=new future<'ok'|'cancel'>();
-    let windowRef=new ReactRefEx<WindowComponent>();
-    let floatWindow1=<WindowComponent key={GenerateRandomString()} ref={windowRef}
-        title={title??i18n.caution} onClose={()=>result.setResult('cancel')}>
-        <div style={{minWidth:Math.min((rootWindowsList.current?.container.current?.offsetWidth)??0-10,300),whiteSpace:'pre-wrap'}}>
-            {message}
-            <div className={cssBase.flexRow}>
-                <input type='button' style={{flexGrow:'1'}} onClick={()=>result.setResult('ok')} value={i18n.ok}/>
-                <input type='button' style={{flexGrow:'1'}} onClick={()=>result.setResult('cancel')} value={i18n.cancel}/>
-            </div>
-        </div>
-    </WindowComponent>;
-    appendFloatWindow(floatWindow1);
-    windowRef.waitValid().then((w)=>{w.makeCenter()});
-    let r=await result.get();
-    removeFloatWindow(floatWindow1);
-    return r;
+    if(dialogBoxProvider.confirm==null){
+        dialogBoxProvider.confirm=(await import('./workspace')).defaultDialogBoxImplemention.confirm;
+    }
+    return dialogBoxProvider.confirm(message,title);
 }
 
-export async function prompt(form:React.VNode,title?:string):Promise<{response:future<'ok'|'cancel'>,close:()=>void}>
 export async function prompt(form:React.VNode,opt?:{
     onButtonClick?:(clicked:'ok'|'cancel')=>void
-    title?:string
+    title?:string,
+    noButton?:boolean
 }|string){
-    let result=new future<'ok'|'cancel'>();
-    if(typeof opt==='string'){
-        opt={title:opt}
+    if(dialogBoxProvider.prompt==null){
+        dialogBoxProvider.prompt=(await import('./workspace')).defaultDialogBoxImplemention.prompt;
     }
-    let title=opt?.title;
-    let windowRef=new ReactRefEx<WindowComponent>();
-    let floatWindow1=<WindowComponent key={GenerateRandomString()} ref={windowRef}
-    title={title??i18n.caution} onClose={()=>{
-        result.setResult('cancel');
-        opt?.onButtonClick?.('cancel');
-    }} >
-        <div className={cssBase.flexColumn}>
-            {form}
-            <div className={cssBase.flexRow}>
-                <input type='button' style={{flexGrow:'1'}} onClick={()=>{
-                    result.setResult('ok');
-                    opt?.onButtonClick?.('ok');
-                }} value={i18n.ok}/>
-                <input type='button' style={{flexGrow:'1'}} onClick={()=>{
-                    result.setResult('cancel');
-                    opt?.onButtonClick?.('cancel');
-                }} value={i18n.cancel}/>
-            </div>
-        </div>
-    </WindowComponent>;
-    appendFloatWindow(floatWindow1);
-    windowRef.waitValid().then((w)=>{w.makeCenter()});
-    return {
-        response:result,
-        close:()=>removeFloatWindow(floatWindow1)
-    }
+    return dialogBoxProvider.prompt(form,opt);
 }
