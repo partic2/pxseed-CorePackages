@@ -64,14 +64,14 @@ openNewWindowPipeline.arr().push({name:__name__+'.openNewWindowCreateWindow',han
         },
         close:async function(){
             if(!closeFuture.done){
+                closeFuture.setResult(true);
+                removeFloatWindow(windowVNode);
+                NewWindowHandleLists.dispatchEvent(new Event('change'));
                 for(let t1 of this.children){
                     t1.close();
                 }
                 let at=NewWindowHandleLists.value.indexOf(handle);
                 if(at>=0)NewWindowHandleLists.value.splice(at,1);
-                NewWindowHandleLists.dispatchEvent(new Event('change'));
-                removeFloatWindow(windowVNode);
-                closeFuture.setResult(true);
             }
         },
         async activate(){
@@ -265,7 +265,7 @@ export let defaultDialogBoxImplemention={
             dialogContainer=await openNewWindow(<div></div>,{windowOptions:{borderless:true},title:i18n.dialogBox})
         }
         let result=new future<'ok'|'closed'>();
-        let newWnd=await openNewWindow(<div style={{minWidth:Math.min((rootWindowsList.current?.container.current?.offsetWidth)??0-10,300),whiteSpace:'pre-wrap'}}>
+        let newWnd=await openNewWindow(<div style={{width:'100%',height:'100%',minWidth:Math.min((rootWindowsList.current?.container.current?.offsetWidth)??0-10,300),whiteSpace:'pre-wrap'}}>
             {message}
             <div className={css.flexRow}>
                 <input type='button' style={{flexGrow:'1'}} onClick={()=>result.setResult('ok')} value={i18n.ok}/>
@@ -283,7 +283,7 @@ export let defaultDialogBoxImplemention={
             dialogContainer=await openNewWindow(<div></div>,{windowOptions:{borderless:true},title:i18n.dialogBox})
         }
         let result=new future<'ok'|'cancel'|'closed'>();
-        let newWnd=await openNewWindow(<div style={{minWidth:Math.min((rootWindowsList.current?.container.current?.offsetWidth)??0-10,300),whiteSpace:'pre-wrap'}}>
+        let newWnd=await openNewWindow(<div style={{width:'100%',height:'100%',minWidth:Math.min((rootWindowsList.current?.container.current?.offsetWidth)??0-10,300),whiteSpace:'pre-wrap'}}>
                 {message}
                 <div className={css.flexRow}>
                     <input type='button' style={{flexGrow:'1'}} onClick={()=>result.setResult('ok')} value={i18n.ok}/>
@@ -313,7 +313,7 @@ export let defaultDialogBoxImplemention={
             opt={title:opt}
         }
         let title=opt?.title;
-        let newWnd=await openNewWindow(<div className={css.flexColumn}>
+        let newWnd=await openNewWindow(<div className={css.flexColumn} style={{height:'100%',width:'100%'}}>
                 {form}
                 {(opt!.noButton!==true)?<div className={css.flexRow}>
                     <input type='button' style={{flexGrow:'1'}} onClick={()=>{
