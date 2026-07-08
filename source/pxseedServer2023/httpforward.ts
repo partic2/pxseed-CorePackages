@@ -1,4 +1,4 @@
-import { ArrayBufferConcat, ArrayBufferToBase64, ArrayWrap2, Base64ToArrayBuffer, future, GenerateRandomString, partial, requirejs } from "partic2/jsutils1/base";
+import { ArrayBufferConcat, ArrayBufferToBase64, ArrayWrap2, assert, Base64ToArrayBuffer, future, GenerateRandomString, partial, requirejs } from "partic2/jsutils1/base";
 import { defaultFuncMap, RpcExtendClient1, RpcExtendClientCallable, RpcExtendClientObject, RpcExtendServerCallable } from "pxprpc/extend";
 
 import {defaultHttpHandler, defaultRouter} from './pxseedhttpserver'
@@ -105,7 +105,7 @@ defaultFuncMap[__name__+'.fetchHttpResponse']=new RpcExtendServerCallable(async 
         await session.doWebsocket();
         return utf8conv(JSON.stringify({websocketAccepted:session.websocketAccepted}));
     }else{
-        throw new Error('Unknown protocol:'+session)
+        throw new Error('Unknown protocol:'+session.protocol)
     }
 }).typedecl('o->b');
 defaultFuncMap[__name__+'.readHttpResponseBody']=new RpcExtendServerCallable(async (session:HttpSession)=>{
@@ -159,6 +159,10 @@ export class HttpRequestForwardOnRpc{
             let resp2=new ExtendHttpResponse(new ReadableStream({
                 pull:async (controller: ReadableStreamDefaultController)=>{
                     abortCtl.signal.throwIfAborted();
+                    if(httpSession.value==undefined){
+                        controller.close();
+                        return;
+                    }
                     let chunk=await readHttpResponseBody!.call(httpSession) as Uint8Array;
                     if(chunk.length>0){
                         controller.enqueue(chunk);
@@ -220,9 +224,36 @@ export async function __serverHostForwardHttpRequestToRpcWorker(prefix:string,rp
     }
 }
 
+export async function __serverHostForwardHttpRequestToNewUrl(prefix:string,newprefix:string){
+    assert(prefix!=newprefix);
+    defaultRouter.setHandler(prefix,{
+        fetch:async (req)=>{
+            let url2=new URL(req.url);
+            url2.pathname=newprefix+url2.pathname.substring(prefix.length)
+            let req2=new Request(url2.toString(),{
+                method:req.method,headers:req.headers,body:req.body,duplex:'half'
+            });
+            return defaultRouter.onfetch(req2);
+        },
+        websocket:async (ws)=>{
+            let url2=new URL(ws.request.url);
+            url2.pathname=newprefix+url2.pathname.substring(prefix.length)
+            let req2=new Request(url2.toString(),{
+                method:ws.request.method,headers:ws.request.headers,body:ws.request.body,duplex:'half'
+            });
+            return defaultRouter.onwebsocket({request:req2,accept:(...args)=>ws.accept(...args)});
+        }
+    });
+}
+
 export async function forwardHttpRequestToRpcWorker(prefix:string,rpc:string|null){
     let httpforward=await importRemoteModule(await (await getPersistentRegistered(ServerHostRpcName))!.ensureConnected(),__name__) as typeof import('./httpforward');
     httpforward.__serverHostForwardHttpRequestToRpcWorker(prefix,rpc);
+}
+
+export async function forwardHttpRequestToNewUrl(prefix:string,newprefix:string){
+    let httpforward=await importRemoteModule(await (await getPersistentRegistered(ServerHostRpcName))!.ensureConnected(),__name__) as typeof import('./httpforward');
+    httpforward.__serverHostForwardHttpRequestToNewUrl(prefix,newprefix);
 }
 
 let serverHostHttpRequestHandler:HttpRequestForwardOnRpc|null=null;
