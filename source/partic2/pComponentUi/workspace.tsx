@@ -47,6 +47,76 @@ export interface NewWindowRequestContext{
 export let WorkspaceWindowContext=React.createContext<{lastWindow?:NewWindowHandle}>({});
 
 
+export class DefaultWorkspaceWindowComponent extends WindowComponent{
+    protected beforeMaximizeSize:{left:number,top:number,width?:number,height?:number}|null=null;
+    async onMaximizeClick(){
+        await this.setMaximized(!this.getMaximized());
+    }
+    getMaximized(){
+        return this.beforeMaximizeSize!=null;
+    }
+    protected __onAnyUserLayout=()=>{this.beforeMaximizeSize=null;}
+    componentDidMount(): void {
+        super.componentDidMount();
+        this.addEventListener('user-move',this.__onAnyUserLayout);
+        this.addEventListener('user-resize',this.__onAnyUserLayout);
+    }
+    componentWillUnmount(): void {
+        this.removeEventListener('user-move',this.__onAnyUserLayout);
+        this.removeEventListener('user-resize',this.__onAnyUserLayout);
+        super.componentWillUnmount();
+    }
+    async setMaximized(maximized:boolean){
+        if(maximized){
+            this.beforeMaximizeSize={...this.state.layout};
+            let containerDiv=await this.rref.container.waitValid();
+            this.setState({layout:{left:0,top:0,
+                width:(containerDiv.offsetParent as HTMLElement).offsetWidth,
+                height:(containerDiv.offsetParent as HTMLElement).offsetHeight}},
+                ()=>this.dispatchEvent(new Event('move')));
+        }else{
+            if(this.beforeMaximizeSize!=null){
+                this.setState({layout:{...this.beforeMaximizeSize}},()=>this.dispatchEvent(new Event('move')));
+            }
+            this.beforeMaximizeSize=null;
+        }
+    }
+    renderTitleIcons(){
+        return [
+            ...(this.state.titleBarButton??[]).map(t1=>this.renderIcon(t1.icon,t1.onClick)),
+            this.renderIcon(getIconUrl('maximize-2.svg'),()=>this.onMaximizeClick()),
+            this.renderIcon(this.props.closeIcon!,()=>this.onCloseClick())
+        ]
+    }
+}
+
+export let WorkspaceWindowUtils={
+    async centerWindow(windowComponent:WindowComponent){
+        if(windowComponent.props.windowsList?.container.current!=null){
+            for(let t1=0;t1<40;t1++){
+                let wndWidth=(windowComponent.props.windowsList.container.current.offsetWidth)??0;
+                let wndHeight=(windowComponent.props.windowsList.container.current.offsetHeight)??0;
+                let width=windowComponent.rref.container.current?.offsetWidth??0;
+                let height=windowComponent.rref.container.current?.offsetHeight??0;
+                if(width>wndWidth-5)width=wndWidth-5;
+                if(height>wndHeight-5)height=wndHeight-5;
+                let left=(wndWidth-width)>>1;
+                let top=(wndHeight-height)>>1;
+                if(left!=windowComponent.state.layout.left || top!=windowComponent.state.layout.top){
+                    await new Promise((resolve)=>{
+                        windowComponent.setState({layout:{...windowComponent.state.layout,left:left,top:top}},()=>resolve(null))
+                    });
+                }
+                if(!windowComponent.sizeMeasuring.get())break;
+                await sleep(25);
+            }
+        }
+    }
+}
+
+export const WorkspaceWindowComponent=DefaultWorkspaceWindowComponent;
+export type WorkspaceWindowComponent=DefaultWorkspaceWindowComponent;
+
 export let openNewWindowPipeline=new ArrayWrap3<{
     name:string,
     handler:(context:NewWindowRequestContext)=>(Promise<void>|void)
@@ -97,7 +167,7 @@ openNewWindowPipeline.arr().push({name:__name__+'.openNewWindowCreateWindow',han
         windowRef,windowVNode:null as any,
         children:new Set<NewWindowHandle>()
     }
-    let WindowComponentClass=options.WindowComponentClass??WindowComponent
+    let WindowComponentClass=options.WindowComponentClass??WorkspaceWindowComponent
     let windowVNode=<WindowComponentClass ref={windowRef} onClose={async ()=>{
         handle.close();
     }} onComponentDidUpdate={()=>{
@@ -272,7 +342,7 @@ export let defaultDialogBoxImplemention={
             </div>
         </div>,{title:title??i18n.caution,parentWindow:dialogContainer});
         newWnd.waitClose().then(()=>result.setResult('closed'));
-        (await newWnd.windowRef.waitValid()).makeCenter();
+        WorkspaceWindowUtils.centerWindow(await newWnd.windowRef.waitValid());
         let r=await result.get();
         if(r=='ok'){
             newWnd.close();
@@ -291,7 +361,7 @@ export let defaultDialogBoxImplemention={
                 </div>
             </div>,{title:title??i18n.caution,parentWindow:dialogContainer});
         newWnd.waitClose().then(()=>result.setResult('closed'));
-        (await newWnd.windowRef.waitValid()).makeCenter();
+        WorkspaceWindowUtils.centerWindow(await newWnd.windowRef.waitValid());
         let r=await result.get();
         if(r=='closed'){
             r='cancel';
@@ -327,7 +397,7 @@ export let defaultDialogBoxImplemention={
                 </div>:null}
             </div>,{title:title??i18n.caution,parentWindow:dialogContainer});
         newWnd.waitClose().then(()=>result.setResult('cancel'));
-        (await newWnd.windowRef.waitValid()).makeCenter();
+        WorkspaceWindowUtils.centerWindow(await newWnd.windowRef.waitValid());
         return {
             response:result,
             close:()=>newWnd.close()
