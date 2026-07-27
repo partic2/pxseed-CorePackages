@@ -14,6 +14,7 @@ function onlyJsCssBuildInfoFilesFilter(p:string){
     return p.endsWith('.js')||p.endsWith('.pxseed.status.json')||p.endsWith('.css')
 }
 
+
 let corePackOutputs=[
     {path:['www','index.html']},
     {path:['www','noderun.js']},
@@ -29,11 +30,11 @@ let corePackOutputs=[
     {path:['www','pxseedServer2023'],filter:onlyJsCssBuildInfoFilesFilter},
     {path:['www','pxprpc'],filter:onlyJsCssBuildInfoFilesFilter},
     {path:['www','partic2','CodeRunner'],filter:onlyJsCssBuildInfoFilesFilter},
-    {path:['www','partic2','JsNotebook'],filter:onlyJsCssBuildInfoFilesFilter},
+    {path:['www','partic2','JsNotebook'],filter:(p:string)=>onlyJsCssBuildInfoFilesFilter(p) && !p.startsWith('__temp/')},
     {path:['www','partic2','jsutils1'],filter:onlyJsCssBuildInfoFilesFilter},
-    {path:['www','partic2','nodehelper'],filter:onlyJsCssBuildInfoFilesFilter},
+    {path:['www','partic2','nodehelper'],filter:(p:string)=>onlyJsCssBuildInfoFilesFilter(p) && !p.startsWith('__temp/')},
     {path:['www','partic2','pComponentUi'],filter:onlyJsCssBuildInfoFilesFilter},
-    {path:['www','partic2','packageManager'],filter:onlyJsCssBuildInfoFilesFilter},
+    {path:['www','partic2','packageManager'],filter:(p:string)=>onlyJsCssBuildInfoFilesFilter(p) && !p.startsWith('__temp/')&&p!='typescript4tjs.js'},
     {path:['www','partic2','pxprpcBinding'],filter:onlyJsCssBuildInfoFilesFilter},
     {path:['www','partic2','pxprpcClient'],filter:onlyJsCssBuildInfoFilesFilter},
     {path:['www','partic2','pxseedMedia1']},
@@ -267,7 +268,8 @@ export class PxseedLoaderBuilder{
             let filter=t1.filter;
             await this.copyFilesNewer(destPath,sourcePath,(path)=>{
                 if(filter==undefined)return false;
-                return !filter(path);
+                let relpath=path.substring(sourcePath.length+1).replace(/\\/g,'/');
+                return !filter(relpath);
             })
         }
     }
