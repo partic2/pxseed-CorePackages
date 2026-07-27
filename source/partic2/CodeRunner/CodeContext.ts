@@ -206,14 +206,18 @@ export class LocalRunCodeContext implements RunCodeContext{
             {name:__name__+'.builtinCodeContextSourceProcessor',process:builtinCodeContextSourceProcessor}
         ] satisfies {process:(processContext:{source:string,_ENV:any,declVars:string[]})=>PromiseLike<void>|void,name:string}[],
         callModuleFunction:async (module:string,func:string,args:any[])=>{
-            let imp=await this.importHandler(module);
-            return await imp[func](...args)
+            let that=this;
+            //Use Task to keep TaskLocalEnv valid.
+            return jsutils1.Task.fork(function*(){
+                let imp=yield that.importHandler(module);
+                return yield imp[func](...args);
+            }).run()
         },
         event:null,
         CodeContextEvent,
         Task:jsutils1.Task,
         tasks:{} as Record<string,jsutils1.Task<any>>,
-        //Will be close when LocalRunCodeContext is closing.
+        //Will be closed when LocalRunCodeContext is closing.
         autoClosable:{} as Record<string,{close?:()=>void}>,
         deleteVariables:(names:string[])=>{
             for(let n of names){
