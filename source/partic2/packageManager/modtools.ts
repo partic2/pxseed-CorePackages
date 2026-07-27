@@ -1,4 +1,4 @@
-import { getConnectionFromUrl, getPersistentRegistered, importRemoteModule, ServerHostWorker1RpcName } from "partic2/pxprpcClient/registry";
+import { openConnectionFromUrl, getPersistentRegistered, importRemoteModule, ServerHostWorker1RpcName } from "partic2/pxprpcClient/registry";
 import { Singleton } from "partic2/CodeRunner/jsutils2";
 import { assert, requirejs, Task } from "partic2/jsutils1/base";
 import { RpcExtendClient1 } from "pxprpc/extend";
@@ -79,7 +79,7 @@ export class CHotModuleReload{
 export let HotModuleReload=new CHotModuleReload();
 
 export async function getConnectedPxseedWebuiRpcClientFromServerHostUrl(serverHostUrl:string,index?:number){
-    let conn=await getConnectionFromUrl(serverHostUrl);
+    let conn=await openConnectionFromUrl(serverHostUrl);
     assert(conn!=null);
     let prefix=`/pxprpc/pxseed_webui/partic2.packageManager.webui/`
     let client=await new RpcExtendClient1(new Client(conn)).init()

@@ -15,11 +15,8 @@ import {NotebookFileData, __internal__ as workeriniti} from './workerinit'
 import { SimpleReactForm1, ValueCheckBox } from 'partic2/pComponentUi/input';
 import {prompt} from 'partic2/pComponentUi/window'
 import { assert, GenerateRandomString } from 'partic2/jsutils1/base';
-import { newCodeCellListData } from '../CodeRunner/CodeContext';
+import { newCodeCellListData } from 'partic2/CodeRunner/CodeContext';
 const __name__='partic2/JsNotebook/workspace'
-
-
-
 
 
 export class WorkspaceContext{

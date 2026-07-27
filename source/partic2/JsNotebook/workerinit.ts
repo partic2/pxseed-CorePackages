@@ -1,6 +1,6 @@
 import { defaultFileSystem, ensureDefaultFileSystem, installRequireProvider, SimpleFileSystem } from "partic2/CodeRunner/JsEnviron";
 import { assert, future, GenerateRandomString, logger, requirejs, sleep, Task, throwIfAbortError } from "partic2/jsutils1/base";
-import { ClientInfo, createIoPipe, easyCallRemoteJsonFunction, getConnectionFromUrl, getPersistentRegistered, importRemoteModule, RpcSerializeMagicMark, rpcWorkerInitModule, ServerHostRpcName } from "partic2/pxprpcClient/registry";
+import { ClientInfo, createIoPipe, easyCallRemoteJsonFunction, getPersistentRegistered, importRemoteModule, RpcSerializeMagicMark, rpcWorkerInitModule, ServerHostRpcName } from "partic2/pxprpcClient/registry";
 import { BaseCodeCellListData, CodeContextEvent, LocalRunCodeContext, newCodeCellListData, RunCodeContext, TaskLocalEnv } from "partic2/CodeRunner/CodeContext";
 import { createConnectorWithNewRunCodeContext, RemoteRunCodeContext, RunCodeContextConnector } from "partic2/CodeRunner/RemoteCodeContext";
 import { utf8conv } from "partic2/CodeRunner/jsutils2";
@@ -42,6 +42,7 @@ export class NotebookFileData{
     cells:string|null=null;
     rpc?:string;
     startupScript:string='';
+    codePath?:string;
     dump(){
         return utf8conv(JSON.stringify({ver:1,rpc:this.rpc,startupScript:this.startupScript,cells:this.cells}));
     }
@@ -49,7 +50,7 @@ export class NotebookFileData{
         let r=JSON.parse(utf8conv(data));
         if(r.rpc!=undefined)this.rpc=r.rpc;
         this.startupScript=r.startupScript??'';
-        this.cells=r.cells??newCodeCellListData.get()().saveTo();
+        this.cells=r.cells??(newCodeCellListData.get()().saveTo());
     }
     getCellsData(){
         let cld=newCodeCellListData.get()();
@@ -65,7 +66,15 @@ export class NotebookFileData{
 
 
 export let runningRunCodeContextForNotebookFile=new Map<string,OpenedJsNotebookFile>();
-
+class RemoteCallFunctionError extends Error{
+    remoteStack?:string
+    constructor(message?:string){
+        super('REMOTE:'+message);
+    }
+    toString(){
+        return this.message+'\n'+(this.remoteStack??'');
+    }
+}
 //treat both slash and back slash as sep
 function dirname2(path:string){
     for(let t1=path.length-1;t1>=0;t1--){
@@ -76,7 +85,7 @@ function dirname2(path:string){
     }
     return '';
 }
-export async function initNotebookCodeEnv(_ENV:any,opt?:{codePath?:string,startupScript?:string}){
+export async function initNotebookCodeEnv(_ENV:any,opt?:NotebookFileData){
     if(_ENV==undefined){
         _ENV=TaskLocalEnv.get();
     }
@@ -120,27 +129,47 @@ export async function initNotebookCodeEnv(_ENV:any,opt?:{codePath?:string,startu
     }
     _ENV.globalThis=globalThis;
     _ENV.fetch=defaultHttpClient.fetch.bind(defaultHttpClient)
+    _ENV.JSON=globalThis.JSON;
+    _ENV.encodeURIComponent=globalThis.encodeURIComponent.bind(globalThis);
+    _ENV.decodeURIComponent=globalThis.decodeURIComponent.bind(globalThis);
     _ENV.restartThisWorker=async ()=>{
         _ENV.jsnotebook?.notebookViewer?.reconnectCodeContextSoon?.();
         await sleep(100);
         globalThis.close();
     }
-    let callMethodAttachedOnNotebookViewer=(name:string,argv?:any[])=>{
+    let callMethodAttachedOnNotebookViewer=async (name:string,argv?:any[],waitResult?:boolean)=>{
+        let resultFuture:future<{result?:any,error?:{message:string,stack?:string}}>|null=null;
+        if(waitResult!=undefined){
+            resultFuture=new future();
+            (resultFuture as any)[RpcSerializeMagicMark]={};
+        }
         _ENV.event.dispatchEvent(
             new CodeContextEvent(
                 `${path.join(__name__,'../notebook')}.NotebookViewer`,
-                {data:{call:name,argv:argv??[]}}
+                {data:{call:name,argv:argv??[],result:resultFuture}}
             )
         )
+        if(resultFuture!=undefined){
+            let r=await resultFuture!.get();
+            if(r.error!=undefined){
+                let e=new RemoteCallFunctionError(r.error.message);
+                e.remoteStack=r.error.stack;
+                throw e;
+            }else{
+                return r.result;
+            }
+        }
     };
     let jsnotebook={
         callMethodAttachedOnNotebookViewer,
         callFunctionInNotebookWebui:function(...argv:any){callMethodAttachedOnNotebookViewer('callFunctionInNotebookWebui',argv)},
         notebookViewer:{
             openRpcChooser:()=>callMethodAttachedOnNotebookViewer('openRpcChooser',[]),
-            updateNotebookCodeCellsData:()=>callMethodAttachedOnNotebookViewer('updateNotebookCodeCellsData',[]),
+            updateNotebookCodeCellsData:(cellsData:string)=>callMethodAttachedOnNotebookViewer('updateNotebookCodeCellsData',[cellsData]),
             setCodeCellsDataOnRemoteJsNotebook:()=>callMethodAttachedOnNotebookViewer('setCodeCellsDataOnRemoteJsNotebook',[]),
-            reconnectCodeContextSoon:()=>callMethodAttachedOnNotebookViewer('reconnectCodeContextSoon',[])
+            reconnectCodeContextSoon:()=>callMethodAttachedOnNotebookViewer('reconnectCodeContextSoon',[]),
+            hasMethod:(name:string)=>callMethodAttachedOnNotebookViewer('hasMethod',[name],true),
+            switchNotebookViewerImpl:(implFactory?:{module:string,func:string})=>callMethodAttachedOnNotebookViewer('switchNotebookViewerImpl',[implFactory],true)
         },
         startupScript:opt?.startupScript??'',
     };
@@ -220,7 +249,7 @@ return JSON.stringify({startupScript:jsnotebook.startupScript})
             codeContextClosed.setResult();
         }).catch((err)=>log.warning(err.stack));
         await this.connector!.runCode(`await (await import('partic2/JsNotebook/workerinit')).initNotebookCodeEnv(_ENV,${
-            JSON.stringify({codePath:this.notebookFilePath,startupScript:this.notebookFileData.startupScript})
+            JSON.stringify({...this.notebookFileData})
         });`,'');
     }
     async setRawCellsData(data:string){
@@ -244,6 +273,7 @@ export async function openNotebookFile(notebookFilePath:string,opt?:{noRpc?:bool
     if(!runningRunCodeContextForNotebookFile.has(notebookFilePath)){
         await ensureDefaultFileSystem();
         let onbf=new OpenedJsNotebookFile(notebookFilePath,{noRpc:opt?.noRpc});
+        onbf.notebookFileData.codePath=notebookFilePath;
         await onbf.loadFromFile();
         await onbf.ensureRunCodeContextConnector();
         runningRunCodeContextForNotebookFile.set(notebookFilePath,onbf);

@@ -15,7 +15,7 @@ export var __name__=requirejs.getLocalRequireModule(require);
 import type * as registryModType from 'partic2/packageManager/registry'
 import type { PxseedConfig } from 'pxseedBuildScript/buildlib'
 import { PlainTextEditorInput, TextEditor } from 'partic2/pComponentUi/texteditor'
-import { NewWindowHandle, NewWindowHandleLists, openNewWindow, openNewWindowPipeline, setBaseWindowView, WorkspaceWindowContext  } from 'partic2/pComponentUi/workspace'
+import { DefaultWorkspaceWindowComponent, NewWindowHandle, NewWindowHandleLists, openNewWindow, openNewWindowPipeline, setBaseWindowView, WorkspaceWindowContext  } from 'partic2/pComponentUi/workspace'
 
 
 let i18n={
@@ -154,8 +154,8 @@ export async function startWebuiForPackage(pkgName:string){
     let registry=await remoteModule.registry.get();
     let config1=await registry.getPxseedConfigForPackage(pkgName);
     assert(config1!=null,'packages not found.');
-    assert(config1.options?.[registryModuleName]?.webui!=undefined,'No webui info found in package');
-    let pmopt=config1.options[registryModuleName] as registryModType.PackageManagerOption;
+    assert(config1.extra?.[registryModuleName]?.webui!=undefined,'No webui info found in package');
+    let pmopt=config1.extra[registryModuleName] as registryModType.PackageManagerConfig;
     let entry=pmopt.webui!.entry
     if(entry.startsWith('.')){
         entry=path.join(pkgName,entry)
@@ -176,7 +176,7 @@ export async function startWebuiForPackage(pkgName:string){
     }
 }
 
-class PackageWebUiEntry extends React.Component<{pmopt:registryModType.PackageManagerOption,packageName:string}>{
+class PackageWebUiEntry extends React.Component<{pmopt:registryModType.PackageManagerConfig,packageName:string}>{
     async launchWebui(){
         try{
             await startWebuiForPackage(this.props.packageName)
@@ -299,7 +299,7 @@ class PackagePanel extends React.Component<{},{
                       }
                     ],
                     "name": "partic2/JsNotebook",
-                    "options":{
+                    "extra":{
                       "partic2/packageManager/registry":{
                         "webui":{
                             "entry":"./index",
@@ -320,7 +320,7 @@ class PackagePanel extends React.Component<{},{
                       }
                     ],
                     "name": "pxseedServer2023",
-                    "options":{
+                    "extra":{
                       "partic2/packageManager/registry":{
                         "webui":{
                             "entry":"./webui",
@@ -388,8 +388,8 @@ class PackagePanel extends React.Component<{},{
                 return;
             }
             try{
-                basicInfo.options={};
-                let opt={} as registryModType.PackageManagerOption;
+                basicInfo.extra={};
+                let opt={} as registryModType.PackageManagerConfig;
                 let inPath=basicInfo.webui.entry as string;
                 if(inPath!=''){
                     if(inPath.startsWith('./')){
@@ -412,7 +412,7 @@ class PackagePanel extends React.Component<{},{
                 delete basicInfo.dependencies
                 opt.repositories=JSON.parse(basicInfo.repositories);
                 delete basicInfo.repositories
-                basicInfo.options['partic2/packageManager/registry']=opt;
+                basicInfo.extra['partic2/packageManager/registry']=opt;
                 await registry.createPackageTemplate1!(basicInfo);
                 await alert(i18n.done,'CAUTION');
             }catch(err:any){
@@ -474,8 +474,8 @@ import2env('partic2/packageManager/registry');`,
         this.refreshList();
     }
     renderPackageList(){
-        return this.state.packageList.filter(pkg=>pkg.options?.[registryModuleName]!=undefined).map(pkg=>{
-            return <PackageWebUiEntry pmopt={pkg.options![registryModuleName]} packageName={pkg.name}/>
+        return this.state.packageList.filter(pkg=>pkg.extra?.[registryModuleName]!=undefined).map(pkg=>{
+            return <PackageWebUiEntry pmopt={pkg.extra![registryModuleName]} packageName={pkg.name}/>
         })
     }
     async upgradeCorePackages(){
@@ -657,7 +657,7 @@ export async function main(cmd:string){
             let setMobileDefaultFullScreenName=__name__+'.setMobileDefaultFullScreen';
             if(openNewWindowPipeline.arr().find(t1=>t1.name==setMobileDefaultFullScreenName)==undefined){
                 openNewWindowPipeline.arr().push({name:setMobileDefaultFullScreenName,handler:async (context)=>{
-                    (await context.result!.windowRef.waitValid()).setMaximized(true);
+                    (await context.result!.windowRef.waitValid() as DefaultWorkspaceWindowComponent).setMaximized(true);
                 }})
             }
         }

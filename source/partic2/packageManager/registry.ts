@@ -62,29 +62,21 @@ async function copyFilesNewer(destDir:string,srcDir:string,ignore?:(name:string,
     }
 }
 
+export let pxseedCorePackagesNames=new Set([
+    "pxprpc","pxseedBuildScript","pxseedServer2023","partic2/CodeRunner","partic2/JsNotebook","partic2/jsutils1","partic2/nodehelper",
+    "partic2/pComponentUi","partic2/packageManager","partic2/pxprpcBinding","partic2/pxprpcClient",
+    "partic2/pxseedMedia1","partic2/tjshelper"
+]);
 
 let corePackFiles=[
     ['copysource'],
     ['npmdeps'],
     ['pxseed-cli'],
     ['script'],
-    ['source','pxseedBuildScript'],
-    ['source','pxseedServer2023'],
-    ['source','pxprpc'],
     ['source','.gitignore'],
     ['source','tsconfig.base.json'],
-    ['source','partic2','CodeRunner'],
-    ['source','partic2','JsNotebook'],
-    ['source','partic2','jsutils1'],
-    ['source','partic2','nodehelper'],
-    ['source','partic2','pComponentUi'],
-    ['source','partic2','packageManager'],
-    ['source','partic2','pxprpcBinding'],
-    ['source','partic2','pxprpcClient'],
-    ['source','partic2','pxseedMedia1'],
-    ['source','partic2','tjshelper']
+    ...Array.from(pxseedCorePackagesNames).map(t1=>['source',...t1.split('/')])
 ];
-
 
 export async function UpgradeCorePackages(){
     const {fs,path,wwwroot}=await getNodeCompatApi()
@@ -191,7 +183,7 @@ export async function packPxseedForPxseedLoader(){
 }
 
 
-export interface PackageManagerOption{
+export interface PackageManagerConfig{
     //provide webui entry
     webui?:{
         entry:string,
@@ -223,9 +215,9 @@ export interface PackageManagerOption{
 
 let pkgdbName=__name__+'/pkgdb';
 
-function getPMOptFromPcfg(config:PxseedConfig):PackageManagerOption|null{
-    if(config.options && (__name__ in config.options)){
-        return config.options[__name__];
+function getPMConfigFromPcfg(config:PxseedConfig):PackageManagerConfig|null{
+    if(config.extra && (__name__ in config.extra)){
+        return config.extra[__name__];
     }else{
         return null;
     }
@@ -306,7 +298,7 @@ export async function updatePackagesDatabase(pkgNameOrPxseedConfig?:string|Pxsee
         }else{
             pxseedConfig=pkgNameOrPxseedConfig;
         }
-        let pkgConfig=getPMOptFromPcfg(pxseedConfig);
+        let pkgConfig=getPMConfigFromPcfg(pxseedConfig);
         if(pkgConfig?.repositories !=undefined){
             for(let scopeName in pkgConfig.repositories){
                 let toMerge=pkgConfig.repositories![scopeName];
@@ -344,7 +336,7 @@ export async function installLocalPackage(path2:string){
     if(path2!=destDir){
         await copyFilesNewer(destDir,path2);
     }
-    let pkgConfig=getPMOptFromPcfg(pxseedConfig);
+    let pkgConfig=getPMConfigFromPcfg(pxseedConfig);
     if(pkgConfig?.dependencies!=undefined){
         for(let dep of pkgConfig.dependencies){
             let config=await getPxseedConfigForPackage(dep);
@@ -456,13 +448,13 @@ export async function *listPackages():AsyncGenerator<PxseedConfig>{
 
 export async function listPackagesArray(filterString:string){
     let arr:PxseedConfig[]=[];
-    let filterFunc:(name:string,config:PxseedConfig,pmopt:PackageManagerOption|undefined)=>boolean;
+    let filterFunc:(name:string,config:PxseedConfig,pmcfg:PackageManagerConfig|undefined)=>boolean;
     if(filterString.startsWith('javascript:')){
-        filterFunc=new Function('name','config','pmopt',filterString.substring('javascript:'.length+1)) as any;
+        filterFunc=new Function('name','config','pmcfg',filterString.substring('javascript:'.length+1)) as any;
     }else{
         filterFunc=(()=>{
             let keywords=filterString.split(/\s+/);
-            return (name,config,pmopt)=>{
+            return (name,config,pmcfg)=>{
                 for(let kw of keywords){
                     if(name.includes(kw)){
                         return true;
@@ -470,7 +462,7 @@ export async function listPackagesArray(filterString:string){
                     if(config.description!=undefined && config.description.includes(kw)){
                         return true;
                     }
-                    if(pmopt!=undefined && kw in pmopt){
+                    if(pmcfg!=undefined && kw in pmcfg){
                         return true;
                     }
                 }
@@ -479,7 +471,7 @@ export async function listPackagesArray(filterString:string){
         })()
     }
     for await(let t1 of listPackages()){
-        if(filterFunc(t1.name,t1,t1.options?.[__name__])){
+        if(filterFunc(t1.name,t1,t1.extra?.[__name__])){
             arr.push(t1);
         };
     }
@@ -493,6 +485,19 @@ export async function upgradePackage(pkgname:string){
     await fs.access(path.join(pkgdir,'.git'));
     await pkgfetcheri.upgradeGitPackage(pkgdir);
     await installLocalPackage(pkgdir);
+}
+
+export async function upgradeAllNonCorePackages(){
+    for await(let t1 of listPackages()){
+        if(!pxseedCorePackagesNames.has(t1.name)){
+            try{
+                await upgradePackage(t1.name);
+                log.info(`upgradeAllNonCorePackages success to upgrade ${t1.name}`);
+            }catch(err:any){
+                log.warning(`upgradeAllNonCorePackages failed when upgrade ${t1.name}, message:${err.toString()} stack:${err.stack}`);
+            }
+        }
+    }
 }
 
 export async function installPackage(source:string){
@@ -511,11 +516,11 @@ export async function installPackage(source:string){
         }
         let pkgName=t1.substring(0,versionSep);
         if(packageJson.dependencies[pkgName]==undefined){
-            log.info('install npm package '+pkgName);
+            log.info('install npm package '+source.substring(4));
             if(globalThis.process?.versions?.node==undefined){
                 throw new Error('npm depdendencies are only support on node.js platform')
             }
-            let returnCode=await utilsi.runCommand(`npm i ${pkgName}`,{cwd:path.join(path.dirname(sourceDir),'npmdeps')})
+            let returnCode=await utilsi.runCommand(`npm i ${source.substring(4)}`,{cwd:path.join(path.dirname(sourceDir),'npmdeps')})
             if(returnCode!==0)log.error('install npm package failed.');
         }
         installProcessed=true;
@@ -564,10 +569,10 @@ export async function createPackageTemplate1(pxseedConfig:PxseedConfig){
 !.gitignore
 tsconfig.json
 `);
-    if(pxseedConfig.options?.[__name__]!=undefined){
-        let opt=pxseedConfig.options[__name__] as PackageManagerOption;
-        if(opt.webui?.entry!=undefined && opt.webui.entry!=''){
-            let entryMod=opt.webui.entry;
+    if(pxseedConfig.extra?.[__name__]!=undefined){
+        let cfg=pxseedConfig.extra[__name__] as PackageManagerConfig;
+        if(cfg.webui?.entry!=undefined && cfg.webui.entry!=''){
+            let entryMod=cfg.webui.entry;
             if(entryMod.startsWith(pxseedConfig.name+'/')){
                 let entModPath=path.join(sourceDir,...entryMod.split('/'))+'.tsx';
                 await fs.mkdir(path.dirname(entModPath),{recursive:true});
@@ -652,11 +657,11 @@ export async function cleanPackageInstallCache(){
 export async function getPackageListeners(eventType:'onServerStartup'|'onWebuiStartup'|'onInstalled'):Promise<Array<{module:string,func:string}>>{
     let result=new Array<{module:string,func:string}>()
     for await (let pkg of listPackages()){
-        let pmopt=getPMOptFromPcfg(pkg);
-        if(pmopt!=null){
-            if(pmopt[eventType]!=null){
+        let pmcfg=getPMConfigFromPcfg(pkg);
+        if(pmcfg!=null){
+            if(pmcfg[eventType]!=null){
                 try{
-                    let t1={...pmopt[eventType]};
+                    let t1={...pmcfg[eventType]};
                     if(/^\.\.?\//.test(t1.module)){
                         t1.module=path.join(pkg.name,t1.module)
                     }

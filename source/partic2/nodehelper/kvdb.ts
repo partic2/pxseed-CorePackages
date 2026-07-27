@@ -83,7 +83,6 @@ async function appendKvdbLogFile(logmessage:string){
     let writeOffset=0;
     try{
         let statResult=await tjs1.stat(pathJoin(dbDir,'data','meta-log.txt'));
-        console.info('STAT RESULT size',statResult.size);
         if(statResult.size>32*1024){
             logFile=await tjs1.open(pathJoin(dbDir,'data','meta-log.txt'),'w')
         }else{

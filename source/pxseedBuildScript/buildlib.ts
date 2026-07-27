@@ -13,7 +13,7 @@ export interface PxseedConfig{
         [k:string]:any
     }[],
     description?:string,
-    options?:{
+    extra?:{
         [handleModule:string]:any
     }
 }

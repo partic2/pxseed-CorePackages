@@ -8,7 +8,7 @@
     }
   ],
   "name": "partic2/JsNotebook",
-  "options":{
+  "extra":{
     "partic2/packageManager/registry":{
       "webui":{
         "entry":"./index",

@@ -10,7 +10,7 @@
     }
   ],
   "name": "pxseedServer2023",
-  "options":{
+  "extra":{
     "partic2/packageManager/registry":{
       "webui":{
         "entry":"./webui",

@@ -4,7 +4,7 @@ import { buildTjs } from "partic2/tjshelper/tjsbuilder";
 import { TjsReaderDataSource, TjsWriterDataSink } from "partic2/tjshelper/tjsutil";
 import {assert, mutex} from "partic2/jsutils1/base";
 import { future, Task } from "partic2/jsutils1/base";
-import { getConnectionFromUrl, listPersistentRegistered, RpcSerializeMagicMark } from "partic2/pxprpcClient/registry";
+import { openConnectionFromUrl, listPersistentRegistered, RpcSerializeMagicMark } from "partic2/pxprpcClient/registry";
 import { TaskLocalEnv } from "partic2/CodeRunner/CodeContext";
 import {SimpleFileSystem, simpleFileSystemHelper, TjsSfs} from 'partic2/CodeRunner/JsEnviron'
 import { getNodeCompatApi } from "pxseedBuildScript/util";
@@ -238,7 +238,7 @@ export let files={
         }
 	},
 	async connectPxprpc(url:string):Promise<SimpleFileSystem>{
-		let conn=await getConnectionFromUrl(url);
+		let conn=await openConnectionFromUrl(url);
 		assert(conn!=null);
 		let rpc1=await new RpcExtendClient1(new Client(conn)).init();
 		let {tjsFrom}=await import('partic2/tjshelper/tjsonjserpc');

@@ -1,5 +1,5 @@
 
-import { GenerateRandomString, GetCurrentTime, assert, requirejs, sleep } from 'partic2/jsutils1/base';
+import { GenerateRandomString, GetCurrentTime, Ref2, assert, requirejs, sleep } from 'partic2/jsutils1/base';
 import { FloatLayerComponent, ReactRefEx, css as css1 } from 'partic2/pComponentUi/domui';
 import { CodeContextEvent, newCodeCellListData, RunCodeContext } from './CodeContext';
 import * as React from 'preact'
@@ -17,7 +17,7 @@ export var css={
     outputCell:GenerateRandomString(),
 }
 
-export interface CodeCellProps{
+interface CodeCellProps{
     codeContext:RunCodeContext,
     customBtns?:{label:string,title?:string,cb:()=>Promise<any>}[],
     onRun?:()=>void,
@@ -60,8 +60,20 @@ function countBracket(s:string){
     return bracketMatch;
 }
 
+export interface CodeCellControl{
+    runCode():Promise<void>;
+    getCellInput():string;
+    getCellOutput():[any,string|null];
+    setCellInput(input:string):void;
+    setCellOutput(output:any,resultVariable?:string|null):void
+    getCellInputHtml?:()=>string|null;
+    setCellInputHtml?:(html:string)=>void;
+    getContainerDiv():HTMLDivElement|null;
+    setAsEditTarget():Promise<void>
+    close():void
+}
 
-export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
+export class CodeCell extends React.Component<CodeCellProps,CodeCellStats> implements CodeCellControl{
     rref={
         codeInput:new ReactRefEx<TextEditor>(),
         container:new ReactRefEx<HTMLDivElement>(),
@@ -71,6 +83,9 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
     constructor(props:any,ctx:any){
         super(props,ctx);
         this.setState({codeCompleteCandidate:null,focusin:false,extraTooltips:null,errorCatched:null,focusingCompletionCandidate:0});
+    }
+    getContainerDiv(): HTMLDivElement | null {
+        return this.rref.container.current
     }
     async runCode(){
         this.props.onRun?.();
@@ -246,6 +261,21 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
     setCellOutput(output:any,resultVariable?:string|null){
         this.setState({cellOutput:output,resultVariable,errorCatched:null});
     }
+    getCellInputHtml(){
+        return this.rref.codeInput.current?.getHtml()??null;
+    }
+    setCellInputHtml(html:string){
+        let input1=this.rref.codeInput.current;
+        if(input1==undefined)return;
+        let caret:number|null=null;
+        if(input1.isEditing()){
+            caret=input1.getTextCaretOffset();
+        }
+        input1.setHtml(html);
+        if(caret!=null){
+            input1.setTextCaretOffset(caret);
+        }
+    }
     protected resetTooltips(){
         this.setState({focusingCompletionCandidate:0,codeCompleteCandidate:null,extraTooltips:null});
     }
@@ -345,7 +375,7 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats>{
             </div>
         </div>
     }
-    getInputCaretCoordinate(){
+    protected getInputCaretCoordinate(){
         let codeInput=this.rref.codeInput.current;
         if(codeInput==null || codeInput.rref.div1.current==null)return null;
         let coor=codeInput.getCoordinateByTextOffset(codeInput.getTextCaretOffset());
@@ -375,16 +405,15 @@ export class DefaultCodeCellList extends React.Component<
             codeContext:RunCodeContext,
             onRun?:(cellKey:string)=>void,
             onCellListChange?:()=>void,
-            cellProps?:{runCodeKey?:'Ctl+Ent'|'Enter',inputClass?:string[],onInputChange?:(target:CodeCell)=>void},
+            cellProps?:{runCodeKey?:'Ctl+Ent'|'Enter',inputClass?:string[],onInputChange?:(target:CodeCellControl)=>void},
             onCellFocusChange?:(state:{cellKey:string,focusIn:boolean})=>void
         },{
-            list:{ref:ReactRefEx<CodeCell>,key:string}[],
+            list:{ref:ReactRefEx<CodeCellControl>,key:string}[],
             consoleOutput:{[cellKey:string]:{content:string}},
             error:string|null,
             codeContext:RunCodeContext|null,
             lastFocusCellKey:string,
         }>{
-    private __initCellValue:{input:string,output:[any,string|null]}[]|null=null;
     protected lastRunCellKey:string='';
     constructor(prop:any,ctx:any){
         super(prop,ctx);
@@ -394,7 +423,7 @@ export class DefaultCodeCellList extends React.Component<
     rref={
         container:new ReactRefEx<HTMLDivElement>()
     }
-    beforeRender(){
+    protected beforeRender(){
         if(this.props.codeContext!==this.state.codeContext){
             if(this.state.codeContext!=null){
                 this.state.codeContext.event.removeEventListener('console.data',this.onConsoleData as any);
@@ -404,38 +433,42 @@ export class DefaultCodeCellList extends React.Component<
             this.setState({codeContext:this.props.codeContext!});
         }
     }
-    async newCell(afterCellKey:string){
-        let pos=this.state.list.findIndex(v=>v.key==afterCellKey);
-        if(pos<0){
-            pos=this.state.list.length-1;
-        }
+    async newCell(afterCellKey?:string){
+        let pos=afterCellKey==undefined?-1:this.state.list.findIndex(v=>v.key===afterCellKey);
         let newKey=GenerateRandomString();
-        this.state.list.splice(pos+1,0,{ref:new ReactRefEx<CodeCell>(),key:newKey});
-        await new Promise<void>(resolve=>this.forceUpdate(resolve));
+        if(pos<0){
+            this.state.list.push({ref:new ReactRefEx<CodeCellControl>(),key:newKey})
+        }else{
+            this.state.list.splice(pos+1,0,{ref:new ReactRefEx<CodeCellControl>(),key:newKey});
+        }
+        this.setState({});
         this.props.onCellListChange?.();
         return newKey;
+    }
+    async deleteCell(cellKey:string){
+        let pos=this.state.list.findIndex(v=>v.key==cellKey);
+        try{
+            this.state.list[pos].ref.current?.close();
+        }catch(e){};
+        if(pos>=0){
+            this.state.list.splice(pos,1);
+            this.setState({});
+        }
+        this.props.onCellListChange?.();
+    }
+    getCellList(){
+        return this.state.list;
+    }
+    async runCell(cellKey:string){
+        let cell=this.state.list.find(v=>v.key==cellKey);
+        assert(cell!=undefined);
+        cell!.ref.current!.runCode();
     }
     async setCurrentEditing(cellKey:string){
         let cell2=this.state.list.find(v=>v.key==cellKey);
         if(cell2!=undefined && cell2.ref.current!=undefined){
             await cell2.ref.current.setAsEditTarget()
         }
-    }
-    async deleteCell(cellKey:string){
-        let pos=this.state.list.findIndex(v=>v.key==cellKey);
-        try{
-            await this.state.list[pos].ref.current?.close();
-        }catch(e){};
-        if(pos>=0){
-            this.state.list.splice(pos,1);
-            await new Promise<void>(resolve=>this.forceUpdate(resolve));
-        }
-        this.props.onCellListChange?.();
-    }
-    async runCell(cellKey:string){
-        let cell=this.state.list.find(v=>v.key==cellKey);
-        assert(cell!=undefined);
-        cell!.ref.current!.runCode();
     }
     async setCellInput(cellKey:string,input:string){
         let cell=this.state.list.find(v=>v.key==cellKey);
@@ -446,26 +479,22 @@ export class DefaultCodeCellList extends React.Component<
         delete this.state.consoleOutput[key];
         this.forceUpdate();
     }
-    resetState(){
-        this.__initCellValue=null;
+    async resetState(){
         this.lastRunCellKey='';
-        this.setState({
-            list:[{ref:new ReactRefEx<CodeCell>(),key:GenerateRandomString()}],
+        await new Promise<void>(resolve=>this.setState({
+            list:[],
             consoleOutput:{},
             error:null,
             codeContext:null,
             lastFocusCellKey:''
-        });
-        this.forceUpdate();
-    }
-    getCellList(){
-        return this.state.list;
+        },resolve));
+        await this.newCell();
     }
     async scrollToCell(cellIndex:number){
         //To prevent user agent scroll handler overwrite the scrollTo position.
         await new Promise(requestAnimationFrame);
         let v=this.state.list.at(cellIndex)!;
-        let cellDiv=v.ref.current?.rref.container.current;
+        let cellDiv=v.ref.current?.getContainerDiv();
         let listDiv=this.rref.container.current;
         if(cellDiv!=null && listDiv!=null){
             if(cellDiv.offsetTop+300>listDiv.scrollTop+listDiv.clientHeight && listDiv.clientHeight>300){
@@ -476,16 +505,8 @@ export class DefaultCodeCellList extends React.Component<
             }
         }
     }
-    render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined; }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChild {
-        this.beforeRender();        
-        return (this.state.codeContext!=null && this.state.error==null)?
-        <div style={{width:'100%',height:'100%',overflow:'auto',position:'relative'}} ref={this.rref.container}>
-            {FlattenArraySync(this.state.list.map((v,index1)=>{
-                let cellCssStyle:React.AllCSSProperties={};
-                if(this.state.lastFocusCellKey===v.key){
-                    cellCssStyle.zIndex=100;
-                }
-                let r=[<CodeCell ref={v.ref} key={v.key} 
+    renderCodeCell(v:{ref:ReactRefEx<CodeCellControl>,key:string},index:number,cellCssStyle:React.AllCSSProperties){
+        return <CodeCell ref={v.ref} key={v.key} 
                     codeContext={this.state.codeContext!} 
                     customBtns={[
                         {label:'New',cb:()=>this.newCell(v.key)},
@@ -506,24 +527,35 @@ export class DefaultCodeCellList extends React.Component<
                         this.props.onCellFocusChange?.({cellKey:v.key,focusIn:focusin});
                         if(focusin){
                             this.setState({lastFocusCellKey:v.key});
-                            this.scrollToCell(index1);
+                            this.scrollToCell(index);
                         }
                     }}
                     onPreviousCell={async ()=>{
-                        let cc=this.state.list.at(index1-1);
+                        let cc=this.state.list.at(index-1);
                         if(cc!=undefined){
                             await cc.ref.current?.setAsEditTarget();
                         }
                     }}
                     onNextCell={async ()=>{
-                        let cc=this.state.list.at(index1+1);
+                        let cc=this.state.list.at(index+1);
                         if(cc!=undefined){
                             await cc.ref.current?.setAsEditTarget();
                         }
                     }}
                     divStyle={cellCssStyle}
                     {...this.props.cellProps}
-                />];
+                />
+    }
+    render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined; }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChild {
+        this.beforeRender();        
+        return (this.state.codeContext!=null && this.state.error==null)?
+        <div style={{width:'100%',height:'100%',overflow:'auto',position:'relative'}} ref={this.rref.container}>
+            {FlattenArraySync(this.state.list.map((v,index)=>{
+                let cellCssStyle:React.AllCSSProperties={};
+                if(this.state.lastFocusCellKey===v.key){
+                    cellCssStyle.zIndex=100;
+                }
+                let r=[this.renderCodeCell(v,index,cellCssStyle)];
                 if(v.key in this.state.consoleOutput){
                     r.push(<div style={{wordBreak:'break-all'}} dangerouslySetInnerHTML={{__html:text2html(this.state.consoleOutput[v.key].content)}}></div>)
                 }
@@ -536,15 +568,6 @@ export class DefaultCodeCellList extends React.Component<
         </div>
     }
     componentDidUpdate(){
-        if(this.__initCellValue!==null && this.state.codeContext!=null){
-            this.__initCellValue.forEach(async (val,index)=>{
-                this.state.list[index].ref.current!.setCellInput(val.input);
-                val.output[0]=fromSerializableObject(
-                    val.output[0],{fetcher:await ensureJavascriptInspectorForCodeContextInstalled(this.state.codeContext!),accessPath:[val.output[1]??'']});
-                this.state.list[index].ref.current!.setCellOutput(...val.output);
-            })
-            this.__initCellValue=null;
-        }
     }
     saveTo():string{
         let cellData=newCodeCellListData.get()();
@@ -560,8 +583,8 @@ export class DefaultCodeCellList extends React.Component<
         try{
             let cellData=newCodeCellListData.get()();
             cellData.loadFrom(data);;
-            while(this.state.list.length<cellData.cellList.length){
-                this.state.list.push({ref:new ReactRefEx<CodeCell>(),key:GenerateRandomString()});
+            while(this.getCellList().length<cellData.cellList.length){
+                await this.newCell();
             }
             let consoleOutput={} as typeof this.state.consoleOutput;
             for(let k1 in cellData.consoleOutput){
@@ -570,7 +593,15 @@ export class DefaultCodeCellList extends React.Component<
                     consoleOutput[this.state.list[index].key]=cellData.consoleOutput[k1];
                 }
             }
-            this.__initCellValue=cellData.cellList.map(v=>({input:v.cellInput,output:v.cellOutput}));
+            let cellList=this.getCellList();
+            for(let t1=0;t1<cellData.cellList.length;t1++){
+                let cell=await cellList[t1].ref.waitValid();
+                let val=cellData.cellList[t1];
+                cell.setCellInput(val.cellInput);
+                cell.setCellOutput(fromSerializableObject(
+                    val.cellOutput[0],{fetcher:await ensureJavascriptInspectorForCodeContextInstalled(this.state.codeContext!),accessPath:[val.cellOutput[1]??'']}),
+                val.cellOutput[1])
+            }
             this.setState({consoleOutput})
             this.forceUpdate();
         }catch(e:any){
@@ -593,6 +624,6 @@ export class DefaultCodeCellList extends React.Component<
 export let CodeCellList=DefaultCodeCellList;
 export type CodeCellList=DefaultCodeCellList;
 
-export function setCodeCellListImpl(ccl:{new():DefaultCodeCellList}){
+export function setCodeCellListImpl(ccl:{new(...args:any[]):DefaultCodeCellList}){
     CodeCellList=ccl;
 }

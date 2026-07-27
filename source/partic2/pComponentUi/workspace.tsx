@@ -382,7 +382,10 @@ export let defaultDialogBoxImplemention={
         if(typeof opt==='string'){
             opt={title:opt}
         }
-        let title=opt?.title;
+        if(opt==undefined){
+            opt={};
+        }
+        let title=opt.title;
         let newWnd=await openNewWindow(<div className={css.flexColumn} style={{height:'100%',width:'100%'}}>
                 {form}
                 {(opt!.noButton!==true)?<div className={css.flexRow}>

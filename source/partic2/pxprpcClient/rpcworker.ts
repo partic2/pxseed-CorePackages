@@ -5,7 +5,7 @@ import { RpcExtendClient1, RpcExtendServer1, RpcExtendServerCallable, defaultFun
 
 //Avoid to static import any module other than '"pxprpc" and "partic2/jsutils1"', To avoid incorrect call before workerInitModule imported.
 import { assert, future, GenerateRandomString, Ref2, requirejs, sleep } from "partic2/jsutils1/base";
-import { lifecycle } from "../jsutils1/webutils";
+import { lifecycle } from "partic2/jsutils1/webutils";
 
 const __name__=requirejs.getLocalRequireModule(require);
 //Security Vulnerable?. this value can be use to communicate cross-origin.

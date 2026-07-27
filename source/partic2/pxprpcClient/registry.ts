@@ -5,6 +5,7 @@ import { Client, Io, Serializer, Server } from "pxprpc/base";
 import { RpcExtendClient1, RpcExtendClientCallable, RpcExtendClientObject, RpcExtendServer1, RpcExtendServerCallable, TableSerializer, defaultFuncMap } from "pxprpc/extend";
 import { getRpcClientConnectWorkerParent, rpcId } from "./rpcworker";
 import {getRpcFunctionOn,getRpcLocalVariable,setRpcLocalVariable} from 'partic2/pxprpcBinding/utils'
+import { Singleton } from "partic2/CodeRunner/jsutils2";
 
 export var __name__=requirejs.getLocalRequireModule(require);
 
@@ -15,8 +16,8 @@ export let rpcWorkerInitModule:string[]=[];
 defaultFuncMap[__name__+'.loadModule']=new RpcExtendServerCallable(async (name:string)=>{await import(name)}).typedecl('s->');
 defaultFuncMap[__name__+'.unloadModule']=new RpcExtendServerCallable(async (name:string)=>requirejs.undef(name)).typedecl('s->');
 defaultFuncMap[__name__+'.getDefined']=new RpcExtendServerCallable(async ()=>requirejs.getDefined()).typedecl('s->o');
-defaultFuncMap[__name__+'.getConnectionFromUrl']=new RpcExtendServerCallable(async (url:string)=>{
-    return await getConnectionFromUrl(url)
+defaultFuncMap[__name__+'.openConnectionFromUrl']=new RpcExtendServerCallable(async (url:string)=>{
+    return await openConnectionFromUrl(url)
 }).typedecl('s->o');
 defaultFuncMap[__name__+'.runJsonResultCode']=new RpcExtendServerCallable(async (code)=>{
     try{
@@ -177,7 +178,7 @@ export interface RemoteRegistryFunction{
     //call code that result can be serialized as JSON
     runJsonResultCode(code:string):Promise<any>;
     unloadModule(name:string):Promise<void>;
-    getConnectionFromUrl(url:string):Promise<RpcExtendClientObject>;
+    openConnectionFromUrl(url:string):Promise<RpcExtendClientObject>;
     io_send(io:RpcExtendClientObject,data:Uint8Array):Promise<void>;
     io_receive(io:RpcExtendClientObject):Promise<Uint8Array>;
     jsExec(code:string,obj:RpcExtendClientObject|null):Promise<RpcExtendClientObject|null>;
@@ -247,7 +248,7 @@ export class ClientInfo{
             if(this.connected()){
                 return this.client!
             }else{
-                let io1=await getConnectionFromUrl(this.url.toString());
+                let io1=await openConnectionFromUrl(this.url.toString());
                 if(io1==null){
                     throw new Error('No protocol handler for '+this.url);
                 }
@@ -436,7 +437,7 @@ class RemoteRegistryFunctionImpl implements RemoteRegistryFunction{
     async unloadModule(name: string): Promise<void> {
         return this.funcs[8]!.call(name)
     }   
-    async getConnectionFromUrl(url: string): Promise<RpcExtendClientObject> {
+    async openConnectionFromUrl(url: string): Promise<RpcExtendClientObject> {
         return this.funcs[1]!.call(url);
     }
     async io_send(io: RpcExtendClientObject, data: Uint8Array): Promise<void> {
@@ -468,7 +469,7 @@ class RemoteRegistryFunctionImpl implements RemoteRegistryFunction{
         if(this.funcs.length==0){
             this.funcs=[
                 await getRpcFunctionOn(this.client1!,__name__+'.loadModule','s->'),
-                await getRpcFunctionOn(this.client1!,__name__+'.getConnectionFromUrl','s->o'),
+                await getRpcFunctionOn(this.client1!,__name__+'.openConnectionFromUrl','s->o'),
                 await getRpcFunctionOn(this.client1!,'pxprpc_pp.io_send','ob->'),
                 await getRpcFunctionOn(this.client1!,'pxprpc_pp.io_receive','o->b'),
                 await getRpcFunctionOn(this.client1!,'builtin.jsExec','so->o'),
@@ -486,7 +487,10 @@ class RemoteRegistryFunctionImpl implements RemoteRegistryFunction{
 }
 
 const attachedRemoteRigstryFunctionName=__name__+'.RemoteRegistryFunction'
-export async function getAttachedRemoteRigstryFunction(client1:RpcExtendClient1):Promise<RemoteRegistryFunction>{
+export async function getAttachedRemoteRigstryFunction(client1:RpcExtendClient1|future<RpcExtendClient1>):Promise<RemoteRegistryFunction>{
+    if(!(client1 instanceof RpcExtendClient1)){
+        client1=await client1.get();
+    }
     let f=getRpcLocalVariable(client1,attachedRemoteRigstryFunctionName)
     if(f==undefined){
         f=new RemoteRegistryFunctionImpl();
@@ -502,12 +506,12 @@ export let __internal__={
     isServingRpcName:{} as Record<string,future<boolean>>,
 }
 
-export let getConnectionFromUrlHandler=new Ref2(async function (url:string):Promise<Io|null>{
+export let openConnectionFromUrlImpl=new Ref2(async function (url:string):Promise<Io|null>{
     let url2=new URL(url);
     if(url2.protocol=='pxpwebmessage:'){
         if(__internal__.isPxseedWorker){
             let fn=await getAttachedRemoteRigstryFunction((await getRpcClientConnectWorkerParent())!);
-            let remoteIo=await fn.getConnectionFromUrl(url);
+            let remoteIo=await fn.openConnectionFromUrl(url);
             return new IoOverPxprpc(remoteIo);
         }else{
             let conn=new WebMessage.Connection();
@@ -517,7 +521,7 @@ export let getConnectionFromUrlHandler=new Ref2(async function (url:string):Prom
     }else if(url2.protocol=='webworker:'){
         if(__internal__.isPxseedWorker){
             let fn=await getAttachedRemoteRigstryFunction((await getRpcClientConnectWorkerParent())!);
-            let remoteIo=await fn.getConnectionFromUrl(url);
+            let remoteIo=await fn.openConnectionFromUrl(url);
             return new IoOverPxprpc(remoteIo);
         }else{
             let workerId=url2.pathname;
@@ -534,7 +538,7 @@ export let getConnectionFromUrlHandler=new Ref2(async function (url:string):Prom
         let cinfo=getRegistered(firstRpcName);
         let rpcClient:RpcExtendClient1|null=null;
         if(cinfo==undefined){
-            rpcClient=new RpcExtendClient1(new Client((await getConnectionFromUrl(firstRpcName))!));
+            rpcClient=new RpcExtendClient1(new Client((await openConnectionFromUrl(firstRpcName))!));
             await rpcClient.init();
         }else{
             rpcClient=await cinfo.ensureConnected();
@@ -545,7 +549,7 @@ export let getConnectionFromUrlHandler=new Ref2(async function (url:string):Prom
         }else{
             restRpcPath=decodeURIComponent(restRpcPath);
         }
-        let remoteIo=await fn.getConnectionFromUrl(restRpcPath);
+        let remoteIo=await fn.openConnectionFromUrl(restRpcPath);
         return new IoOverPxprpc(remoteIo);
     }else if(url2.protocol=='serviceworker:'){
         if(url2.pathname!=='1'){
@@ -561,7 +565,7 @@ export let getConnectionFromUrlHandler=new Ref2(async function (url:string):Prom
         //potential security issue?
         if(__internal__.isPxseedWorker){
             let fn=await getAttachedRemoteRigstryFunction((await getRpcClientConnectWorkerParent())!);
-            let remoteIo=await fn.getConnectionFromUrl(url);
+            let remoteIo=await fn.openConnectionFromUrl(url);
             return new IoOverPxprpc(remoteIo);
         }else{
             let functionDelim=url2.pathname.lastIndexOf('.');
@@ -573,8 +577,8 @@ export let getConnectionFromUrlHandler=new Ref2(async function (url:string):Prom
     return null;
 });
 
-export async function getConnectionFromUrl(url:string){
-    return getConnectionFromUrlHandler.get()(url);
+export async function openConnectionFromUrl(url:string){
+    return openConnectionFromUrlImpl.get()(url);
 }
 
 let registered=new Map<string,ClientInfo>();
@@ -667,7 +671,7 @@ export const ServerHostRpcName='server host';
 export const ServerHostWorker1RpcName='server host worker 1';
 
 export const WebWorker1RpcName='webworker 1'
-export const ServiceWorker='service worker 1';
+export const ServiceWorkerRpcName='service worker 1';
 
 export let persistent={
     save:async function(){
@@ -693,10 +697,18 @@ export let persistent={
     }
 }
 
+export let ServerHostRpc=new Singleton(async ()=>(await getPersistentRegistered(ServerHostRpcName))!.ensureConnected());
+export let ServerHostWorker1Rpc=new Singleton(async ()=>(await getPersistentRegistered(ServerHostWorker1RpcName))!.ensureConnected());
+export let WebWorker1Rpc=new Singleton(async ()=>(await getPersistentRegistered(WebWorker1RpcName))!.ensureConnected());
+export let ServiceWorkerRpc=new Singleton(async ()=>(await getPersistentRegistered(ServiceWorkerRpcName))!.ensureConnected());
+
 //Before typescript support syntax like <typeof import(T)>, we can only tell module type explicitly.
 //Only support plain JSON parameter and return value.
-export async function importRemoteModule(rpc:RpcExtendClient1,moduleName:string):Promise<any>{
+export async function importRemoteModule(rpc:RpcExtendClient1|future<RpcExtendClient1>,moduleName:string):Promise<any>{
     let funcs:RemoteRegistryFunction|null=null;
+    if(!(rpc instanceof RpcExtendClient1)){
+        rpc=await rpc.get();
+    }
     funcs=await getAttachedRemoteRigstryFunction(rpc);
     let proxyModule=new Proxy({},{
         get(target,prop){
@@ -713,8 +725,11 @@ export async function importRemoteModule(rpc:RpcExtendClient1,moduleName:string)
     return proxyModule as any;
 }
 
-export async function easyCallRemoteJsonFunction(rpc:RpcExtendClient1,moduleName:string,funcName:string,args:any[]):Promise<any>{
+export async function easyCallRemoteJsonFunction(rpc:RpcExtendClient1|future<RpcExtendClient1>,moduleName:string,funcName:string,args:any[]):Promise<any>{
     let funcs:RemoteRegistryFunction|null=null;
+    if(!(rpc instanceof RpcExtendClient1)){
+        rpc=await rpc.get();
+    }
     funcs=await getAttachedRemoteRigstryFunction(rpc);
     let r=await funcs.callJsonFunction(moduleName,funcName,args);
     return r;
@@ -724,8 +739,8 @@ let addingDefaultPxseedJsBuiltinRpcClient=new mutex();
 async function addDefaultPxseedJsBuiltinRpcClient(){
     await addingDefaultPxseedJsBuiltinRpcClient.exec(async ()=>{
         if(globalThis.location!=undefined && ['http:','https:'].includes(globalThis.location.protocol)){
-            if(getRegistered(ServiceWorker)==null){
-                await addClient('serviceworker:1',ServiceWorker);
+            if(getRegistered(ServiceWorkerRpcName)==null){
+                await addClient('serviceworker:1',ServiceWorkerRpcName);
             }
         }
         if(getRegistered(WebWorker1RpcName)==null){

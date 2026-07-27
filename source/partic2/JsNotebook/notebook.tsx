@@ -1,7 +1,7 @@
 
 import { CodeContextEvent, LocalRunCodeContext, RunCodeContext } from 'partic2/CodeRunner/CodeContext';
-import { CodeCell, CodeCellList } from 'partic2/CodeRunner/WebUi';
-import { GenerateRandomString, GetCurrentTime, IamdeeScriptLoader, Task, WaitUntil, assert, future, logger, requirejs, sleep, throwIfAbortError } from 'partic2/jsutils1/base';
+import { CodeCell, CodeCellControl, CodeCellList } from 'partic2/CodeRunner/WebUi';
+import { GenerateRandomString, GetCurrentTime, IamdeeScriptLoader, Ref2, Task, WaitUntil, assert, future, logger, requirejs, sleep, throwIfAbortError } from 'partic2/jsutils1/base';
 import * as React from 'preact'
 
 import {ClientInfo, createIoPipe, getAttachedRemoteRigstryFunction, getPersistentRegistered, getRegistered, importRemoteModule, listRegistered, persistent, ServerHostWorker1RpcName} from 'partic2/pxprpcClient/registry'
@@ -15,7 +15,7 @@ import { DebounceCall, utf8conv } from 'partic2/CodeRunner/jsutils2';
 import { RpcExtendClient1, RpcExtendServer1 } from 'pxprpc/extend';
 import { Client,Server } from 'pxprpc/base';
 import { NotebookFileData,OpenedJsNotebookFile,__internal__ as workeriniti } from './workerinit';
-import { openNewWindow } from 'partic2/pComponentUi/workspace';
+import { NewWindowHandle, openNewWindow, WorkspaceWindowContext } from 'partic2/pComponentUi/workspace';
 
 import { getResourceManager, useCssFile } from 'partic2/jsutils1/webutils';
 
@@ -75,12 +75,21 @@ async function openRpcChooser(rpc?:RpcExtendClient1){
     
 }
 
+class NotebookViewerContainer extends React.Component<{context:WorkspaceContext,path:string},{notebookViewerImpl?:{new(prop:any,ctx:any):NotebookViewer}}>{
+    render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined; }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChildren {
+        let Nbimpl=this.state.notebookViewerImpl??NotebookViewer;
+        return <Nbimpl context={this.props.context} path={this.props.path} switchNotebookViewerImpl={(impl)=>this.setState({notebookViewerImpl:impl})}/> 
+    }
+}
+
+
+
 class IJSNBFileHandler extends FileTypeHandlerBase{
     title: string='javascript notebook';
     extension=['.ijsnb'];
     async open(path: string) {
         await this.context!.openNewWindowForFile({
-            vnode:<NotebookViewer context={this.context!} path={path}/>,
+            vnode:<NotebookViewerContainer context={this.context!} path={path}/>,
             title:'Notebook:'+path.substring(path.lastIndexOf('/')+1),
             layoutHint:__name__+'.IJSNBFileHandler',
             filePath:path
@@ -89,7 +98,10 @@ class IJSNBFileHandler extends FileTypeHandlerBase{
 }
 
 
-class NotebookViewer extends React.Component<{context:WorkspaceContext,path:string},{usingRpcName?:string|null}>{
+export class NotebookViewer extends React.Component<{
+    context:{rpc:ClientInfo},path:string,
+    switchNotebookViewerImpl?:(impl?:{new(prop:any,ctx:any):NotebookViewer})=>void
+},{usingRpcName?:string|null}>{
     rref={
         ccl:new ReactRefEx<CodeCellList>(),
         container:new ReactRefEx<HTMLDivElement>()
@@ -102,9 +114,20 @@ class NotebookViewer extends React.Component<{context:WorkspaceContext,path:stri
             this.useRpc({name:r.name});
         }
     }
-    __notebookViewerEventHandler=(ev:CodeContextEvent)=>{
+    __notebookViewerEventHandler=async (ev:CodeContextEvent)=>{
         let {call,argv}=ev.data;
-        (this as any)[call](...argv);
+        let resultFuture:future<{result?:any,error?:{message:string,stack?:string}}>|null=ev.data.result;
+        try{
+            let r1=(this as any)[call](...argv);
+            if(resultFuture!=null){
+                r1=await r1;
+                resultFuture.setResult({result:r1});
+            }
+        }catch(err:any){
+            if(resultFuture!=null){
+                resultFuture.setResult({error:{message:err.message,stack:err.stack}})
+            }
+        }
     }
     notebookFile:OpenedJsNotebookFile|null=null;
     codeContext:RunCodeContext|null=null;
@@ -113,7 +136,8 @@ class NotebookViewer extends React.Component<{context:WorkspaceContext,path:stri
             if(this.notebookFile!=null){
                 if(this.codeContext!=undefined){
                     try{
-                        this.codeContext.event.removeEventListener(`${__name__}.NotebookViewer`,this.__notebookViewerEventHandler)
+                        this.codeContext.event.dispatchEvent(new CodeContextEvent(`${__name__}.NotebookViewer.disconnect`))
+                        this.codeContext.event.removeEventListener(`${__name__}.NotebookViewer`,this.__notebookViewerEventHandler);
                     }catch(err){}
                 }
                 if(rpc!=undefined){
@@ -123,6 +147,7 @@ class NotebookViewer extends React.Component<{context:WorkspaceContext,path:stri
                 this.codeContext=new RemoteRunCodeContext(await this.props.context.rpc.ensureConnected(),connector);
                 this.codeContext.event.addEventListener(`${__name__}.NotebookViewer`,this.__notebookViewerEventHandler);
                 await this.codeContext.runCode(`(await import('partic2/JsNotebook/inspector')).setupInspectorHelper(_ENV)`,'')
+                this.codeContext.event.dispatchEvent(new CodeContextEvent(`${__name__}.NotebookViewer.connect`));
                 if(rpc!=undefined){
                     this.setState({usingRpcName:rpc.name});
                 }
@@ -137,6 +162,7 @@ class NotebookViewer extends React.Component<{context:WorkspaceContext,path:stri
     componentWillUnmount(): void {
         if(this.codeContext!=undefined){
             try{
+                this.codeContext.event.dispatchEvent(new CodeContextEvent(`${__name__}.NotebookViewer.disconnect`))
                 this.codeContext.event.removeEventListener(`${__name__}.NotebookViewer`,this.__notebookViewerEventHandler)
             }catch(err){}
         }
@@ -153,7 +179,7 @@ class NotebookViewer extends React.Component<{context:WorkspaceContext,path:stri
             if(cellsData!=null){
                 let ccl=await this.rref.ccl.waitValid();
                 await ccl.loadFrom(cellsData);
-                for(let t2 of ccl.state.list){
+                for(let t2 of ccl.getCellList()){
                     if(t2.ref.current!=undefined)this.codeCellHighlightQueue.add(t2.ref.current);
                 }
                 this.DoCodeCellsHightlight.call();
@@ -180,7 +206,7 @@ class NotebookViewer extends React.Component<{context:WorkspaceContext,path:stri
     }
     async callFunctionInNotebookWebui(module:string,fnName:string,args:any[]){
         let fn=(await import(module))[fnName];
-        fn(...args,{rpc:this.props.context.rpc,codeCellList:this.rref.ccl,codeContext:this.codeContext});
+        return await fn(...args,{rpc:this.props.context.rpc,codeContext:this.codeContext,notebookViewer:this});
     }
     async updateNotebookCodeCellsData(cellsData:string){
         let ccl=await this.rref.ccl.waitValid();
@@ -198,14 +224,14 @@ class NotebookViewer extends React.Component<{context:WorkspaceContext,path:stri
             alert(err.message+err.stack)
         }
     }
-    protected codeCellHighlightQueue=new Set<CodeCell>();
+    protected codeCellHighlightQueue=new Set<CodeCellControl>();
     protected DoCodeCellsHightlight=new DebounceCall(async ()=>{
         let copy=Array.from(this.codeCellHighlightQueue);
         this.codeCellHighlightQueue.clear();
         for(let codeCell of copy){
-            let input1=await codeCell.rref.codeInput.waitValid();
-            let code=input1.getPlainText();
-            if(code.length>10000)continue;
+            if(!(codeCell.setCellInputHtml!=undefined && codeCell instanceof CodeCell))continue;
+            let code=codeCell.getCellInput();
+            if(code==undefined || code.length>10000)continue;
             await __inited__;
             let hlcode=await webworkercall.prismHighlightJS(code);
             if(!this.codeCellHighlightQueue.has(codeCell)){
@@ -216,35 +242,50 @@ class NotebookViewer extends React.Component<{context:WorkspaceContext,path:stri
                         hlcode+='<div><br/></div>';
                     }
                 }
-                let caret=null;
-                if(input1.isEditing()){
-                    caret=input1.getTextCaretOffset();
-                }
-                input1.setHtml(hlcode);
-                if(caret!=null){
-                    input1.setTextCaretOffset(caret);
-                }
+                codeCell.setCellInputHtml(hlcode);
             }
         }
     },200);
-    protected async onCellInputChange(codeCell:CodeCell){
+    protected async onCellInputChange(codeCell:CodeCellControl){
         this.codeCellHighlightQueue.add(codeCell);
         this.DoCodeCellsHightlight.call();
     }
+    protected renderCodeCellList(){
+        return <CodeCellList codeContext={this.codeContext!} ref={this.rref.ccl} cellProps={{
+            onInputChange:(target)=>this.onCellInputChange(target)
+        }}/>
+    }
+    containsWindow=new Ref2<NewWindowHandle|null>(null);
     render() {
-        return <div style={{width:'100%',height:'100%',display:'flex',flexDirection:'column'}} onKeyDown={(ev)=>this.onKeyDown(ev)} ref={this.rref.container}>
-            <div style={{flexGrow:'0',flexShrink:'0'}}>
-            <a href="javascript:;" onClick={()=>this.openRpcChooser()}>RPC:{this.state.usingRpcName??'<No RPC>'}</a>
-            <span>&nbsp;&nbsp;</span>
-            <a onClick={()=>this.doSave()} href="javascript:;">Save</a>
-            </div>
-            {(this.codeContext!=undefined)?
-                <div style={{flexShrink:1,minHeight:'0px'}}><CodeCellList codeContext={this.codeContext!} ref={this.rref.ccl} cellProps={{
-                    onInputChange:(target)=>this.onCellInputChange(target)
-                }}/></div>:
-                'No CodeContext'
+        return <WorkspaceWindowContext.Consumer>{
+            (value)=>{
+                this.containsWindow.set(value.lastWindow??null);
+                return <div style={{width:'100%',height:'100%',display:'flex',flexDirection:'column'}} onKeyDown={(ev)=>this.onKeyDown(ev)} ref={this.rref.container}>
+                    <div style={{flexGrow:'0',flexShrink:'0'}}>
+                    <a href="javascript:;" onClick={()=>this.openRpcChooser()}>RPC:{this.state.usingRpcName??'<No RPC>'}</a>
+                    <span>&nbsp;&nbsp;</span>
+                    <a onClick={()=>this.doSave()} href="javascript:;">Save</a>
+                    </div>
+                    {(this.codeContext!=undefined)?
+                        <div style={{flexShrink:1,minHeight:'0px'}}>{this.renderCodeCellList()}</div>:
+                        'No CodeContext'
+                    }
+                </div>
             }
-        </div>
+        }</WorkspaceWindowContext.Consumer>
+        
+        
+    }
+    hasMethod(name:string){
+        return typeof (this as any)[name]==='function'
+    }
+    async switchNotebookViewerImpl(implFactory?:{module:string,func:string}){
+        assert(this.props.switchNotebookViewerImpl!=undefined);
+        let impl:{new (prop: any, ctx: any): NotebookViewer;}|undefined=undefined;
+        if(implFactory!=undefined){
+            impl=await (await import(implFactory.module))[implFactory.func]();
+        }
+        this.props.switchNotebookViewerImpl(impl)
     }
 }
 
@@ -279,39 +320,46 @@ class RunCodeReplView extends React.Component<{
     protected autoScrollToBottom=true;
     componentWillUnmount(): void {
     }
-    protected codeCellHighlightQueue=new Set<CodeCell>();
+    protected codeCellHighlightQueue=new Set<CodeCellControl>();
     protected DoCodeCellsHightlight=new DebounceCall(async ()=>{
         let copy=Array.from(this.codeCellHighlightQueue);
         this.codeCellHighlightQueue.clear();
         for(let codeCell of copy){
-            let input1=await codeCell.rref.codeInput.waitValid();
-            let code=input1.getPlainText();
-            if(code.length>10000)continue;
+            if(!(codeCell.setCellInputHtml!=undefined && codeCell instanceof CodeCell))continue;
+            let code=codeCell.getCellInput();
+            if(code==undefined || code.length>10000)continue;
             await __inited__;
             let hlcode=await webworkercall.prismHighlightJS(code);
-            if(/[^\n]\n$/.test(hlcode))hlcode+='\n';
-            let caret=null;
-            if(input1.isEditing()){
-                caret=input1.getTextCaretOffset();
-            }
-            input1.setHtml(hlcode);
-            if(caret!=null){
-                input1.setTextCaretOffset(caret);
+            if(!this.codeCellHighlightQueue.has(codeCell)){
+                let lf=hlcode.match(/\n+$/);
+                if(lf!=null){
+                    hlcode=hlcode.substring(0,hlcode.length-lf[0].length);
+                    for(let t1=0;t1<lf[0].length;t1++){
+                        hlcode+='<div><br/></div>';
+                    }
+                }
+                codeCell.setCellInputHtml(hlcode);
             }
         }
     },200);
-    protected async onCellInputChange(codeCell:CodeCell){
+    protected async onCellInputChange(codeCell:CodeCellControl){
         this.codeCellHighlightQueue.add(codeCell);
         this.DoCodeCellsHightlight.call();
     }
-    async beforeRender(){
-    }
-    render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined; }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChild {
-        this.beforeRender();
+    protected renderCodeCellList(){
         return <CodeCellList codeContext={this.props.codeContext} onRun={(key)=>this.onCellRun(key)} ref={this.rref.list} cellProps={{
             runCodeKey:'Enter',
             onInputChange:(target)=>this.onCellInputChange(target)
-            }}/>
+        }}/>
+    }
+    containsWindow=new Ref2<NewWindowHandle|null>(null);
+    render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined; }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChild {
+        return <WorkspaceWindowContext.Consumer>
+            {(value)=>{
+                this.containsWindow.set(value.lastWindow??null);
+                return this.renderCodeCellList();
+            }}
+        </WorkspaceWindowContext.Consumer>
     }
 }
 
