@@ -426,50 +426,89 @@ export class ArrayWrap3<T> extends ArrayWrap2<T>{
 	}
 }
 
-export class CFuncCallProbe{
+export class CFunctionHook{
 	name?:string
-	beforeFunctionEnter=new Set<(argv:any[],probe:CFuncCallProbe,hookedThis:any)=>void>();
-	constructor(public originalFunction:Function){}
-	hooked(){
+	hooks=new Set<(argv:any[],context:{hookedThis:any,hook:CFunctionHook,originalFunction:Function})=>void>();
+	constructor(public originalFunction:Function){
+	}
+	_call(){
 		let that=this;
 		return function(this:any,...argv:any[]){
-			for(let t1 of that.beforeFunctionEnter){
-				try{t1(argv,that as any,this);}catch(err){};
+			let context={hookedThis:this,hook:that,originalFunction:that.originalFunction}
+			for(let t1 of that.hooks){
+				try{t1(argv,context)}catch(err){};
 			}
-			return that.originalFunction.apply(this,argv);
+			return context.originalFunction.apply(this,argv);
 		};
 	}
 }
-let funcProbeProp=Symbol('funcProbeProp');
-export function ensureFunctionProbe<T>(o:T,p:keyof T):CFuncCallProbe{
+let functionHookProp=Symbol('functionHookProp');
+export function ensureFunctionHookSetup<T>(o:T,p:keyof T):CFunctionHook{
 	let func=o[p] as any;
 	let p2:any;
-	if(funcProbeProp in func){
-		p2=func[funcProbeProp];
-		if(p2.funcCallProbe==undefined){
-			p2.funcCallProbe=new CFuncCallProbe(func);
-			p2.funcCallProbe.name=p.toString();
-			o[p]=p2.funcCallProbe.hooked() as any;
-			(o[p] as any)[funcProbeProp]=p2;
+	if(functionHookProp in func){
+		p2=func[functionHookProp];
+		if(p2.hook==undefined){
+			p2.hook=new CFunctionHook(func);
+			p2.hook.name=p.toString();
+			o[p]=p2.hook._call() as any;
+			(o[p] as any)[functionHookProp]=p2;
 		}
 	}else{
 		p2={
-			funcCallProbe:new CFuncCallProbe(func)
+			hook:new CFunctionHook(func)
 		}
-		p2.funcCallProbe!.name=p.toString();
-		func[funcProbeProp]=p2;
-		o[p]=p2.funcCallProbe!.hooked() as any;
-		(o[p] as any)[funcProbeProp]=p2;
+		p2.hook!.name=p.toString();
+		func[functionHookProp]=p2;
+		o[p]=p2.hook!._call() as any;
+		(o[p] as any)[functionHookProp]=p2;
 	}
-	return p2.funcCallProbe!
+	return p2.hook!
 }
 
 export let OnConsoleData=new Set<(logLevel:'log'|'debug'|'info'|'warn'|'error',argv:any[])=>void>();
 
-ensureFunctionProbe(console,'log').beforeFunctionEnter.add((argv)=>OnConsoleData.forEach(t1=>t1('log',argv)));
-ensureFunctionProbe(console,'debug').beforeFunctionEnter.add((argv)=>OnConsoleData.forEach(t1=>t1('debug',argv)));
-ensureFunctionProbe(console,'info').beforeFunctionEnter.add((argv)=>OnConsoleData.forEach(t1=>t1('info',argv)));
-ensureFunctionProbe(console,'warn').beforeFunctionEnter.add((argv)=>OnConsoleData.forEach(t1=>t1('warn',argv)));
-ensureFunctionProbe(console,'error').beforeFunctionEnter.add((argv)=>OnConsoleData.forEach(t1=>t1('error',argv)));
+ensureFunctionHookSetup(console,'log').hooks.add((argv)=>OnConsoleData.forEach(t1=>t1('log',argv)));
+ensureFunctionHookSetup(console,'debug').hooks.add((argv)=>OnConsoleData.forEach(t1=>t1('debug',argv)));
+ensureFunctionHookSetup(console,'info').hooks.add((argv)=>OnConsoleData.forEach(t1=>t1('info',argv)));
+ensureFunctionHookSetup(console,'warn').hooks.add((argv)=>OnConsoleData.forEach(t1=>t1('warn',argv)));
+ensureFunctionHookSetup(console,'error').hooks.add((argv)=>OnConsoleData.forEach(t1=>t1('error',argv)));
 
 setupAsyncHook();
+
+export class EventBuffer<ET>{
+	//[RpcSerializeMagicMark]={}; BUT we must use literal to avoid recursive import
+	__DUz66NYkWuMdex9k2mvwBbYN__={};
+
+	_cachedEvent=new ArrayWrap2<{time:number,event:ET,seq:number}>();
+	eventQueueExpiredTime=1000;
+	_lastSeq=0;
+	push(event:ET){
+		this._lastSeq++;
+		this._cachedEvent.queueSignalPush({time:GetCurrentTime().getTime(),event,seq:this._lastSeq});
+		setTimeout(()=>this._cachedEvent.arr().shift(),this.eventQueueExpiredTime);
+	}
+	async peek(cond:{seqGt?:number,timeGt?:number}){
+		let events:ET[]=[];
+		const checkEvent=()=>{
+			let evs=this._cachedEvent.arr();
+			if(cond.seqGt!=undefined){
+				evs=evs.filter(t1=>t1.seq>cond.seqGt!);
+			}
+			if(cond.timeGt!=undefined){
+				evs=evs.filter(t1=>t1.time>cond.timeGt!);
+			}
+			return evs.map(t1=>t1.event);
+		}
+		events=checkEvent();
+		if(events.length===0){
+			await this._cachedEvent.waitForQueueChange();
+			events=checkEvent();
+		}
+		return events;
+	}
+}
+export async function newEventBuffer<ET>(){
+	return new EventBuffer<ET>();
+}
+

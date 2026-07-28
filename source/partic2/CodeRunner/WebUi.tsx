@@ -244,7 +244,8 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats> imple
         if(inputData.char=='('){
             this.requestTooltips.call();
         }else{
-            this.setState({extraTooltips:null})
+            //BUG?: "setState" before "onInput" return trigger by full-width character lead to double input sometimes.
+            requestAnimationFrame(()=>this.setState({extraTooltips:null}));
         }
         this.props.onInputChange?.(this);
     }
@@ -399,7 +400,6 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats> imple
     }
 }
 
-
 export class DefaultCodeCellList extends React.Component<
         {
             codeContext:RunCodeContext,
@@ -423,14 +423,30 @@ export class DefaultCodeCellList extends React.Component<
     rref={
         container:new ReactRefEx<HTMLDivElement>()
     }
+    protected async detachCodeContext(codeContext:RunCodeContext){
+        codeContext.event.removeEventListener('console.data',this.onConsoleData as any);
+    }
+    protected async attachCodeContext(codeContext:RunCodeContext){
+        ensureJavascriptInspectorForCodeContextInstalled(codeContext);
+        this.props.codeContext!.event.addEventListener('console.data',this.onConsoleData as any);
+    }
     protected beforeRender(){
-        if(this.props.codeContext!==this.state.codeContext){
+        if(this.props.codeContext!=this.state.codeContext){
             if(this.state.codeContext!=null){
-                this.state.codeContext.event.removeEventListener('console.data',this.onConsoleData as any);
+                this.detachCodeContext(this.state.codeContext);
             }
-            ensureJavascriptInspectorForCodeContextInstalled(this.props.codeContext!);
-            this.props.codeContext!.event.addEventListener('console.data',this.onConsoleData as any);
-            this.setState({codeContext:this.props.codeContext!});
+            this.setState({codeContext:this.props.codeContext});
+            if(this.props.codeContext!=null){
+                this.attachCodeContext(this.props.codeContext);
+            }
+        }
+    }
+    componentWillUnmount(): void {
+        if(this.props.codeContext!=null){
+            this.detachCodeContext(this.props.codeContext);
+        }
+        if(this.props.codeContext!=null){
+            this.detachCodeContext(this.props.codeContext);
         }
     }
     async newCell(afterCellKey?:string){
@@ -566,8 +582,6 @@ export class DefaultCodeCellList extends React.Component<
         <div style={{width:'100%',overflow:'auto',position:'relative'}} ref={this.rref.container}><pre>{this.state.error}</pre>
             <a href="javascript:;" onClick={()=>this.resetState()}>Reset</a>
         </div>
-    }
-    componentDidUpdate(){
     }
     saveTo():string{
         let cellData=newCodeCellListData.get()();
