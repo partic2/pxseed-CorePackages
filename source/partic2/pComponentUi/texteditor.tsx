@@ -54,14 +54,27 @@ export class TextEditor extends ReactEventTarget<TextEditorProps,{}>{
     protected onInputHandler(ev: React.TargetedEvent<HTMLDivElement,InputEvent>){
         this.props.divAttr?.onInput?.(ev);
         if(ev.defaultPrevented)return;
-        let ch=ev.data;
-        if(ev.inputType=='insertParagraph'||(ev.inputType=='insertText' && ch==null)){
-            ch='\n';
+        if(!this.compositing){
+            let ch=ev.data;
+            if(ev.inputType=='insertParagraph'||(ev.inputType=='insertText' && ch==null)){
+                ch='\n';
+            }
+            if(/[^0-9a-zA-Z]/.test(ch??'')){
+                this.pushHistory();
+            }
+            this.props.onInput?.(this,{char:ch,text:ev.dataTransfer?.getData('text/plain')??null,type:ev.inputType});
         }
-        if(/[^0-9a-zA-Z]/.test(ch??'')){
-            this.pushHistory();
-        }
-        this.props.onInput?.(this,{char:ch,text:ev.dataTransfer?.getData('text/plain')??null,type:ev.inputType});
+    }
+    compositing=false;
+    protected onCompositionStart(ev:React.TargetedEvent<HTMLDivElement,CompositionEvent>){
+        this.props.divAttr?.onCompositionStart?.(ev)
+        if(ev.defaultPrevented)return;
+        this.compositing=true;
+    }
+    protected onCompositionEnd(ev:React.TargetedEvent<HTMLDivElement,CompositionEvent>){
+        this.props.divAttr?.onCompositionEnd?.(ev)
+        if(ev.defaultPrevented)return;
+        this.compositing=false;
     }
     protected onPasteHandler(ev:React.TargetedEvent<HTMLDivElement,ClipboardEvent>){
         this.props.divAttr?.onPaste?.(ev);
@@ -87,6 +100,12 @@ export class TextEditor extends ReactEventTarget<TextEditorProps,{}>{
                 this.textUndo();
             }
         }
+    }
+    async componentDidMount(): Promise<void> {
+        let div1=await this.rref.div1.waitValid();
+        div1.addEventListener('compositionstart',(ev)=>this.onCompositionStart(ev as any));
+        div1.addEventListener('compositionend',(ev)=>this.onCompositionEnd(ev as any));
+        div1.addEventListener('compositionupdate',(ev)=>this.props.divAttr?.onCompositionUpdate?.(ev as any));
     }
     render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined; }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChild {
         return <div contentEditable={true} ref={this.rref.div1} 
