@@ -1,5 +1,5 @@
 
-import { GenerateRandomString ,Base64ToArrayBuffer,ArrayBufferToBase64, requirejs, logger, GetCurrentTime, mutex, future, assert, FormatDate} from 'partic2/jsutils1/base';
+import { GenerateRandomString ,Base64ToArrayBuffer,ArrayBufferToBase64, requirejs, logger, GetCurrentTime, mutex, future, assert, FormatDate, Ref2} from 'partic2/jsutils1/base';
 import {Client, Io, Serializer, Server} from 'pxprpc/base'
 import {BasicMessagePort, CKeyValueDb, getWWWRoot, IKeyValueDb, kvStore, setKvStoreBackend} from 'partic2/jsutils1/webutils'
 
@@ -11,6 +11,30 @@ import { buildTjs } from 'partic2/tjshelper/tjsbuilder';
 let log=logger.getLogger(__name__);
 
 let serializableObjectMagic='__DUz66NYkWuMdex9k2mvwBbYN__';
+
+
+let pathSep=getWWWRoot().includes('\\')?'\\':'/';
+
+function pathJoin(...args:string[]){
+    let parts=[] as string[];
+    for(let t1 of args){
+        for(let t2 of t1.split(/[\/\\]/)){
+            if(t2==='..' && parts.length>=1){
+                parts.pop();
+            }else if(t2==='.'){
+                //skip
+            }else{
+                parts.push(t2);
+            }
+        }
+    }
+    return parts.join(pathSep);
+}
+
+//Where to store the kv db data. To run different process/instance on same PXSEED_HOME
+//Must be set before any kvStore call
+
+export let dbFileDir=new Ref2(pathJoin(getWWWRoot(),__name__,'..','data'))
 
 function serializableObject(obj:any):Uint8Array{
     Error.stackTraceLimit=100
@@ -78,19 +102,19 @@ async function tjsWriteFile(path:string,data:Uint8Array){
 
 async function appendKvdbLogFile(logmessage:string){
     let tjs1=await buildTjs();
-    await tjs1.makeDir(pathJoin(dbDir,'data'),{recursive:true});
+    await tjs1.makeDir(dbFileDir.get(),{recursive:true});
     let logFile:tjs.FileHandle
     let writeOffset=0;
     try{
-        let statResult=await tjs1.stat(pathJoin(dbDir,'data','meta-log.txt'));
+        let statResult=await tjs1.stat(pathJoin(dbFileDir.get(),'meta-log.txt'));
         if(statResult.size>32*1024){
-            logFile=await tjs1.open(pathJoin(dbDir,'data','meta-log.txt'),'w')
+            logFile=await tjs1.open(pathJoin(dbFileDir.get(),'meta-log.txt'),'w')
         }else{
-            logFile=await tjs1.open(pathJoin(dbDir,'data','meta-log.txt'),'r+')
+            logFile=await tjs1.open(pathJoin(dbFileDir.get(),'meta-log.txt'),'r+')
             writeOffset=statResult.size;
         }
     }catch(err){
-        logFile=await tjs1.open(pathJoin(dbDir,'data','meta-log.txt'),'w')
+        logFile=await tjs1.open(pathJoin(dbFileDir.get(),'meta-log.txt'),'w')
     }
     try{
         await logFile.write(new TextEncoder().encode(FormatDate(GetCurrentTime(),'yyyy-MM-dd HH:mm:ss')+':\n'+logmessage+'\n------------\n'),writeOffset)
@@ -194,25 +218,7 @@ export class FsBasedKvDbV1 implements IKeyValueDb{
 }
 
 
-let pathSep=getWWWRoot().includes('\\')?'\\':'/';
 
-function pathJoin(...args:string[]){
-    let parts=[] as string[];
-    for(let t1 of args){
-        for(let t2 of t1.split(/[\/\\]/)){
-            if(t2==='..' && parts.length>=1){
-                parts.pop();
-            }else if(t2==='.'){
-                //skip
-            }else{
-                parts.push(t2);
-            }
-        }
-    }
-    return parts.join(pathSep);
-}
-
-let dbDir=pathJoin(getWWWRoot(),__name__,'..');
 
 let kvStoreBackendMutex=new mutex();
 
@@ -262,9 +268,9 @@ export function setupImpl(){
                 let dbMapContent:string='';
                 let filename:string|null=null;
                 let tjs1=await buildTjs();
-                await tjs1.makeDir(pathJoin(dbDir,'data'),{recursive:true});
+                await tjs1.makeDir(dbFileDir.get(),{recursive:true});
                 try{
-                    let dbMapContent=new TextDecoder().decode(await tjs1.readFile(pathJoin(dbDir,'data','meta-dbMap')));
+                    let dbMapContent=new TextDecoder().decode(await tjs1.readFile(pathJoin(dbFileDir.get(),'meta-dbMap')));
                     dbMap=JSON.parse(dbMapContent);
                 }catch(e:any){
                     appendKvdbLogFile(e.toString()+e.stack+'\ndbMapContent:'+dbMapContent);
@@ -274,12 +280,12 @@ export function setupImpl(){
                 }else{
                     filename=GenerateRandomString();
                     dbMap[dbname]=filename;
-                    await tjs1.makeDir(pathJoin(dbDir,'data',filename),{recursive:true});
+                    await tjs1.makeDir(pathJoin(dbFileDir.get(),filename),{recursive:true});
                 }
-                await tjsWriteFile(pathJoin(dbDir,'data','meta-dbMap'),new TextEncoder().encode(JSON.stringify(dbMap)));
+                await tjsWriteFile(pathJoin(dbFileDir.get(),'meta-dbMap'),new TextEncoder().encode(JSON.stringify(dbMap)));
                 let db=new FsBasedKvDbV1();
-                await tjs1.makeDir(pathJoin(dbDir,'data',filename),{recursive:true});
-                await db.init(pathJoin(dbDir,'data',filename));
+                await tjs1.makeDir(pathJoin(dbFileDir.get(),filename),{recursive:true});
+                await db.init(pathJoin(dbFileDir.get(),filename));
                 return db;
             }
         })
