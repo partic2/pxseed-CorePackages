@@ -3,11 +3,15 @@ import { WebMessage } from "pxprpc/backend";
 import { Client, Io, Server } from "pxprpc/base";
 import { RpcExtendClient1, RpcExtendServer1, RpcExtendServerCallable, defaultFuncMap } from "pxprpc/extend";
 
+//This module now is also used in non-worker environment.
+
 //Avoid to static import any module other than '"pxprpc" and "partic2/jsutils1"', To avoid incorrect call before workerInitModule imported.
 import { assert, future, GenerateRandomString, Ref2, requirejs, sleep } from "partic2/jsutils1/base";
 import { lifecycle } from "partic2/jsutils1/webutils";
 
 const __name__=requirejs.getLocalRequireModule(require);
+
+
 //Security Vulnerable?. this value can be use to communicate cross-origin.
 export let rpcId=new Ref2<string>((globalThis as any).__workerId??GenerateRandomString(8));
 
@@ -66,6 +70,7 @@ let servingConn=new Set<Io>();
 
 export let __internal__={
     savedAsBootModules,
+    isPxseedWorker:false,
     rpcServer:new WebMessage.Server((conn)=> {
         servingConn.add(conn);
         new RpcExtendServer1(new Server(conn)).serve()
@@ -86,7 +91,6 @@ let workerParentRpcId='';
 export async function __internalInitRpcWorker(workerInitModule:string[],workerParentRpcIdIn?:string){
     if(workerParentRpcIdIn!=undefined){
         workerParentRpcId=workerParentRpcIdIn;
-        let {__internal__}=await import('./registry');
         __internal__.isPxseedWorker=true;
     }
     if(!rpcWorkerInited){

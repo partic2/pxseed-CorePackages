@@ -4,7 +4,7 @@ import { CodeCell, CodeCellControl, CodeCellList } from 'partic2/CodeRunner/WebU
 import { GenerateRandomString, GetCurrentTime, IamdeeScriptLoader, Ref2, Task, WaitUntil, assert, future, logger, requirejs, sleep, throwIfAbortError } from 'partic2/jsutils1/base';
 import * as React from 'preact'
 
-import {ClientInfo, createIoPipe, getAttachedRemoteRigstryFunction, getPersistentRegistered, getRegistered, importRemoteModule, listRegistered, persistent, ServerHostWorker1RpcName} from 'partic2/pxprpcClient/registry'
+import {ClientInfo, createIoPipe, getAttachedRemoteRigstryFunction, getPersistentRegistered, getRegistered, importRemoteModule, ServerHostWorker1RpcName} from 'partic2/pxprpcClient/registry'
 import { FileTypeHandlerBase } from './fileviewer';
 
 import { ReactRefEx } from 'partic2/pComponentUi/domui';
@@ -44,7 +44,7 @@ class RpcChooser extends React.Component<{onChoose:(rpc:ClientInfo)=>void,rpc?:R
                 (await this.rref.registryContainerDiv.waitValid()).style.border='0px';
                 return;
             }
-            this.props.onChoose(getRegistered(selected)!);
+            this.props.onChoose((await getRegistered(selected))!);
         }}>Use RPC</a> below</h2>
         <div ref={this.rref.registryContainerDiv}>
             <RegistryUI ref={this.rref.registry} rpc={this.props.rpc}/>

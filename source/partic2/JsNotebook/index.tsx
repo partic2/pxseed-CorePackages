@@ -1,7 +1,7 @@
 
 import { DynamicPageCSSManager, GetUrlQueryVariable ,GetJsEntry, useDeviceWidth } from "partic2/jsutils1/webutils";
 import { DomRootComponent, ReactRefEx, ReactRender } from "partic2/pComponentUi/domui";
-import { ClientInfo, getRegistered, persistent } from "partic2/pxprpcClient/registry";
+import { ClientInfo, persistentClientStore } from "partic2/pxprpcClient/registry";
 import { RegistryUI } from "partic2/pxprpcClient/ui";
 
 import * as React from 'preact'
@@ -55,8 +55,7 @@ export function *main(command:string){
     if(GetJsEntry()==__name__){
         useDeviceWidth();
         DynamicPageCSSManager.PutCss('body',['margin:0px'])
-        let rpc=GetUrlQueryVariable('__rpc');
-        await persistent.load();
+        await persistentClientStore('load');
         setBaseWindowView(<MainView/>)
     }
 })();

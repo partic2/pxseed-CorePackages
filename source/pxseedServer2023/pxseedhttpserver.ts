@@ -6,7 +6,7 @@ import {Client, Server as PxprpcBaseServer, Server} from 'pxprpc/base'
 
 export var __name__=requirejs.getLocalRequireModule(require);
 
-import { addClient, createIoPipe, getPersistentRegistered, getRegistered, importRemoteModule, rpcWorkerInitModule, ServerHostRpcName, ServerHostWorker1RpcName } from 'partic2/pxprpcClient/registry';
+import { addClient, createIoPipe, getPersistentRegistered, getRegistered, importRemoteModule, listRegistered, rpcWorkerInitModule, ServerHostRpcName, ServerHostWorker1RpcName } from 'partic2/pxprpcClient/registry';
 
 import { GetUrlQueryVariable2, getWWWRoot, path } from 'partic2/jsutils1/webutils';
 import { SimpleFileServer, SimpleHttpServerRouter, WebSocketServerConnection } from 'partic2/tjshelper/httpprot';
@@ -59,8 +59,8 @@ export let blockStaticFileAccessIf=new Map<string,(path:string)=>Promise<boolean
 blockStaticFileAccessIf.set(__name__+'.keepPxprpcKeySecret',async (path)=>/^\/+www\/+pxseedServer2023\/+config\.json$/.test(path))
 
 export async function setupServerPxprpcClient(){
-    await addClient('pxseedjs:'+__name__+'.getConnectionForServerHost',ServerHostRpcName);
-    await addClient('webworker:partic2/pxprpcClient/registry/worker/1',ServerHostWorker1RpcName)
+    await addClient({url:'pxseedjs:'+__name__+'.getConnectionForServerHost',name:ServerHostRpcName});
+    await addClient({url:'webworker:partic2/pxprpcClient/registry/worker/1',name:ServerHostWorker1RpcName})
 }
 
 export async function loadConfig(){
@@ -161,7 +161,8 @@ async function serveWsPipe(io:Io,id:string){
 export async function setupHttpServerHandler(){
     let serverworker1=await getPersistentRegistered(ServerHostWorker1RpcName);
     if(serverworker1==null){
-        serverworker1=await addClient('webworker:'+ServerHostWorker1RpcName);
+        await addClient({url:'webworker:'+ServerHostWorker1RpcName,name:ServerHostWorker1RpcName,persistent:true});
+        serverworker1=await getRegistered(ServerHostWorker1RpcName)
     }
     defaultRouter.setHandler(config.pxseedBase!+'/pxprpc/0',{websocket:pxprpcHandler});
     defaultRouter.setHandler(config.pxseedBase!+'/ws/pipe',{websocket:wsPipeHandler});

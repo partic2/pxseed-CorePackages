@@ -17,8 +17,8 @@ export async function buildTjs():Promise<typeof tjs>{
     }
     if(builtTjs==null){
         try{
-            let { getPersistentRegistered, ServerHostWorker1RpcName } = await import('partic2/pxprpcClient/registry');
-            let rpc=await getPersistentRegistered(ServerHostWorker1RpcName);
+            let { getPersistentRegistered, ServerHostRpcName } = await import('partic2/pxprpcClient/registry');
+            let rpc=await getPersistentRegistered(ServerHostRpcName);
             if(rpc!=null){
                 let {tjsFrom}=await import('./tjsonjserpc');
                 let {Invoker}=await import('partic2/pxprpcBinding/JseHelper__JseIo');

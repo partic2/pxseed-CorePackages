@@ -1,6 +1,6 @@
 import { GenerateRandomString, GetCurrentTime, Task, requirejs } from "partic2/jsutils1/base";
 import { BuildUrlFromJsEntryModule, GetJsEntry, GetPersistentConfig, GetUrlQueryVariable, GetUrlQueryVariable2, SavePersistentConfig } from "partic2/jsutils1/webutils";
-import { ServerHostRpcName, addClient, getPersistentRegistered, getRegistered, persistent, removeClient } from "partic2/pxprpcClient/registry";
+import { ServerHostRpcName, addClient, getPersistentRegistered, getRegistered, persistentClientStore, removeClient } from "partic2/pxprpcClient/registry";
 import { WebSocketIo } from "pxprpc/backend";
 import { Io, Serializer } from "pxprpc/base";
 
@@ -20,14 +20,14 @@ export async function getPxseedUrl(){
 
 
 export async function updatePxseedServerConfig(pxprpcKey?:string|null){
-    await persistent.load();
+    persistentClientStore('load')
     if(pxprpcKey===undefined){
         pxprpcKey=GetUrlQueryVariable('__pxprpcKey')
     }
     let config1=(await GetPersistentConfig(__name__));
     config1.pxprpcKey=pxprpcKey;
     await SavePersistentConfig(__name__,config1);
-    if(getRegistered(ServerHostRpcName)!=null){
+    if(await getRegistered(ServerHostRpcName)!=null){
         await removeClient(ServerHostRpcName);
     }
     let {pxprpcUrl}=await getPxseedUrl();
@@ -38,7 +38,8 @@ export async function updatePxseedServerConfig(pxprpcKey?:string|null){
     try{
         wstest=await new WebSocketIo().connect(pxprpcUrl);
         wstest.close();
-        await addClient(pxprpcUrl,ServerHostRpcName);
+        await addClient({url:pxprpcUrl,name:ServerHostRpcName,persistent:true});
+        await persistentClientStore('save');
     }catch(e){}
 }
 

@@ -273,14 +273,14 @@ export let SimpleGETCache={
     disable:async function(){
         await unregisterServiceWorkerStartupModule(__name__);
     },
-    ensurePersitentConfigLoaded:async function(){
+    ensurePersistentConfigLoaded:async function(){
         config=await GetPersistentConfig(__name__);
     },
     //The service worker config must reload manually after modified(ie:setCachePolicy)
     async reloadConfig(){
         if('__pxseedInit' in globalThis && __pxseedInit.env=='service worker'){
             if(usingSimpleGETCacheFetchHandler!=null){
-                await this.ensurePersitentConfigLoaded();
+                await this.ensurePersistentConfigLoaded();
                 await usingSimpleGETCacheFetchHandler.initWithConfig();
             }
         }else{
@@ -290,7 +290,7 @@ export let SimpleGETCache={
     },
     //path is relative the wwwroot
     setCachePolicy:async function(path:string,policy:SimpleGETCachePolicy){
-        this.ensurePersitentConfigLoaded();
+        this.ensurePersistentConfigLoaded();
         if(config.simpleGETCache==undefined){
             config.simpleGETCache=[];
         }
@@ -305,7 +305,7 @@ export let SimpleGETCache={
         SavePersistentConfig(__name__,config);
     },
     getAllCachePolicy:async function(){
-        await this.ensurePersitentConfigLoaded();
+        await this.ensurePersistentConfigLoaded();
         return config.simpleGETCache??[]
     },
     clearCache:async function(){

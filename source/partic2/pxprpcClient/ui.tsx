@@ -1,7 +1,7 @@
 
 
 import * as React from 'preact'
-import { ClientInfo, addClient, removeClient, getRegistered, listRegistered, persistent, listPersistentRegistered, ServerHostRpcName, isServerHost, easyCallRemoteJsonFunction, getPersistentRegistered, importRemoteModule } from './registry';
+import { ClientInfo, addClient, removeClient, getRegistered, listRegistered, listPersistentRegistered, ServerHostRpcName, isServerHost, easyCallRemoteJsonFunction, getPersistentRegistered, importRemoteModule, persistentClientStore } from './registry';
 import { ReactRefEx, css, event } from 'partic2/pComponentUi/domui';
 import { prompt,alert} from 'partic2/pComponentUi/window';
 import { ArrayWrap2, assert, GenerateRandomString, requirejs } from 'partic2/jsutils1/base';
@@ -24,12 +24,12 @@ class AddCard extends React.Component<{},{
         super(props,ctx);
         this.setState({url:'',name:'',rpcChain:[]})
     }
-    protected setNewWebWorker(){
+    protected async setNewWebWorker(){
         let tname=this.state.name;
         if(tname===''){
             for(let t1 of ArrayWrap2.IntSequence(0,10000)){
                 tname='partic2/pxprpcClient/registry/worker/'+String(t1);
-                if(getRegistered(tname)==undefined){
+                if(await getRegistered(tname)==undefined){
                     break;
                 }
             }
@@ -91,20 +91,21 @@ async function pullFromServerHost(){
             let existed=await getPersistentRegistered(t1[0]);
             if(existed==null || t1[1].url.startsWith(`iooverpxprpc:${ServerHostRpcName}`)){
                 if(t1[1].url.startsWith('iooverpxprpc:')){
-                    await addClient(`iooverpxprpc:${ServerHostRpcName}/${t1[1].url.substring('iooverpxprpc:'.length)}`)
+                    await addClient({url:`iooverpxprpc:${ServerHostRpcName}/${t1[1].url.substring('iooverpxprpc:'.length)}`,persistent:true})
                 }else{
-                    await addClient(`iooverpxprpc:${ServerHostRpcName}/${encodeURIComponent(t1[1].url)}`,t1[0]);
+                    await addClient({url:`iooverpxprpc:${ServerHostRpcName}/${encodeURIComponent(t1[1].url)}`,name:t1[0],persistent:true});
                 }
             }
         }
+        await persistentClientStore('save')
     }
 }
 async function pushToServerHost(){
-    let rpc=getRegistered(ServerHostRpcName);
+    let rpc=await getRegistered(ServerHostRpcName);
     if(rpc!=undefined && !await isServerHost()){
         let remoteClientList=new Map(await easyCallRemoteJsonFunction(await rpc.ensureConnected(),path.join(__name__,'..','registry'),'listPersistentRegistered',[]) as Array<[string,{url:string,name:string}]>);
         let toRemove=new Array<string>();
-        let toAdd=new Array<[string,string]>();
+        let toAdd=new Array<{url:string,name?:string,persistent?:boolean}>();
         let registered=await listPersistentRegistered();
         for(let t1 of registered){
             if(t1[1].url.startsWith(`iooverpxprpc:${ServerHostRpcName}/`)){
@@ -115,26 +116,27 @@ async function pushToServerHost(){
                     restRpcPath=decodeURIComponent(restRpcPath);
                 }
                 if(remoteClientList.get(t1[0])?.url!=restRpcPath){
-                    toAdd.push([restRpcPath,t1[0]]);
+                    toAdd.push({...t1[1],url:restRpcPath});
                 }
             }
         }
         for(let t1 of remoteClientList.keys()){
-            if(getRegistered(t1)==undefined){
+            if(await getRegistered(t1)==undefined){
                 toRemove.push(t1);
             }
         }
         for(let t1 of toAdd){
-            await easyCallRemoteJsonFunction(await rpc.ensureConnected(),path.join(__name__,'..','registry'),'addClient',t1)
+            await easyCallRemoteJsonFunction(await rpc.ensureConnected(),path.join(__name__,'..','registry'),'addClient',[t1])
         }
         for(let t1 of toRemove){
             await easyCallRemoteJsonFunction(await rpc.ensureConnected(),path.join(__name__,'..','registry'),'removeClient',[t1]);
         }
+        await easyCallRemoteJsonFunction(await rpc.ensureConnected(),path.join(__name__,'..','registry'),'persistentClientStore',['save']);
     }
 }
 
 export class RegistryUI extends React.Component<{rpc?:RpcExtendClient1},
-    {selected:string|null,filter:string,clients?:Array<[string,{url:string,name:string}|ClientInfo]>}>{
+    {selected:string|null,filter:string,clients?:Array<[string,{url:string,name:string,persistent:boolean}|ClientInfo]>}>{
     rref={div:React.createRef<HTMLDivElement>()}
     async doLoadConfig(){
         if(config==null){
@@ -144,7 +146,8 @@ export class RegistryUI extends React.Component<{rpc?:RpcExtendClient1},
             }
         }
         let r=await this._getRegistyModule();
-        this.setState({clients:await r.listPersistentRegistered()},()=>{
+        let clients=await r.listPersistentRegistered();
+        this.setState({clients:clients},()=>{
             let div=this.rref.div.current
             div?.dispatchEvent(new Event(event.layout,{bubbles:true}))
         });
@@ -165,9 +168,10 @@ export class RegistryUI extends React.Component<{rpc?:RpcExtendClient1},
         let dlg=await prompt(<AddCard ref={addCard}/>,'New rpc client');
         (await addCard.waitValid()).setAddClientInfo({name:'user.',url:''});
         if(await dlg.response.get()==='ok'){
-            let {url,name}=(await addCard.waitValid()).getAddClientInfo();
+            let clientInfo=(await addCard.waitValid()).getAddClientInfo();
             let r=await this._getRegistyModule();
-            await r.addClient(url,name);
+            await r.addClient({...clientInfo,persistent:true});
+            await r.persistentClientStore('save');
         }
         dlg.close();
         await this.doLoadConfig();
@@ -181,10 +185,11 @@ export class RegistryUI extends React.Component<{rpc?:RpcExtendClient1},
             url:this.state.clients!.find(t1=>t1[0]==selected)![1].url
         });
         if(await dlg.response.get()==='ok'){
-            let {url,name}=(await addCard.waitValid()).getAddClientInfo();
+            let clientInfo=(await addCard.waitValid()).getAddClientInfo();
             let r=await this._getRegistyModule();
             await r.removeClient(selected);
-            await r.addClient(url,name);
+            await r.addClient({...clientInfo,persistent:true});
+            await r.persistentClientStore('save');
         }
         dlg.close();
         await this.doLoadConfig();
@@ -192,13 +197,14 @@ export class RegistryUI extends React.Component<{rpc?:RpcExtendClient1},
     async doRemove(){
         let r=await this._getRegistyModule();
         await r.removeClient(this.state.selected!);
+        await r.persistentClientStore('save');
         await this.doLoadConfig();
     }
     async doSelect(selected:string){
         this.setState({selected})
     }
     async doDisconnect(){
-        let conn=getRegistered(this.state.selected!);
+        let conn=await getRegistered(this.state.selected!);
         await conn!.disconnect();
         await this.doLoadConfig();
     }
@@ -212,7 +218,7 @@ export class RegistryUI extends React.Component<{rpc?:RpcExtendClient1},
         }
     }
     async doConnect(){
-        let conn=getRegistered(this.state.selected!);
+        let conn=await getRegistered(this.state.selected!);
         try{
             await conn!.ensureConnected();
         }catch(e:any){
@@ -233,15 +239,15 @@ export class RegistryUI extends React.Component<{rpc?:RpcExtendClient1},
     }
     render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined; }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChild {
         let btns=[] as {label:string,handler:()=>any}[];
-        let sel2=getRegistered(this.state.selected??'');
-        if(sel2){
-            if(this.props.rpc==undefined){
-                if(sel2.connected()){
-                    btns.push({label:'Disconnect',handler:()=>this.doDisconnect()});
-                }else{
-                    btns.push({label:'Connect',handler:()=>this.doConnect()});
-                }
+        let selectedClient=this.state.clients?.find(t1=>t1[0]==this.state.selected)?.at(1);
+        if(selectedClient instanceof ClientInfo){
+            if(selectedClient.connected()){
+                btns.push({label:'Disconnect',handler:()=>this.doDisconnect()});
+            }else{
+                btns.push({label:'Connect',handler:()=>this.doConnect()});
             }
+        }
+        if(selectedClient!=undefined){
             btns.push({label:'Edit/Copy',handler:()=>this.doEdit()});
             btns.push({label:'Remove',handler:()=>this.doRemove()});
         }
@@ -265,7 +271,10 @@ export class RegistryUI extends React.Component<{rpc?:RpcExtendClient1},
                     this.state.selected===ent[0]?css.selected:''].join(' ')}
                     onClick={()=>this.doSelect(ent[0])}>
                     <div>{ent[0]}</div><hr/><div>{ent[1]!.url.toString()}</div><hr/>
-                    {this.props.rpc==undefined?<div>{(ent[1] as ClientInfo)!.connected()?'connected':'disconnected'}</div>:''}
+                    <div style={{display:'flex',flexDirection:'row'}}>
+                        {(ent[1] instanceof ClientInfo)?<div style={{flex:'1'}}>{(ent[1] as ClientInfo)!.connected()?'connected':'disconnected'}</div>:''}
+                        {ent[1].persistent?<div style={{flex:'1'}}>persistent</div>:''}
+                    </div>                    
                 </div>
             })}
         <hr/>
