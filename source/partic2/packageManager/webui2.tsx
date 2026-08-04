@@ -5,7 +5,7 @@ import {getPersistentRegistered, importRemoteModule,ServerHostWorker1RpcName} fr
 import { GetCurrentTime, Ref2, Task, assert, future, requirejs, throwIfAbortError } from 'partic2/jsutils1/base'
 import { BuildUrlFromJsEntryModule, GetJsEntry, GetPersistentConfig, getResourceManager, path, RequestDownload, SavePersistentConfig, selectFile, useDeviceWidth } from 'partic2/jsutils1/webutils'
 import {promptWithForm, SimpleReactForm1} from 'partic2/pComponentUi/input'
-import {alert, appendFloatWindow, confirm, prompt, css as windowCss, WindowComponent, removeFloatWindow, rootWindowsList, ensureRootWindowContainer, language} from 'partic2/pComponentUi/window'
+import {alert, appendFloatWindow, confirm, prompt, css as windowCss, WindowComponent, removeFloatWindow, rootWindowGroup, ensureRootWindowContainer, language} from 'partic2/pComponentUi/window'   
 var registryModuleName='partic2/packageManager/registry';
 import {TaskLocalRef,Singleton, utf8conv} from 'partic2/CodeRunner/jsutils2'
 
@@ -650,7 +650,7 @@ export async function main(cmd:string){
         config=await GetPersistentConfig(__name__);
         ensureRootWindowContainer();
         if(config.mobileMode==undefined){
-            let windowWidth=(await (await rootWindowsList.waitValid()).container.waitValid()).offsetWidth;
+            let windowWidth=(await (await rootWindowGroup.waitValid()).container.waitValid()).offsetWidth;
             config.mobileMode=windowWidth<800;
         }
         if(config.mobileMode){

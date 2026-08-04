@@ -60,7 +60,8 @@ blockStaticFileAccessIf.set(__name__+'.keepPxprpcKeySecret',async (path)=>/^\/+w
 
 export async function setupServerPxprpcClient(){
     await addClient({url:'pxseedjs:'+__name__+'.getConnectionForServerHost',name:ServerHostRpcName});
-    await addClient({url:'webworker:partic2/pxprpcClient/registry/worker/1',name:ServerHostWorker1RpcName})
+    await addClient({url:'webworker:partic2/pxprpcClient/registry/worker/1',name:ServerHostWorker1RpcName});
+    rpcWorkerInitModule.push({module:__name__,func:'setupServerPxprpcClient'});
 }
 
 export async function loadConfig(){

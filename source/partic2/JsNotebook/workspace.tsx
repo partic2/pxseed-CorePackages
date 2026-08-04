@@ -237,7 +237,7 @@ async function openJSNotebookFirstProfileWorkspace(opt:{
 
 let defaultOpenWorkspaceWindowFor=async function (supportedContext:'local window'|ClientInfo){
     if(supportedContext==='local window'){
-        supportedContext=new workeriniti.LoopbackRpcClient('local window','loopback:local window');
+        supportedContext=new workeriniti.LoopbackRpcClient();
     }
     let workspace=new WorkspaceContext(supportedContext);
     await workspace.ensureInited()

@@ -20,8 +20,8 @@ export interface WindowComponentProps{
     onComponentDidUpdate?:()=>void
     initialLayout?:{left:number,top:number,width?:number,height?:number}
 
-    //Will set by WindowsList
-    windowsList?:WindowsList
+    //Will set by WindowGroup
+    windowGroup?:WindowGroup
 }
 
 interface WindowComponentStats{
@@ -89,7 +89,7 @@ export class DefaultWindowComponent extends ReactEventTarget<WindowComponentProp
     }
     __wndMove=new PointTrace({
         onMove:(curr,start)=>{
-            this.setState({layout:{...this.state.layout,left:curr.x-start.x,top:curr.y-start.y}},()=>this.dispatchEvent(new Event('move')));
+            this.layout({left:curr.x-start.x,top:curr.y-start.y});
             this.dispatchEvent(new Event('user-move'));
         }
     });
@@ -99,7 +99,7 @@ export class DefaultWindowComponent extends ReactEventTarget<WindowComponentProp
     }
     __wndResize=new PointTrace({
         onMove:(curr,start)=>{
-            this.setState({layout:{...this.state.layout,width:curr.x-start.x,height:curr.y-start.y}},()=>this.dispatchEvent(new Event('resize')));
+            this.layout({...this.state.layout,width:curr.x-start.x,height:curr.y-start.y});
             this.dispatchEvent(new Event('user-resize'));
         }
     });
@@ -127,6 +127,30 @@ export class DefaultWindowComponent extends ReactEventTarget<WindowComponentProp
             ...(this.state.titleBarButton??[]).map(t1=>this.renderIcon(t1.icon,t1.onClick)),
             this.renderIcon(this.props.closeIcon!,()=>this.onCloseClick())
         ]
+    }
+    getLayout(){
+        return this.state.layout;
+    }
+    async layout(layout:{left?:number,top?:number,width?:number,height?:number}){
+        return new Promise<void>((resolve)=>{
+            let newLayout={...this.state.layout,...layout};
+            let oldLayout=this.state.layout;
+            if(this.props.windowGroup!=null){
+                let windowGroupSize=this.props.windowGroup.getSize();
+                if(newLayout.width!=undefined && newLayout.left+newLayout.width>windowGroupSize.width){
+                    newLayout.width=windowGroupSize.width-newLayout.left;
+                }
+                if(newLayout.height!=undefined && newLayout.top+newLayout.height>windowGroupSize.height){
+                    newLayout.height=windowGroupSize.height-newLayout.top;
+                }
+            }
+            this.setState({layout:newLayout},()=>{
+                if(newLayout.left!=oldLayout.left || newLayout.top!=oldLayout.top){
+                    this.dispatchEvent(new Event('move'));
+                }
+                resolve();
+            });
+        });
     }
     renderTitle(){
         let titleString=this.props.title;
@@ -183,23 +207,17 @@ export class DefaultWindowComponent extends ReactEventTarget<WindowComponentProp
             }
             if(stableCount>=8)break;
         }
-        if(this.sizeMeasuring.get() && this.rref.container.current!=null && this.props.windowsList!=null && (this.state.layout.width==undefined || this.state.layout.height==undefined)){
+        if(this.sizeMeasuring.get() && this.rref.container.current!=null && this.props.windowGroup!=null && (this.state.layout.width==undefined || this.state.layout.height==undefined)){
             let layout={...this.state.layout,width:width+1,height:height+1};
-            if(this.rref.container.current.offsetLeft+this.rref.container.current.offsetWidth>this.props.windowsList.container.current!.offsetWidth){
-                layout.width=this.props.windowsList.container.current!.offsetWidth-this.rref.container.current.offsetLeft;
-            }
-            if(this.rref.container.current.offsetTop+this.rref.container.current.offsetHeight>this.props.windowsList.container.current!.offsetHeight){
-                layout.height=this.props.windowsList.container.current!.offsetHeight-this.rref.container.current.offsetTop;
-            }
-            this.setState({layout});
+            this.layout(layout);
         }
         this.sizeMeasuring.set(false);
     }
     renderWindowMain(){
         try{
-            if((this.state.layout.width==undefined||this.state.layout.height==undefined)&&!this.sizeMeasuring.get() && this.props.windowsList!=null){
+            if((this.state.layout.width==undefined||this.state.layout.height==undefined)&&!this.sizeMeasuring.get() && this.props.windowGroup!=null){
                 this.sizeToContent();
-            }else if(this.state.layout.width!=undefined && this.state.layout.height && this.sizeMeasuring.get()){
+            }else if(this.state.layout.width!=undefined && this.state.layout.height!=undefined && this.sizeMeasuring.get()){
                 this.sizeMeasuring.set(false);
             }
             let windowDivStyle:React.CSSProperties={
@@ -208,15 +226,11 @@ export class DefaultWindowComponent extends ReactEventTarget<WindowComponentProp
                 top:this.state.layout.top+'px',
                 touchAction:'none'
             };
-            if(typeof this.state.layout.width==='number'){
+            if(this.state.layout.width!=undefined){
                 windowDivStyle.width=this.state.layout.width+'px';
-            }else if(typeof this.state.layout.width==='string'){
-                windowDivStyle.width=this.state.layout.width;
             }
-            if(typeof this.state.layout.height==='number'){
+            if(this.state.layout.height!=undefined){
                 windowDivStyle.height=this.state.layout.height+'px';
-            }else if(typeof this.state.layout.height==='string'){
-                windowDivStyle.height=this.state.layout.height;
             }
             return <div className={[cssBase.flexColumn,css.defaultWindowDiv].join(' ')} 
                 style={windowDivStyle}
@@ -253,7 +267,7 @@ export function setDefaultWindowComponentImplemention(impl:typeof DefaultWindowC
     WindowComponent=impl;
 }
 
-export class WindowsList extends React.Component<{divStyle?:React.CSSProperties},{floatWindowVNodes:React.VNode[]}>{
+export class WindowGroup extends React.Component<{divStyle?:React.CSSProperties},{floatWindowVNodes:React.VNode[]}>{
     container=new ReactRefEx<HTMLDivElement>();
     onResize=new Set<()=>void>();
     constructor(prop:any,ctx:any){
@@ -276,7 +290,7 @@ export class WindowsList extends React.Component<{divStyle?:React.CSSProperties}
     }
     appendFloatWindow(window:React.VNode,active?:boolean){
         active=active??true;
-        (window.props as WindowComponentProps).windowsList=this;
+        (window.props as WindowComponentProps).windowGroup=this;
         let ref2=new ReactRefEx<React.VNode>().forward([window.ref].filter(v=>v!=undefined) as React.Ref<any>[]);
         window.ref=ref2;
         if(window.key==undefined){
@@ -299,10 +313,16 @@ export class WindowsList extends React.Component<{divStyle?:React.CSSProperties}
             this.forceUpdate();
         }
     }
+    getSize(){
+        return {
+            width:this.container.current?.clientWidth??0,
+            height:this.container.current?.clientHeight??0
+        }
+    }
 }
 
 
-export let rootWindowsList=new ReactRefEx<WindowsList>();
+export let rootWindowGroup=new ReactRefEx<WindowGroup>();
 let windowDomRootComponent:DomDivComponent|null=null;
 export function ensureRootWindowContainer(){
     if(windowDomRootComponent==null){
@@ -316,7 +336,7 @@ export function ensureRootWindowContainer(){
         div.style.top='0px';
         div.style.pointerEvents='none'
         DomRootComponent.addChild(windowDomRootComponent).then(()=>DomRootComponent.update());
-        ReactRender(<WindowsList ref={rootWindowsList}/>,windowDomRootComponent);
+        ReactRender(<WindowGroup ref={rootWindowGroup}/>,windowDomRootComponent);
         //To fix bug in EDGE --app mode
         document.body.style.overflow='hidden'
     }
@@ -326,22 +346,22 @@ export function ensureRootWindowContainer(){
 
 export function appendFloatWindow(window:React.VNode,active?:boolean){
     ensureRootWindowContainer();
-    rootWindowsList.current?.appendFloatWindow(window,active);
+    rootWindowGroup.current?.appendFloatWindow(window,active);
 }
 
 export function removeFloatWindow(window:React.VNode){
     ensureRootWindowContainer();
-    rootWindowsList.current?.removeFloatWindow(window);
+    rootWindowGroup.current?.removeFloatWindow(window);
 }
 
 export async function windowsContainerForceUpdate(){
     ensureRootWindowContainer();
-    return new Promise<void>((resolve)=>rootWindowsList.current?.forceUpdate(resolve));
+    return new Promise<void>((resolve)=>rootWindowGroup.current?.forceUpdate(resolve));
 }
 
 export function getFloatWindowVNodeList(){
     ensureRootWindowContainer();
-    return rootWindowsList.current?.state.floatWindowVNodes??[];
+    return rootWindowGroup.current?.state.floatWindowVNodes??[];
 }
 
 

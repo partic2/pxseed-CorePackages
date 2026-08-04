@@ -12,7 +12,7 @@ export * from './pxseedremotefuncs'
 
 export var __name__=requirejs.getLocalRequireModule(require);
 
-export let rpcWorkerInitModule:string[]=[];
+export let rpcWorkerInitModule:Array<string|{module:string,func:string}>=[];
 
 interface UpdateClientInfoArgs{url:string,name?:string,persistent?:boolean};
 

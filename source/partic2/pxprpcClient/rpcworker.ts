@@ -88,15 +88,21 @@ rpcId.watch((r,prev)=>{
 //Almost only used by './registry'
 let rpcWorkerInited=false;
 let workerParentRpcId='';
-export async function __internalInitRpcWorker(workerInitModule:string[],workerParentRpcIdIn?:string){
+export async function __internalInitRpcWorker(workerInitModule:Array<string|{module:string,func:string}>,workerParentRpcIdIn?:string){
     if(workerParentRpcIdIn!=undefined){
         workerParentRpcId=workerParentRpcIdIn;
         __internal__.isPxseedWorker=true;
     }
     if(!rpcWorkerInited){
         rpcWorkerInited=true;
-        lifecycle.addEventListener('exit',()=>servingConn.forEach((io)=>io.close()));    
-        await Promise.allSettled(workerInitModule.map(v=>import(v)));
+        lifecycle.addEventListener('exit',()=>servingConn.forEach((io)=>io.close()));
+        for(let t1 of workerInitModule){
+            if(typeof t1==='string'){
+                await import(t1);
+            }else{
+                await (await import(t1.module))[t1.func]();
+            }
+        }
         let {rpcWorkerInitModule}=await import('./registry');
         rpcWorkerInitModule.push(...workerInitModule);
         await savedAsBootModules();

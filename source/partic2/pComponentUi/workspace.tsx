@@ -1,7 +1,7 @@
 
 import * as React from 'preact'
 import { css, DomComponent, ReactRefEx } from './domui';
-import { ensureRootWindowContainer, language, rootWindowsList, WindowComponentProps, css as windowCss } from './window';
+import { ensureRootWindowContainer, language, rootWindowGroup, WindowComponentProps, css as windowCss } from './window';
 import {GenerateRandomString, GetCurrentTime, Ref2, assert, copy, future, mutex, partial, requirejs, sleep} from 'partic2/jsutils1/base'
 import { appendFloatWindow, removeFloatWindow, WindowComponent } from './window';
 import { getIconUrl } from 'partic2/pxseedMedia1/index1';
@@ -70,13 +70,12 @@ export class DefaultWorkspaceWindowComponent extends WindowComponent{
         if(maximized){
             this.beforeMaximizeSize={...this.state.layout};
             let containerDiv=await this.rref.container.waitValid();
-            this.setState({layout:{left:0,top:0,
+            this.layout({left:0,top:0,
                 width:(containerDiv.offsetParent as HTMLElement).offsetWidth,
-                height:(containerDiv.offsetParent as HTMLElement).offsetHeight}},
-                ()=>this.dispatchEvent(new Event('move')));
+                height:(containerDiv.offsetParent as HTMLElement).offsetHeight});
         }else{
             if(this.beforeMaximizeSize!=null){
-                this.setState({layout:{...this.beforeMaximizeSize}},()=>this.dispatchEvent(new Event('move')));
+                this.layout({...this.beforeMaximizeSize});
             }
             this.beforeMaximizeSize=null;
         }
@@ -92,20 +91,17 @@ export class DefaultWorkspaceWindowComponent extends WindowComponent{
 
 export let WorkspaceWindowUtils={
     async centerWindow(windowComponent:WindowComponent){
-        if(windowComponent.props.windowsList?.container.current!=null){
+        if(windowComponent.props.windowGroup!=null){
             for(let t1=0;t1<40;t1++){
-                let wndWidth=(windowComponent.props.windowsList.container.current.offsetWidth)??0;
-                let wndHeight=(windowComponent.props.windowsList.container.current.offsetHeight)??0;
+                let wndSize=windowComponent.props.windowGroup.getSize();
                 let width=windowComponent.rref.container.current?.offsetWidth??0;
                 let height=windowComponent.rref.container.current?.offsetHeight??0;
-                if(width>wndWidth-5)width=wndWidth-5;
-                if(height>wndHeight-5)height=wndHeight-5;
-                let left=(wndWidth-width)>>1;
-                let top=(wndHeight-height)>>1;
+                if(width>wndSize.width-5)width=wndSize.width-5;
+                if(height>wndSize.height-5)height=wndSize.height-5;
+                let left=(wndSize.width-width)>>1;
+                let top=(wndSize.height-height)>>1;
                 if(left!=windowComponent.state.layout.left || top!=windowComponent.state.layout.top){
-                    await new Promise((resolve)=>{
-                        windowComponent.setState({layout:{...windowComponent.state.layout,left:left,top:top}},()=>resolve(null))
-                    });
+                    await windowComponent.layout({...windowComponent.state.layout,left:left,top:top});
                 }
                 if(!windowComponent.sizeMeasuring.get())break;
                 await sleep(25);
@@ -220,7 +216,7 @@ openNewWindowPipeline.arr().push({name:__name__+'.openNewWindowLayoutWindow',han
     }
     let windowRef=context.result!.windowRef;
     let window1=await windowRef.waitValid();
-    window1.setState({layout:{...layout1}})
+    await window1.layout(layout1);
     if(options.layoutHint!=undefined){
         context.result!.saveWindowPosition=async ()=>{
             config1=await GetPersistentConfig(__name__);
@@ -260,11 +256,11 @@ export let openNewWindow=async function(contentVNode:React.VNode,options?:OpenNe
 let baseWindowComponnet:React.VNode|null=null
 let baseWindowRef=new ReactRefEx<WindowComponent>();
 
-const onRootWindowsListResize=()=>{
+const onRootWindowGroupResize=()=>{
     if(baseWindowRef.current!=null){
         baseWindowRef.current.setState({layout:{left:0,top:0,
-            width:rootWindowsList.current?.container?.current?.offsetWidth,
-            height:rootWindowsList.current?.container?.current?.offsetHeight
+            width:rootWindowGroup.current?.container?.current?.offsetWidth,
+            height:rootWindowGroup.current?.container?.current?.offsetHeight
         }})
     }
 }
@@ -275,13 +271,13 @@ export function setBaseWindowView(vnode:React.VNode){
     }
     baseWindowComponnet=vnode;
     appendFloatWindow(<WindowComponent disableUserInputActivate={true} borderless={true} ref={baseWindowRef} initialLayout={{left:0,top:0,
-        width:rootWindowsList.current?.container?.current?.offsetWidth,
-        height:rootWindowsList.current?.container?.current?.offsetHeight}}>
+        width:rootWindowGroup.current?.container?.current?.offsetWidth,
+        height:rootWindowGroup.current?.container?.current?.offsetHeight}}>
         {vnode}
     </WindowComponent>);
-    rootWindowsList.waitValid().then((wndList)=>{
-        if(!wndList.onResize.has(onRootWindowsListResize)){
-            wndList.onResize.add(onRootWindowsListResize);
+    rootWindowGroup.waitValid().then((wndGroup)=>{
+        if(!wndGroup.onResize.has(onRootWindowGroupResize)){
+            wndGroup.onResize.add(onRootWindowGroupResize);
         }
     });
     baseWindowRef.waitValid().then((wnd)=>wnd.activate(1));
@@ -335,7 +331,7 @@ export let defaultDialogBoxImplemention={
             dialogContainer=await openNewWindow(<div></div>,{windowOptions:{borderless:true},title:i18n.dialogBox})
         }
         let result=new future<'ok'|'closed'>();
-        let newWnd=await openNewWindow(<div style={{width:'100%',height:'100%',minWidth:Math.min((rootWindowsList.current?.container.current?.offsetWidth)??0-10,300),whiteSpace:'pre-wrap'}}>
+        let newWnd=await openNewWindow(<div style={{width:'100%',height:'100%',minWidth:Math.min((rootWindowGroup.current?.container.current?.offsetWidth)??0-10,300),whiteSpace:'pre-wrap'}}>
             {message}
             <div className={css.flexRow}>
                 <input type='button' style={{flexGrow:'1'}} onClick={()=>result.setResult('ok')} value={i18n.ok}/>
@@ -353,7 +349,7 @@ export let defaultDialogBoxImplemention={
             dialogContainer=await openNewWindow(<div></div>,{windowOptions:{borderless:true},title:i18n.dialogBox})
         }
         let result=new future<'ok'|'cancel'|'closed'>();
-        let newWnd=await openNewWindow(<div style={{width:'100%',height:'100%',minWidth:Math.min((rootWindowsList.current?.container.current?.offsetWidth)??0-10,300),whiteSpace:'pre-wrap'}}>
+        let newWnd=await openNewWindow(<div style={{width:'100%',height:'100%',minWidth:Math.min((rootWindowGroup.current?.container.current?.offsetWidth)??0-10,300),whiteSpace:'pre-wrap'}}>
                 {message}
                 <div className={css.flexRow}>
                     <input type='button' style={{flexGrow:'1'}} onClick={()=>result.setResult('ok')} value={i18n.ok}/>
