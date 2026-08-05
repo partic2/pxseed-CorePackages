@@ -314,7 +314,7 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats> imple
             this.codeContext!.callFunction('deleteVariables',[[this.state.resultVariable]]);
         }
         this.props.onClearOutputs?.();
-        this.setCellOutput('',null);
+        this.setCellOutput(undefined,null);
     }
     protected renderActionButton(){
         let result=[]
@@ -342,6 +342,25 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats> imple
             this.codeContext.event.addEventListener(`${__name__}.CodeCell.callWebuiFunction`,this.codeContextCallMethodEvent);
         }
     }
+    renderCellInput(){
+        return <TextEditor ref={this.rref.codeInput} divAttr={{onKeyDown:(ev)=>this.onCellKeyDown(ev),onClick:()=>{
+                if(this.state.codeCompleteCandidate!=null || this.state.extraTooltips!=null){
+                    this.resetTooltips();
+                }
+            }}}
+            onInput={(target,inputData)=>this.onCellInput(target,inputData)} divClass={[css.inputCell,...(this.props.inputClass??[])]} />
+    }
+    renderCellOutput(){
+        return [
+            <div>{this.state.errorCatched!=null?'THROW:':null}</div>,
+            <div style={{overflow:'auto'}}>
+                {this.state.cellOutput===undefined?null:<ObjectViewer 
+                    object={this.state.cellOutput} name={''} codeContext={this.codeContext!} 
+                    variableName={this.state.resultVariable??undefined} 
+                />}
+            </div>
+        ]
+    }
     render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined; }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChild {
         this.beforeRender();
         return <div style={{display:'flex',flexDirection:'column',position:'relative',...this.props.divStyle}} ref={this.rref.container} 
@@ -359,21 +378,13 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats> imple
                     }
                 }}
             >
-            <TextEditor ref={this.rref.codeInput} divAttr={{onKeyDown:(ev)=>this.onCellKeyDown(ev),onClick:()=>{
-                if(this.state.codeCompleteCandidate!=null || this.state.extraTooltips!=null){
-                    this.resetTooltips();
-                }
-            }}}
-            onInput={(target,inputData)=>this.onCellInput(target,inputData)} divClass={[css.inputCell,...(this.props.inputClass??[])]} />
+            {this.renderCellInput()}
             {this.state.focusin?<div style={{position:'relative',display:'flex',flexDirection:'row-reverse'}}>
             <div style={{position:'absolute',backgroundColor:'white',maxWidth:'50%',wordBreak:'break-all'}}>
                 <div>{this.renderActionButton()}</div>
             </div></div>:null}
             {this.renderTooltipsContent()}
-            <div>{this.state.errorCatched!=null?'THROW:':null}</div>
-            <div style={{overflow:'auto'}}>
-                <ObjectViewer object={this.state.cellOutput} name={''} codeContext={this.codeContext!} variableName={this.state.resultVariable??undefined} />
-            </div>
+            {this.renderCellOutput()}
         </div>
     }
     protected getInputCaretCoordinate(){
@@ -439,6 +450,9 @@ export class DefaultCodeCellList extends React.Component<
             if(this.props.codeContext!=null){
                 this.attachCodeContext(this.props.codeContext);
             }
+        }
+        if(this.state.list.length==0){
+            this.newCell();
         }
     }
     componentWillUnmount(): void {
