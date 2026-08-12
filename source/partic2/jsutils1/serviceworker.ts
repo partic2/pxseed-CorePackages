@@ -50,37 +50,12 @@ export async function requestExit(){
 }
 
 
-
-async function kvStoreOnFetch(dbName:string,varName:string,queryStat?:string){
-    let db=await kvStore(dbName);
-    let data=await db.getItem(varName);
-    if(data==undefined){
-        return new Response('Not found',{
-            status:404
-        });
-    }else{
-        let contentType='';
-        if(queryStat!=undefined){
-            contentType=decodeURIComponent(GetUrlQueryVariable2(queryStat,'content-type')??'');
-        }
-        let headers={} as Record<string,string>;
-        if(contentType!=''){
-            headers['content-type']=contentType
-        }
-        return new Response(data,{
-            headers
-        })
-    }
-    
-}
-
-
 let swconfig:{
     startupModules?:string[]
 }={};
 
 
-export let onfetchHandlers=new Array<(ev:{request:Request})=>(null|Response|Promise<Response>)>();
+export let onfetchHandlers=new Array<{name:string,handler:(ev:{request:Request})=>(null|Response|Promise<Response>)}>();
 
 export async function cacheFetch(url:string):Promise<Response>{
     return await __pxseedInit.serviceWorker.cacheFetch(url);
@@ -93,8 +68,8 @@ export function getDefaultCache():Cache{
 export async function loadServiceWorkerModule(modName:string){
     try{
         let mod=await import(modName);
-        if(mod!=undefined && ('asyncInit' in mod)){
-            await mod.asyncInit();
+        if(mod!=undefined && ('__inited__' in mod)){
+            await mod.__inited__;
         }
     }catch(e){
         console.error(e);
@@ -109,24 +84,13 @@ if('__pxseedInit' in globalThis && __pxseedInit.env=='service worker'){
         __pxseedInit.onfetch=(ev:{request:Request})=>{
             let resp:Promise<Response>|Response|null=null;
             for(let t1 of onfetchHandlers){
-                resp=t1(ev);
+                resp=t1.handler(ev);
                 if(resp!==null){
                     break;
                 }
             }
             return resp;
         };
-        onfetchHandlers.push((fetchEv)=>{
-            let req=fetchEv.request;
-            if(req.url.startsWith(serviceWorkerServeRoot)){
-                let subpath=req.url.substring(serviceWorkerServeRoot.length);
-                let matched=subpath.match(/^kvStore\/(.+?)\/(.+?)(\?.*)?$/)
-                if(matched!=null){
-                    return kvStoreOnFetch(decodeURIComponent(matched[1]),matched[2],matched[3]);
-                }
-            }
-            return null;
-        });
         try{
             await Promise.allSettled((swconfig.startupModules??[]).map(t1=>loadServiceWorkerModule(t1)))
         }catch(e){

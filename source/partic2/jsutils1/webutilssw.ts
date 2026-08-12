@@ -1,7 +1,7 @@
 //This module can ONLY be used in environemnt support Service worker
 //(https://developer.mozilla.org/en-US/docs/Web/API/Service_Worker_API)
 
-import { future, GenerateRandomString, WaitUntil, sleep, requirejs, throwIfAbortError } from "./base";
+import { future, GenerateRandomString, WaitUntil, sleep, requirejs, throwIfAbortError, mutex } from "./base";
 import { BasicMessagePort, GetPersistentConfig, IWorkerThread, SavePersistentConfig, config as utilsconfig, getWWWRoot, kvStore, FunctionCallOverMessagePort } from "./webutils";
 
 const __name__=requirejs.getLocalRequireModule(require);
@@ -85,33 +85,6 @@ class ServiceWorkerThread implements IWorkerThread{
 let serviceWorkerThread1:ServiceWorkerThread|null;
 
 
-export function getUrlForKvStore(dbName:string|undefined,key:string,options?:{
-    contentType?:string
-}){
-    dbName??=utilsconfig.defaultStorePrefix+'/kv-1';
-    let search:string[]=[];
-    if(options?.contentType!=undefined){
-        search.push('content-type='+encodeURIComponent(options.contentType));
-    }
-    let url=serviceWorkerServeRoot+'kvStore/'+encodeURIComponent(dbName)+'/'+key;
-    if(search.length>0){
-        url+='?'+search.join('&');
-    }
-    return url;
-}
-
-export async function RequestDownloadSW(buff:ArrayBuffer|string|Uint8Array<ArrayBufferLike>,fileName:string){
-    let kvs=await kvStore()
-    let tempPath='__temp/'+GenerateRandomString()+'/'+fileName;
-    if(typeof buff==='string'){
-        buff=new TextEncoder().encode(buff);
-    }
-    await kvs.setItem(tempPath,buff)
-    window.open(getUrlForKvStore(undefined,tempPath,{contentType:'application/octet-stream'}),'_blank')
-    await sleep(3000);
-    kvs.delete(tempPath);
-}
-
 export async function ensureServiceWorkerInstalled(){
     if(serviceWorkerThread1==null){
         serviceWorkerThread1=new ServiceWorkerThread(ServiceWorkerId);
@@ -167,33 +140,27 @@ NOTE:"cache first" will prevent js updated from host before cache is clear. Use 
 */
 export type SimpleGETCachePolicy='not handle'|'fetch only'|'fetch first'|'cache first'
 
-let config:{
-    simpleGETCache?:Array<{
-        path:string,
-        policy:SimpleGETCachePolicy
-    }>
-}={}
+
 
 const cacheName=getWWWRoot()+'/'+__name__;
 
+
+let config:{
+    simpleGETCache?:{
+        policy:SimpleGETCachePolicy
+    }
+}={}
+
 class SimpleGETCacheFetchHandler{
-    protected policyMap=new Map<string,SimpleGETCachePolicy>();
-    protected wwwrootPathLength:number=0;
     cache?:Cache
     constructor(){}
-    async initWithConfig(){
-        config=await GetPersistentConfig(__name__);
-        this.policyMap.clear();
-        if(SimpleGETCache!=undefined){
-            for(let t1 of config.simpleGETCache!){
-                this.policyMap.set(t1.path,t1.policy);
-            }
-        }
-        this.wwwrootPathLength=new URL(getWWWRoot()).pathname.length;
-        this.cache=await caches.open(cacheName);
-    }
     async fetchOnlyHandler(request:Request){
         return await fetch(request);
+    }
+    async updateWithConfig(){
+        if(this.cache==undefined){
+            this.cache=await caches.open(cacheName);
+        }
     }
     async fetchFirstHandler(request:Request){
         try{
@@ -222,23 +189,16 @@ class SimpleGETCacheFetchHandler{
             return matchResult;
         }
     }
-    handler=(ev:{request:Request}):(null|Response|Promise<Response>)=>{
+    fetch=(ev:{request:Request}):(null|Response|Promise<Response>)=>{
         if(ev.request.method!='GET'){
             return null;
         }
-        let relpath=new URL(ev.request.url).pathname.substring(this.wwwrootPathLength+1).split('/');
-        let policy:SimpleGETCachePolicy='not handle';
-        for(let t1=0;t1<=relpath.length;t1++){
-            let curpolicy=this.policyMap.get(relpath.slice(0,t1).join('/'));
-            if(curpolicy!=undefined){
-                policy=curpolicy;
-            }
-        }
+        let policy:SimpleGETCachePolicy=config.simpleGETCache?.policy??'not handle';
         switch(policy){
             case 'not handle':
                 return null;
             case 'fetch only':
-                return this.cacheFirstHandler(ev.request);
+                return this.fetchOnlyHandler(ev.request);
             case 'fetch first':
                 return this.fetchFirstHandler(ev.request);
             case 'cache first':
@@ -253,65 +213,55 @@ class SimpleGETCacheFetchHandler{
 export let usingSimpleGETCacheFetchHandler:SimpleGETCacheFetchHandler|null=null;
 declare let __pxseedInit:any;
 
-export async function asyncInit(){
-    if('__pxseedInit' in globalThis && __pxseedInit.env=='service worker'){
+
+export let __inited__=(async()=>{
+    if('__pxseedInit' in globalThis && __pxseedInit.env=='service worker' ){
         config=await GetPersistentConfig(__name__);
         let {onfetchHandlers}=await import('./serviceworker');
         usingSimpleGETCacheFetchHandler=new SimpleGETCacheFetchHandler();
-        await usingSimpleGETCacheFetchHandler.initWithConfig();
-        onfetchHandlers.push(usingSimpleGETCacheFetchHandler.handler)
+        await usingSimpleGETCacheFetchHandler.updateWithConfig();
+        onfetchHandlers.push({name:__name__+'.SimpleGETCache',handler:usingSimpleGETCacheFetchHandler.fetch});
     }
+})();
+
+export async function installThisModule(){
+    await registerServiceWorkerStartupModule(__name__);
 }
 
-
+export async function uninstallThisModule(){
+    await unregisterServiceWorkerStartupModule(__name__);
+}
 
 //Simple "GET Request Cache Manager" for Service Worker 
 export let SimpleGETCache={
-    enable:async function(){
-        await registerServiceWorkerStartupModule(__name__);
-    },
-    disable:async function(){
-        await unregisterServiceWorkerStartupModule(__name__);
-    },
     ensurePersistentConfigLoaded:async function(){
         config=await GetPersistentConfig(__name__);
     },
     //The service worker config must reload manually after modified(ie:setCachePolicy)
-    async reloadConfig(){
+    async reloadServiceWorkerConfig(){
         if('__pxseedInit' in globalThis && __pxseedInit.env=='service worker'){
             if(usingSimpleGETCacheFetchHandler!=null){
                 await this.ensurePersistentConfigLoaded();
-                await usingSimpleGETCacheFetchHandler.initWithConfig();
+                await usingSimpleGETCacheFetchHandler.updateWithConfig();
             }
         }else{
             let sw=await ensureServiceWorkerInstalled();
-            sw.call(__name__,'SimpleGETCacheReloadConfig',[]);
+            await sw.call(__name__,'SimpleGETCacheReloadConfig',[]);
         }
     },
-    //path is relative the wwwroot
-    setCachePolicy:async function(path:string,policy:SimpleGETCachePolicy){
-        this.ensurePersistentConfigLoaded();
-        if(config.simpleGETCache==undefined){
-            config.simpleGETCache=[];
-        }
-        path=path.split('/').join('/');
-        let found=config.simpleGETCache.find(t1=>t1.path==path);
-        if(found==undefined){
-            found={path,policy};
-            config.simpleGETCache.push(found);
-        }else{
-            found.policy=policy;
-        }
-        SavePersistentConfig(__name__,config);
-    },
-    getAllCachePolicy:async function(){
+    setCachePolicy:async function(policy:SimpleGETCachePolicy){
         await this.ensurePersistentConfigLoaded();
-        return config.simpleGETCache??[]
+        config.simpleGETCache={policy:policy};
+        await SavePersistentConfig(__name__,config);
+    },
+    getCachePolicy:async function(){
+        await this.ensurePersistentConfigLoaded();
+        return config.simpleGETCache?.policy
     },
     clearCache:async function(){
         await caches.delete(cacheName)
     }
 }
 export async function SimpleGETCacheReloadConfig(){
-    return await SimpleGETCache.reloadConfig()
+    return await SimpleGETCache.reloadServiceWorkerConfig()
 }
