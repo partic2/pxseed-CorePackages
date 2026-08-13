@@ -42,10 +42,12 @@ export let css={
     defaultTitleStyle:cssPrefix+'-defaultTitleStyle',
 }
 
-DynamicPageCSSManager.PutCss('.'+css.defaultWindowDiv,['box-sizing: border-box','pointer-events:auto']);
-DynamicPageCSSManager.PutCss('.'+css.defaultContentDiv ,['box-sizing: border-box','flex-grow:1','background-color:white','overflow:auto','border:solid black 1px','min-height:0px','min-width:0px'])
-DynamicPageCSSManager.PutCss('.'+css.borderlessWindowContentDiv,['pointer-events:auto','flex-grow:1','box-sizing: border-box','min-height:0px','min-width:0px']);
-DynamicPageCSSManager.PutCss('.'+css.defaultTitleStyle ,['box-sizing: border-box','background-color:silver','color:balck','border-left:solid black 1px','border-top:solid black 1px','border-right:solid black 1px'])
+if(globalThis.document!=undefined){
+    DynamicPageCSSManager.PutCss('.'+css.defaultWindowDiv,['box-sizing: border-box','pointer-events:auto']);
+    DynamicPageCSSManager.PutCss('.'+css.defaultContentDiv ,['box-sizing: border-box','flex-grow:1','background-color:white','overflow:auto','border:solid black 1px','min-height:0px','min-width:0px'])
+    DynamicPageCSSManager.PutCss('.'+css.borderlessWindowContentDiv,['pointer-events:auto','flex-grow:1','box-sizing: border-box','min-height:0px','min-width:0px']);
+    DynamicPageCSSManager.PutCss('.'+css.defaultTitleStyle ,['box-sizing: border-box','background-color:silver','color:balck','border-left:solid black 1px','border-top:solid black 1px','border-right:solid black 1px'])    
+}
 
 export class DefaultWindowComponent extends ReactEventTarget<WindowComponentProps,WindowComponentStats>{
     static defaultProps:WindowComponentProps={
@@ -215,10 +217,12 @@ export class DefaultWindowComponent extends ReactEventTarget<WindowComponentProp
     }
     renderWindowMain(){
         try{
-            if((this.state.layout.width==undefined||this.state.layout.height==undefined)&&!this.sizeMeasuring.get() && this.props.windowGroup!=null){
-                this.sizeToContent();
-            }else if(this.state.layout.width!=undefined && this.state.layout.height!=undefined && this.sizeMeasuring.get()){
-                this.sizeMeasuring.set(false);
+            if(!this.props.borderless){
+                if((this.state.layout.width==undefined||this.state.layout.height==undefined)&&!this.sizeMeasuring.get() && this.props.windowGroup!=null){
+                    this.sizeToContent();
+                }else if(this.state.layout.width!=undefined && this.state.layout.height!=undefined && this.sizeMeasuring.get()){
+                    this.sizeMeasuring.set(false);
+                }
             }
             let windowDivStyle:React.CSSProperties={
                 position:'absolute',
@@ -368,9 +372,9 @@ export function getFloatWindowVNodeList(){
 language.set(navigator.language)
 
 export let dialogBoxProvider:{
-    alert?:(message:string,title?:string)=>Promise<void>,
-    confirm?:(message:string,title?:string)=>Promise<'ok'|'cancel'>,
-    prompt?:(form:React.VNode,opt?:{
+    alert?:(message:React.ComponentChild,title?:string)=>Promise<void>,
+    confirm?:(message:React.ComponentChild,title?:string)=>Promise<'ok'|'cancel'>,
+    prompt?:(form:React.ComponentChild,opt?:{
             onButtonClick?:(clicked:'ok'|'cancel')=>void
             title?:string,
             noButton?:boolean
@@ -378,7 +382,7 @@ export let dialogBoxProvider:{
 }={};
 
 
-export async function alert(message:string,title?:string){
+export async function alert(message:React.ComponentChild,title?:string){
     if(dialogBoxProvider.alert==null){
         dialogBoxProvider.alert=(await import('./workspace')).defaultDialogBoxImplemention.alert;
     }
@@ -386,14 +390,14 @@ export async function alert(message:string,title?:string){
 }
 
 
-export async function confirm(message:string,title?:string){
+export async function confirm(message:React.ComponentChild,title?:string){
     if(dialogBoxProvider.confirm==null){
         dialogBoxProvider.confirm=(await import('./workspace')).defaultDialogBoxImplemention.confirm;
     }
     return dialogBoxProvider.confirm(message,title);
 }
 
-export async function prompt(form:React.VNode,opt?:{
+export async function prompt(form:React.ComponentChild,opt?:{
     onButtonClick?:(clicked:'ok'|'cancel')=>void
     title?:string,
     noButton?:boolean

@@ -111,6 +111,7 @@ class WindowListIcon extends React.Component<{},{
         this.mounted=true;
         NewWindowHandleLists.addEventListener('change',this.onWindowListChange);
         window.addEventListener('resize',this.onWindowResize);
+        await this.onWindowListChange();
     }
     componentWillUnmount(): void {
         this.mounted=false;
