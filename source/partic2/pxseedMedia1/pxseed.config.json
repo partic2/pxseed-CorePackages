@@ -10,5 +10,13 @@
       ]
     }
   ],
+  "clean":{
+    "include": [
+      "**/*.js","./icons/**/*","./sound/**/*"
+    ],
+    "excludeRegexp": [
+      "^data/"
+    ]
+  },
   "name": "partic2/pxseedMedia1"
 }

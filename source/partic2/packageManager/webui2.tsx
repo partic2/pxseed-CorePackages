@@ -338,7 +338,7 @@ class PackagePanel extends React.Component<{},{
     async showCreatePackage(){
         try{
             let basicInfo=await promptWithForm(<SimpleReactForm1>{(form1)=>{
-                return <div>
+                return <div style={{padding:'8px'}}>
                     <div>name:</div>
                     <div><input style={{width:'100%',boxSizing:'border-box'}} ref={form1.getRefForInput('name')} type='text'/></div>
                     <div>loaders:</div>
@@ -356,13 +356,19 @@ class PackagePanel extends React.Component<{},{
                         <div>icon:</div>
                         <div><input style={{width:'100%',boxSizing:'border-box'}} ref={form1.getRefForInput('icon')} type='text'/></div>
                     </div>}</SimpleReactForm1>
+                    <div>clean:</div>
+                    <PlainTextEditorInput ref={form1.getRefForInput('clean')} divStyle={{border:'solid 1px black'}}/>
                 </div>
             }}</SimpleReactForm1>,{title:i18n.createPackage,initialValue:{
-                name:'partic2/createPkgDemo',
+                name:'scopeName/packageName',
                 loaders:JSON.stringify([
                     {"name": "copyFiles","include": ["assets/**/*"]},
                     {"name": "typescript"}
                 ],undefined,4),
+                clean:JSON.stringify({
+                    include:['**/*.js','assets/**/*'],
+                    excludeRegexp:['^data/']
+                },undefined,4),
                 webui:{
                     entry:'./webui',
                     label:'',
@@ -372,23 +378,24 @@ class PackagePanel extends React.Component<{},{
             if(basicInfo==null){
                 return;
             }
-            basicInfo.loaders=JSON.parse(basicInfo.loaders);
-            let registry=await remoteModule.registry.get();
-            let scopeName=basicInfo.name.split('/')[0];
-            let urlTpl=await registry.getUrlTemplateFromScopeName!(scopeName);
-            basicInfo.repositories=JSON.stringify({
-                [scopeName]:urlTpl??['https://github.com/'+scopeName+'/pxseed-${subname}']
-            },undefined,4);
-            basicInfo=await promptWithForm(<SimpleReactForm1>{(form1)=>{
-                return <div>
-                    <div>repositories:</div>
-                    <PlainTextEditorInput ref={form1.getRefForInput('repositories')} divStyle={{border:'solid 1px black'}}/>
-                </div>
-            }}</SimpleReactForm1>,{title:i18n.createPackage,initialValue:basicInfo})
-            if(basicInfo==null){
-                return;
-            }
             try{
+                basicInfo.loaders=JSON.parse(basicInfo.loaders);
+                basicInfo.clean=JSON.parse(basicInfo.clean);
+                let registry=await remoteModule.registry.get();
+                let scopeName=basicInfo.name.split('/')[0];
+                let urlTpl=await registry.getUrlTemplateFromScopeName!(scopeName);
+                basicInfo.repositories=JSON.stringify({
+                    [scopeName]:urlTpl??['https://github.com/'+scopeName+'/pxseed-${subname}']
+                },undefined,4);
+                basicInfo=await promptWithForm(<SimpleReactForm1>{(form1)=>{
+                    return <div>
+                        <div>repositories:</div>
+                        <PlainTextEditorInput ref={form1.getRefForInput('repositories')} divStyle={{border:'solid 1px black'}}/>
+                    </div>
+                }}</SimpleReactForm1>,{title:i18n.createPackage,initialValue:basicInfo})
+                if(basicInfo==null){
+                    return;
+                }
                 basicInfo.extra={};
                 let opt={} as registryModType.PackageManagerConfig;
                 let inPath=basicInfo.webui.entry as string;
@@ -418,7 +425,7 @@ class PackagePanel extends React.Component<{},{
                 await alert(i18n.done,'CAUTION');
             }catch(err:any){
                 throwIfAbortError(err);
-                alert('Failed:'+err.message+err.remoteStack);
+                alert('Failed:'+err.message+err.stack+'\n--------\n'+err.remoteStack);
             }
         }catch(err:any){
             await alert(err.message+'\n'+err.stack,'ERROR');

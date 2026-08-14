@@ -409,7 +409,6 @@ export async function uninstallPackage(pkgname:string){
     await fs.rm(dir1,{recursive:true}).catch(_=>{})
     dir1=await getOutputDirForPakcage(pkgname);
     await cleanBuildStatus(dir1).catch(_=>{})
-    await fs.rm(dir1,{recursive:true}).catch(_=>{})
     listener.onUninstall.forEach((l)=>import(l.module).then(m=>m[l.func](pkgname)));
 }
 

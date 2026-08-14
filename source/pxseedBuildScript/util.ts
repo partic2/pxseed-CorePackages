@@ -22,6 +22,48 @@ export async function getNodeCompatApi(){
 }
 
 
+export class mutex{
+    protected locked:boolean=false;
+    protected unlockCb:Array<()=>void>=[];
+    constructor(){
+    }
+    public async lock(){
+        var that=this;
+        if(this.locked){
+            return new Promise<void>(function(resolve,reject){
+                that.unlockCb.push(resolve);
+            });
+        }else{
+            this.locked=true;
+            return;
+        }
+    }
+    public async unlock(){
+        if(this.unlockCb.length>0){
+            this.unlockCb.shift()!();
+        }else{
+            this.locked=false;
+        }
+    }
+    public async tryLock(){
+        if(!this.locked){
+            this.locked=true;
+            return true;
+        }else{
+            return false;
+        }
+    }
+    public async exec<T>(fn:()=>Promise<T>){
+        await this.lock();
+        try{
+            return await fn();
+        }finally{
+            await this.unlock()
+        }
+    }
+}
+
+
 async function runCommand(cmd:string,opt?:{cwd?:string}){
     const {spawn}=await import('child_process');
     let runOpt=opt??{};
@@ -38,10 +80,12 @@ async function readJson(path:string){
 }
 
 
-async function writeJson(path:string,obj:any){
-    const {fs}=await getNodeCompatApi();
+async function writeJson(jsonPath:string,obj:any){
+    const {fs,path}=await getNodeCompatApi();
     const {readFile, writeFile}=fs
-    await writeFile(path,new TextEncoder().encode(JSON.stringify(obj)));
+    let dir=path.dirname(jsonPath);
+    await fs.mkdir(dir,{recursive:true});
+    await writeFile(jsonPath,new TextEncoder().encode(JSON.stringify(obj)));
 }
 
 async function runBuild(){

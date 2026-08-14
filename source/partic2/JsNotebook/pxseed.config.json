@@ -7,6 +7,14 @@
       "name": "typescript"
     }
   ],
+  "clean":{
+    "include": [
+      "**/*.js","prism/*.js","prism/*.css"
+    ],
+    "excludeRegexp": [
+      "^workspace/"
+    ]
+  },
   "name": "partic2/JsNotebook",
   "extra":{
     "partic2/packageManager/registry":{

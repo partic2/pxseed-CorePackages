@@ -9,6 +9,14 @@
       ]
     }
   ],
+  "clean":{
+    "include": [
+      "**/*.js"
+    ],
+    "excludeRegexp": [
+      "^state/","^data/","^config.json$"
+    ]
+  },
   "name": "pxseedServer2023",
   "extra":{
     "partic2/packageManager/registry":{

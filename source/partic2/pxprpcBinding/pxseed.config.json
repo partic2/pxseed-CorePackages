@@ -4,5 +4,13 @@
       "name": "typescript"
     }
   ],
+  "clean":{
+    "include": [
+      "**/*.js"
+    ],
+    "excludeRegexp": [
+      "^data/"
+    ]
+  },
   "name": "partic2/pxprpcBinding"
 }

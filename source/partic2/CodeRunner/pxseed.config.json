@@ -13,5 +13,13 @@
       "packages":["partic2/pComponentUi","partic2/jsutils1","partic2/tjshelper","partic2/pxprpcClient","pxprpc"]
     }
   ],
+  "clean":{
+    "include": [
+      "**/*.js"
+    ],
+    "excludeRegexp": [
+      "^data/"
+    ]
+  },
   "name": "partic2/CodeRunner"
 }

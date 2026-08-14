@@ -142,7 +142,7 @@ export class PxseedLoaderBuilder{
             }
         }
         if(this.pxseedLoaderSource===null){
-            this.pxseedLoaderSource=[getWWWRoot(),'__data__',...__name__.split('/'),'pxseedloadersource'].join(pathsep);
+            this.pxseedLoaderSource=[getWWWRoot(),...__name__.split('/'),'data','pxseedloadersource'].join(pathsep);
             console.info(`pxseed loader source not defined, use ${this.pxseedLoaderSource}`)
         }
         try{

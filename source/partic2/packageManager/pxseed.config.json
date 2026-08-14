@@ -8,5 +8,13 @@
       "noImplicitExternal":["buffer","isomorphic-git"]
     }
   ],
+  "clean":{
+    "include": [
+      "**/*.js","__temp/**/*"
+    ],
+    "excludeRegexp": [
+      "^data/"
+    ]
+  },
   "name": "partic2/packageManager"
 }
