@@ -56,6 +56,10 @@ export class PxseedLoaderBuilder{
     depsSourceDirs:string|null=null;
     androidAbi=['arm64-v8a','armeabi-v7a']
     skipDepsCheck=false;
+    //Extend library.
+    androidNoExtend=false;
+    //Enable geckoview on android(enlarge the .apk size).
+    androidEnableGeckoView=false;
     async ensureTjsi(){
         if(this.tjsi==null)this.tjsi=await buildTjs();
         return this.tjsi;
@@ -132,6 +136,15 @@ export class PxseedLoaderBuilder{
             for(let t1 of children){
                 await this.copyFilesNewer([dest,t1.name].join(pathsep),[src,t1.name].join(pathsep),ignore,maxDepth-1);
             }
+        }
+    }
+    async writeFile(path:string,data:Uint8Array){
+        let tjsi=await this.ensureTjsi();
+        let f=await tjsi.open(path,'w');
+        try{
+            await f.write(data,0);
+        }finally{
+            await f.close().catch(()=>{})
         }
     }
     async ensurePxseedLoaderSource(){
@@ -256,6 +269,7 @@ export class PxseedLoaderBuilder{
         if(!this.skipDepsCheck){
             await this.pullDeps(this.pxseedLoaderSource!);
         }
+        await this.preparePxseedJsCoreEnviron()
     }
     async preparePxseedJsCoreEnviron(){
         try{
@@ -275,7 +289,11 @@ export class PxseedLoaderBuilder{
     }
     async buildAndroidRelease(){
         let tjsi=await this.ensureTjsi();
-        await this.preparePxseedJsCoreEnviron()
+        await this.writeFile(this.pxseedLoaderSource+'/android-project/build-options.properties',new TextEncoder().encode(`
+noExtend=${this.androidNoExtend}
+enableGeckoView=${this.androidEnableGeckoView}
+`
+        ))
         for(let currAbi of this.androidAbi){
             let flags=[this.cmake]
             flags.push(`-DANDROID_NATIVE_API_LEVEL=${this.androidBuildSdkVersion}`)
@@ -306,9 +324,9 @@ export class PxseedLoaderBuilder{
             await this.runCommand([this.pxseedLoaderSource+'/android-project/gradlew','assembleRelease'],[this.pxseedLoaderSource,'android-project'].join(pathsep));
         }
         for(let t1 of this.androidAbi){
-            await tjsi.copyFile(this.pxseedLoaderSource+`/android-project/build/outputs/apk/release/xplatj-${t1}-release.apk`,this.pxseedLoaderSource+`/launcher/build/pxseedloader-${t1}-release.apk`)
+            await tjsi.copyFile(this.pxseedLoaderSource+`/android-project/build/outputs/apk/release/pxseedloader-${t1}-release.apk`,this.pxseedLoaderSource+`/launcher/build/pxseedloader-${t1}-release.apk`)
         }
-        await tjsi.copyFile(this.pxseedLoaderSource+`/android-project/build/outputs/apk/release/xplatj-universal-release.apk`,this.pxseedLoaderSource+`/launcher/build/pxseedloader-universal-release.apk`)
+        await tjsi.copyFile(this.pxseedLoaderSource+`/android-project/build/outputs/apk/release/pxseedloader-universal-release.apk`,this.pxseedLoaderSource+`/launcher/build/pxseedloader-universal-release.apk`)
     }
     async buildDesktopRelease(){
         let tjsi=await this.ensureTjsi();
@@ -330,7 +348,6 @@ export class PxseedLoaderBuilder{
                 flags.push('-DCMAKE_BUILD_TYPE=RELEASE')
                 flags.push(`-DCMAKE_C_COMPILER=${buildToolchain.CC.replace(/\\/g,'/')}`);
                 flags.push(`-DCMAKE_CXX_COMPILER=${buildToolchain.CXX.replace(/\\/g,'/')}`);
-                flags.push('-DXPLATJ_GUESS_TOOLCHAIN_VARIABLE=ON')
                 flags.push('-S',this.pxseedLoaderSource+'/launcher')
                 flags.push('-G',`${this.cmakeGenerator}`)
                 let builddir=[this.pxseedLoaderSource,'launcher','build',name].join(pathsep);
