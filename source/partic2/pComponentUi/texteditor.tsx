@@ -11,7 +11,7 @@ export interface TextEditorProps{
     divStyle?:React.CSSProperties,
     divAttr?:React.DOMAttributes<HTMLDivElement>
 }
-export class TextEditor extends ReactEventTarget<TextEditorProps,{}>{
+export class TextEditor<RP extends TextEditorProps=TextEditorProps> extends ReactEventTarget<RP,{}>{
     rref={div1:new ReactRefEx<HTMLDivElement>()};
     protected undoHistory:{text:string,caret:number}[]=[];
     protected undoHistoryCurrent=-1;
@@ -75,6 +75,7 @@ export class TextEditor extends ReactEventTarget<TextEditorProps,{}>{
         this.props.divAttr?.onCompositionEnd?.(ev)
         if(ev.defaultPrevented)return;
         this.compositing=false;
+        this.props.onInput?.(this,{char:ev.data,text:ev.data,type:'insertText'});
     }
     protected onPasteHandler(ev:React.TargetedEvent<HTMLDivElement,ClipboardEvent>){
         this.props.divAttr?.onPaste?.(ev);
@@ -268,15 +269,36 @@ export class TextEditor extends ReactEventTarget<TextEditorProps,{}>{
     }
 }
 
-export class PlainTextEditorInput extends TextEditor{
+interface PlainTextEditorInputProps extends TextEditorProps{
+    value?:string,
+    onChange?:(newValue:string)=>void
+}
+
+export class PlainTextEditorInput<RP extends PlainTextEditorInputProps=PlainTextEditorInputProps> extends TextEditor<RP>{
     get value(){
         return this.getPlainText();
     }
     set value(v:string){
         this.setPlainText(v);
     }
-    protected onBlurHandler(ev: React.JSX.TargetedFocusEvent<HTMLDivElement>): void {
-        super.onBlurHandler(ev);
-        this.dispatchEvent(new Event('change'));
+    protected onInputHandler(ev: React.TargetedEvent<HTMLDivElement, InputEvent>): void {
+        super.onInputHandler(ev);
+        if(!ev.defaultPrevented){
+            this.dispatchEvent(new Event('change'));
+            this.props.onChange?.(this.value);
+        }
+    }
+    protected _savedState:Record<string,any>={};
+    protected _checkValueProp(){
+        if(this.props.value!=undefined && this.props.value!=this._savedState.value){
+            this._savedState.value=this.props.value;
+            if(this.props.value!=this.value){
+                this.value=this.props.value;
+            }
+        }
+    }
+    render(){
+        this._checkValueProp();
+        return super.render();
     }
 }
