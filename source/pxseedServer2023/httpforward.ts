@@ -6,6 +6,8 @@ import { utf8conv } from "partic2/CodeRunner/jsutils2";
 import { getRpcFunctionOn } from "partic2/pxprpcBinding/utils";
 import { ExtendHttpResponse, WebSocketServerConnection } from "partic2/tjshelper/httpprot";
 import { getPersistentRegistered, importRemoteModule, ServerHostRpcName } from "partic2/pxprpcClient/registry";
+import { defaultHttpClient } from "partic2/jsutils1/webutils";
+import { WebSocketIo } from "pxprpc/backend";
 
 let __name__=requirejs.getLocalRequireModule(require);
 
@@ -246,6 +248,74 @@ export async function __serverHostForwardHttpRequestToNewUrl(prefix:string,newpr
     });
 }
 
+export async function __serverHostForwardHttpRequestToOtherHost(prefix:string,newhost:string){
+    defaultRouter.setHandler(prefix,{
+        fetch: async (req) => {
+            let url2 = new URL(req.url);
+            let newhostURL=new URL(newhost);
+            const remainingPath = url2.pathname.substring(prefix.length);
+            newhostURL.pathname=newhostURL.pathname+remainingPath;
+            newhostURL.search=url2.search;
+            newhostURL.hash=url2.hash;
+            const headers = new Headers(req.headers);
+            headers.set('Host', newhostURL.host);
+            const body = req.method === 'GET' || req.method === 'HEAD' 
+                ? undefined 
+                : req.body;
+            return defaultHttpClient.fetch(newhostURL.toString(), {
+                method: req.method,
+                headers: headers,
+                body: body,
+                duplex: 'half'
+            });
+        },
+        websocket:async (ws)=>{
+            let url2 = new URL(ws.request.url);
+            let newhostURL=new URL(newhost);
+            const remainingPath = url2.pathname.substring(prefix.length);
+            newhostURL.pathname=newhostURL.pathname+remainingPath;
+            newhostURL.search=url2.search;
+            newhostURL.hash=url2.hash;
+            newhostURL.protocol=url2.protocol=='https:'?'wss':'ws';
+            try{
+                let rws=new WebSocket(newhostURL.toString());
+                rws.binaryType='arraybuffer'
+                await new Promise<void>((resolve,reject)=>{
+                    rws.onopen=()=>{
+                        resolve();
+                    }
+                    rws.onerror=err=>{
+                        reject(err);
+                    }
+                });
+                let lws=await ws.accept();
+                rws.onmessage=(msg)=>{
+                    if(typeof msg.data==='string'){
+                        lws.send(msg.data);
+                    }else{
+                        lws.send(new Uint8Array(msg.data));
+                    }
+                };
+                rws.onclose=()=>{
+                    lws.close();
+                    rws.close();
+                }
+                (async ()=>{
+                    while(rws.readyState==WebSocket.OPEN){
+                        let chunk=await lws.receive();
+                        rws.send(chunk);
+                    }
+                })().catch(()=>{
+                    rws.close();
+                    lws.close();
+                });
+            }catch(err:any){
+            }
+            
+        }
+    });
+}
+
 export async function forwardHttpRequestToRpcWorker(prefix:string,rpc:string|null){
     let httpforward=await importRemoteModule(await (await getPersistentRegistered(ServerHostRpcName))!.ensureConnected(),__name__) as typeof import('./httpforward');
     httpforward.__serverHostForwardHttpRequestToRpcWorker(prefix,rpc);
@@ -254,6 +324,12 @@ export async function forwardHttpRequestToRpcWorker(prefix:string,rpc:string|nul
 export async function forwardHttpRequestToNewUrl(prefix:string,newprefix:string){
     let httpforward=await importRemoteModule(await (await getPersistentRegistered(ServerHostRpcName))!.ensureConnected(),__name__) as typeof import('./httpforward');
     httpforward.__serverHostForwardHttpRequestToNewUrl(prefix,newprefix);
+}
+
+//SECURITY:Origin data will be exposed to the new host.
+export async function forwardHttpRequestToOtherHost(prefix:string,newhost:string){
+    let httpforward=await importRemoteModule(await (await getPersistentRegistered(ServerHostRpcName))!.ensureConnected(),__name__) as typeof import('./httpforward');
+    httpforward.__serverHostForwardHttpRequestToOtherHost(prefix,newhost);
 }
 
 let serverHostHttpRequestHandler:HttpRequestForwardOnRpc|null=null;

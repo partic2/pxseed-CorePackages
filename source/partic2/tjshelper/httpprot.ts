@@ -767,61 +767,85 @@ interface HttpRouterHandler{
 	map?:Record<string,HttpRouterHandler>
 }
 
-export class SimpleHttpServerRouter{
-	constructor(){};
-	root:HttpRouterHandler={map:{}}
-	onfetch=async (req:Request):Promise<Response>=>{
-		let {pathname}=new URL(req.url);
-		let parts=pathname.substring(1).split(/\//).filter(t1=>t1!='');
-		let cur=this.root;
-		for(let t1 of parts){
-			cur=cur.map![t1];
-			if(cur==undefined){
-				return new Response(null,{status:404});
-			}if(cur.fetch!=undefined){
-				return await cur.fetch(req);
-			}
+export class SimpleHttpServerRouter {
+	constructor() { };
+	root: HttpRouterHandler = { map: {} }
+	onfetch = async (req: Request): Promise<Response> => {
+		let { pathname } = new URL(req.url);
+		let parts = pathname.substring(1).split(/\//).filter(t1 => t1 != '');
+		let cur: HttpRouterHandler = this.root;
+		let validHandler: HttpRouterHandler | null = null;
+		if (cur.fetch != undefined) {
+			validHandler = cur;
 		}
-		return new Response(null,{status:404});
-	}
-	onwebsocket=async (controller:{
-		request:Request
-		accept:()=>Promise<WebSocketServerConnection>
-	})=>{
-		let req=controller.request;
-		let {pathname}=new URL(req.url);
-		let parts=pathname.substring(1).split(/\//).filter(t1=>t1.length>0);
-		let cur=this.root;
-		for(let t1 of parts){
-			cur=cur.map![t1];
-			if(cur==undefined){
-				break;
-			}if(cur.websocket!=undefined){
-				await cur.websocket(controller);
-				break;
+		for (let t1 of parts) {
+			let next: HttpRouterHandler | undefined = cur.map?.[t1];
+			if (next == undefined) { break; }
+			if (next.fetch != undefined) {
+				validHandler = next;
 			}
+			cur = next;
+		}
+		if (validHandler != null) {
+			return await validHandler.fetch!(req);
+		}
+		return new Response(null, { status: 404 });
+	}
+	onwebsocket = async (controller: {
+		request: Request
+		accept: () => Promise<WebSocketServerConnection>
+	}) => {
+		let req = controller.request;
+		let { pathname } = new URL(req.url);
+		let parts = pathname.substring(1).split(/\//).filter(t1 => t1.length > 0);
+		let cur: HttpRouterHandler = this.root;
+		let validHandler: HttpRouterHandler | null = null;
+		if (cur.websocket != undefined) {
+			validHandler = cur;
+		}
+		for (let t1 of parts) {
+			let next: HttpRouterHandler | undefined = cur.map?.[t1];
+			if (next == undefined) { break; }
+			if (next.websocket != undefined) {
+				validHandler = next;
+			}
+			cur = next;
+		}
+		if (validHandler != null) {
+			await validHandler.websocket!(controller);
 		}
 	}
-	setHandler(prefix:string,handler:null|HttpRouterHandler){
-		let parts=prefix.substring(1).split(/\//).filter(t1=>t1.length>0);
-		let cur:HttpRouterHandler|undefined=this.root;
-		let parent:HttpRouterHandler|undefined=undefined;
-		if(parts.length==0 && handler!=null){
-			this.root=handler;
-		}else{
-			for(let t1 of parts){
-				parent=cur;
-				cur=cur!.map![t1];
-				if(cur==undefined){
-					cur={map:{}}
-					parent!.map![t1]=cur;
-				}
+	setHandler(prefix: string, handler: null | Omit<HttpRouterHandler, 'map'>): void {
+		let parts = prefix.substring(1).split(/\//).filter(t1 => t1.length > 0);
+		if (parts.length == 0) {
+			if (handler != null) {
+				this.root.fetch=handler.fetch!=undefined?(req)=>handler.fetch!(req):undefined;
+				this.root.websocket=handler.websocket!=undefined?(controller)=>handler.websocket!(controller):undefined;
+			} else {
+				this.root = { map: {} };
 			}
-			if(handler!=null){
-				parent!.map![parts.at(-1)!]=handler
-			}else{
-				delete parent!.map![parts.at(-1)!];
+			return;
+		}
+		let cur: HttpRouterHandler = this.root;
+		for (let i = 0; i < parts.length-1; i++) {
+			const t1 = parts[i];
+			if (cur.map == undefined) {
+				cur.map = {};
 			}
+			if (cur.map[t1] == undefined) {
+				cur.map[t1] = { map: {} };
+			}
+			cur = cur.map[t1];
+		}
+		if (handler == null) {
+			delete cur.map![parts.at(-1)!];
+		} else {
+			let t1=parts.at(-1)!;
+			if (cur.map![t1]! == undefined) {
+				cur.map![t1]! = { map: {} };
+			}
+			cur.map![t1]!.fetch=handler.fetch!=undefined?(req)=>handler.fetch!(req):undefined;
+			cur.map![t1]!.websocket=handler.websocket!=undefined?(controller)=>handler.websocket!(controller):undefined;
 		}
 	}
 }
