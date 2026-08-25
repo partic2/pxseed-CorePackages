@@ -480,29 +480,63 @@ export class EventBuffer<ET>{
 	//[RpcSerializeMagicMark]={}; BUT we must use literal to avoid recursive import
 	__DUz66NYkWuMdex9k2mvwBbYN__={};
 
-	_cachedEvent=new ArrayWrap2<{time:number,event:ET,seq:number}>();
+	_bufferedEvent=new ArrayWrap2<{time:number,event:ET,seq:number}>();
 	eventQueueExpiredTime=1000;
 	_lastSeq=0;
+	_cleanupInterval:any=null;
+	_cleanupExpired(){
+        let now = GetCurrentTime().getTime();
+        let arr = this._bufferedEvent.arr();
+        while(arr.length > 0 && arr[0].time+this.eventQueueExpiredTime <= now){
+            arr.shift();
+        }
+		if(this._bufferedEvent.arr().length>0){
+			let firstSeq=this._bufferedEvent.arr().at(0)!.seq;
+			for(let t1 of this._trackingConsumer.entries()){
+				if(t1[1].lastSeq<firstSeq){
+					this._trackingConsumer.delete(t1[0]);
+				}
+			}
+		}else{
+			this._trackingConsumer.clear();
+			clearInterval(this._cleanupInterval);
+			this._cleanupInterval=null;
+		}
+    }
 	push(event:ET){
 		this._lastSeq++;
-		this._cachedEvent.queueSignalPush({time:GetCurrentTime().getTime(),event,seq:this._lastSeq});
-		setTimeout(()=>this._cachedEvent.arr().shift(),this.eventQueueExpiredTime);
+		this._bufferedEvent.queueSignalPush({time:GetCurrentTime().getTime(),event,seq:this._lastSeq});
+		if(this._cleanupInterval===null){
+			this._cleanupInterval=setInterval(()=>this._cleanupExpired(),this.eventQueueExpiredTime);
+		}
+	}
+	_trackingConsumer=new Map<string,{lastSeq:number}>();
+	async take(ConsumerId?:string){
+		ConsumerId=ConsumerId??'';
+		let ConsumerInfo=this._trackingConsumer.get(ConsumerId)??{lastSeq:0};
+		let events=await this.peek({seqGt:ConsumerInfo.lastSeq});
+		if(events.length>0){
+			ConsumerInfo.lastSeq=events.at(-1)!.seq;
+			this._trackingConsumer.set(ConsumerId,ConsumerInfo);
+		}
+		this._cleanupExpired();
+		return events;
 	}
 	async peek(cond:{seqGt?:number,timeGt?:number}){
-		let events:ET[]=[];
+		let events:Array<{time:number,event:ET,seq:number}>=[];
 		const checkEvent=()=>{
-			let evs=this._cachedEvent.arr();
+			let evs=this._bufferedEvent.arr();
 			if(cond.seqGt!=undefined){
 				evs=evs.filter(t1=>t1.seq>cond.seqGt!);
 			}
 			if(cond.timeGt!=undefined){
 				evs=evs.filter(t1=>t1.time>cond.timeGt!);
 			}
-			return evs.map(t1=>t1.event);
+			return evs;
 		}
 		events=checkEvent();
 		if(events.length===0){
-			await this._cachedEvent.waitForQueueChange();
+			await this._bufferedEvent.waitForQueueChange();
 			events=checkEvent();
 		}
 		return events;

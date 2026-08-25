@@ -6,7 +6,7 @@ import { requirejs } from 'partic2/jsutils1/base';
 import * as jsutils1 from 'partic2/jsutils1/base'
 
 import { addAsyncHook, addAutoAsyncAwait, JsSourceReplacePlan, setupAsyncHook } from './pxseedLoader';
-import { TaskLocalRef } from './jsutils2';
+import { EventBuffer, TaskLocalRef } from './jsutils2';
 
 
 acorn.defaultOptions.allowAwaitOutsideFunction=true;
@@ -22,13 +22,9 @@ setupAsyncHook();
 
 export class CodeContextEventTarget extends EventTarget{
     //Used by RemoteCodeContext, to delegate event. 
-    _cachedEventQueue=new jsutils1.ArrayWrap2<{time:number,event:Event,seq:number}>();
-    _eventQueueExpiredTime=1000;
-    _lastSeq=0;
+    _buffer=new EventBuffer<{type:string,data:any}>();
     dispatchEvent(event: CodeContextEvent): boolean {
-        this._lastSeq++;
-        this._cachedEventQueue.queueSignalPush({time:jsutils1.GetCurrentTime().getTime(),event,seq:this._lastSeq});
-        setTimeout(()=>this._cachedEventQueue.arr().shift(),this._eventQueueExpiredTime);
+        this._buffer.push({type:event.type,data:event.data});
         return super.dispatchEvent(event);
     }
     addEventListener(type: string, callback: ((ev:CodeContextEvent)=>void)|EventListenerOrEventListenerObject | null, options?: AddEventListenerOptions | boolean): void{

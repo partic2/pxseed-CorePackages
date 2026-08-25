@@ -15,7 +15,7 @@ export let __name__='partic2/CodeRunner/RemoteCodeContext';
 
 interface IRunCodeContextConnector{
     [RpcSerializeMagicMark]:Record<string,any>
-    pullCodeContextEvent(seqGt:number):Promise<any[]>
+    pullCodeContextEvent():Promise<any[]>
     pushCodeContextEvent(event:{type:string,data:any}):Promise<void>
     runCode(source: string,resultVariable?:string): Promise<{stringResult:string|null,err:string|null}>
     callFunction(name:string,args:any[]):Promise<any>
@@ -24,22 +24,13 @@ interface IRunCodeContextConnector{
 
 export class RunCodeContextConnector implements IRunCodeContextConnector{
     [RpcSerializeMagicMark]={}
+    connectorId=GenerateRandomString();
     constructor(public value:RunCodeContext){
     };
     close?:()=>void
-    async pullCodeContextEvent(seqGt:number){
+    async pullCodeContextEvent(){
         let codeContext=this.value;
-        let events:any[]=[];
-        const checkEvent=()=>{
-            let filterev=codeContext.event._cachedEventQueue.arr().filter(t1=>t1.seq>seqGt);
-            events=filterev.map(t1=>({type:t1.event.type,data:(t1.event as any).data,time:t1.time,seq:t1.seq}));
-        }
-        checkEvent();
-        if(events.length===0){
-            await codeContext.event._cachedEventQueue.waitForQueueChange();
-            checkEvent();
-        }
-        return events;
+        return (await codeContext.event._buffer.take(this.connectorId)).map(e=>e.event);
     }
     async pushCodeContextEvent(event:{type:string,data:any}){
         this.value.event._dispatchEventOnEventTarget(new CodeContextEvent(event.type,{data:event.data}));
@@ -82,14 +73,10 @@ export class RemoteRunCodeContext implements RunCodeContext{
     event=new RemoteCodeContextEventTarget(this);
     protected async pullEventLoop(){
         try{
-            let lastEventSeq=0;
             while(this._remoteContext!=null){
-                let events=await this._remoteContext!.pullCodeContextEvent(lastEventSeq)
+                let events=await this._remoteContext!.pullCodeContextEvent()
                 for(let t1 of events){
                     this.event._dispatchEventOnEventTarget(new CodeContextEvent(t1.type,{data:t1.data}));
-                }
-                if(events.length>0){
-                    lastEventSeq=events.at(-1)!.seq;
                 }
             }
         }catch(err:any){
