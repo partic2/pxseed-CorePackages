@@ -116,6 +116,7 @@ export let RemotePxseedJsIoServer={
 
 import { ExtendStreamReader } from 'partic2/CodeRunner/jsutils2'
 import { WebSocketIo } from "pxprpc/backend";
+import { PxprpcIoFromTjsStream } from "partic2/tjshelper/tjsutil";
 
 export class PxprpcIoFromRawStream implements Io{
 	r:ExtendStreamReader;
@@ -148,25 +149,18 @@ export class PxprpcIoFromRawStream implements Io{
 export async function createIoPxseedJsUrl(url:string):Promise<Io>{
     let type=GetUrlQueryVariable2(url,'type')??'tcp';
     let {buildTjs}=await import('partic2/tjshelper/tjsbuilder')
-    let {TjsReaderDataSource,TjsWriterDataSink} = await import('partic2/tjshelper/tjsutil')
     if(type==='tcp'){
         let host=GetUrlQueryVariable2(url,'host')??'127.0.0.1';
         let port=Number(GetUrlQueryVariable2(url,'port')!);
 		let tjs=await buildTjs();
 		let conn=await tjs.connect('tcp',host,port) as tjs.Connection
-        return new PxprpcIoFromRawStream([
-			new ReadableStream(new TjsReaderDataSource(conn)),
-			new WritableStream(new TjsWriterDataSink(conn))
-		]);
+        return new PxprpcIoFromTjsStream(conn,conn,conn);
     }else if(type=='pipe'){
         let path=GetUrlQueryVariable2(url,'pipe');
 		assert(path!=null);
 		let tjs=await buildTjs();
 		let conn=await tjs.connect('pipe',path) as tjs.Connection
-        return new PxprpcIoFromRawStream([
-			new ReadableStream(new TjsReaderDataSource(conn)),
-			new WritableStream(new TjsWriterDataSink(conn))
-		]);
+        return new PxprpcIoFromTjsStream(conn,conn,conn);
     }else if(type=='ws'){
         let target=GetUrlQueryVariable2(url,'target');
         assert(target!=null);

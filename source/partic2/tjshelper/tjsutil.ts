@@ -1,6 +1,6 @@
 /*jshint node:true */
 
-import { ArrayBufferConcat, ArrayWrap2, DateDiff, GetCurrentTime, assert, future, logger, requirejs, throwIfAbortError } from "partic2/jsutils1/base";
+import { ArrayBufferConcat, ArrayWrap2, DateDiff, GetCurrentTime, assert, future, logger, requirejs, throwIfAbortError ,mutex} from "partic2/jsutils1/base";
 import { Io, Serializer } from "pxprpc/base";
 import type {TjsTlsClient} from './tjsenv'
 import type { HttpClient, WebSocketClientStreamHandler } from "./httpprot";
@@ -53,19 +53,22 @@ export class PxprpcIoFromTjsStream implements Io{
 		}
 		return buf1;
 	}
+	sendMutex=new mutex();
 	async send(data: Uint8Array[]): Promise<void> {
-		let size=data.reduce((prev,curr)=>prev+curr.byteLength,0);
-        let buf1=new Uint8Array(4);
-		new DataView(buf1.buffer).setInt32(0,size,true);
-		//XXX:Should I take care about the result of write?
-		if(size<1024){
-			await this.w!.write(new Uint8Array(ArrayBufferConcat([buf1,...data])));
-		}else{
-			await this.w!.write(buf1);
-			for(let t1 of data){
-				await this.w!.write(t1);
+		await this.sendMutex.exec(async ()=>{
+			let size=data.reduce((prev,curr)=>prev+curr.byteLength,0);
+			let buf1=new Uint8Array(4);
+			new DataView(buf1.buffer).setInt32(0,size,true);
+			//XXX:Should I take care about the result of write?
+			if(size<1024){
+				await this.w!.write(new Uint8Array(ArrayBufferConcat([buf1,...data])));
+			}else{
+				await this.w!.write(buf1);
+				for(let t1 of data){
+					await this.w!.write(t1);
+				}
 			}
-		}
+		})
 	}
 	close(): void {
 		this.c.close();
