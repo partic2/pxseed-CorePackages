@@ -41,8 +41,25 @@ export class ClientInfo{
         return await this.connecting.exec(async ()=>{
             if(this.connected()){
                 return this.client!
+            }else if(this.url.startsWith('pxseedjs4pxprpc:')){
+                let t1=new URL(this.url);
+                let t2=t1.pathname.lastIndexOf('.')
+                let module=t1.pathname.substring(0,t2);
+                let field=t1.pathname.substring(t2+1);
+                try{
+                    let t3=await import(module);
+                    let t4=t3[field];
+                    if(typeof t4==='object' && t4.get!=undefined){
+                        return await t4.get();
+                    }else if(typeof t4==='function'){
+                        return await t4(this.url);
+                    }
+                }catch(err){
+                    await Promise.allSettled(Object.keys(await requirejs.getFailed()).map(t1=>requirejs.undef(t1)));
+                    throw err;
+                }
             }else{
-                let io1=await openConnectionFromUrl(this.url.toString());
+                let io1=await openConnectionFromUrl(this.url);
                 if(io1==null){
                     throw new Error('No protocol handler for '+this.url);
                 }
