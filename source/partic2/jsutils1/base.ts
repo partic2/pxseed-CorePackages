@@ -79,6 +79,8 @@ if(String.prototype.at==undefined){
     }
 })();
 
+let __name__='partic2/jsutils1/base';
+
 interface TaskCallback<T>{
     then(resolve:(result:T)=>void,reject:(reason:any)=>void):void
 }
@@ -217,7 +219,7 @@ export function copy<T>(src: T, dst: any, depth: number) {
 export function clone<T>(src: T, depth: number): T {
     let dst = new Object();
     copy(src, dst, depth);
-    return <T>dst;
+    return dst as T;
 }
 
 
@@ -276,6 +278,11 @@ export async function sleep<T>(milliSeconds: number, arg?: T): Promise<T> {
     })).finally(()=>defer.forEach((cb)=>cb()));
 }
 
+export class CanceledError extends Error{
+    constructor(){
+        super(__name__+'.CanceledError');
+    }
+}
 export class future<T>{
     public done: boolean = false;
     public result?: T;
@@ -307,13 +314,6 @@ export class future<T>{
         }
     }
 }
-export class CanceledError extends Error{
-    name='Canceled'
-    constructor(){
-        super('canceled.')
-    }
-}
-
 export class ArrayWrap2<T>{
     public wrapped:T[]=[]
     public constructor(wrapped?: T[],initPush?: Iterable<T>){
@@ -345,8 +345,8 @@ export class ArrayWrap2<T>{
             t1.setResult(0);
         }
     }
-    public cancelWaiting(){
-        this.onQueueChange.forEach(t1=>t1.setException(new CanceledError()));
+    public cancelWaiting(throws?:Error){
+        this.onQueueChange.forEach(t1=>t1.setException(throws??new CanceledError()));
     }
     public async waitForQueueChange(){
         let waitForChange=new future<number>();
@@ -409,7 +409,7 @@ export class mutex{
             this.locked=false;
         }
     }
-    public async tryLock(){
+    public tryLock(){
         if(!this.locked){
             this.locked=true;
             return true;
@@ -506,45 +506,30 @@ export function DateAdd(org:Date, add:{
     minutes?:number,
     seconds?:number,
     milliseconds?:number
-}|number,field?:'date' | 'month' | 'year' | 'hour' | 'minute' | 'second' | 'millisecond'):Date{
-    if(typeof add==='number'){
-        assert(field!=undefined);
-        switch(field){
-            case 'date':
-                return DateAdd(org,{days:add});
-            case 'month':
-            case 'year':
-            case 'hour':
-            case 'minute':
-            case 'second':
-            case 'millisecond':
-                return DateAdd(org,{[field+'s']:add});
-        }
-    }else{
-        var d = new Date(org);
-        if(add.days!=undefined){
-            d.setDate(d.getDate() + add.days);
-        }
-        if(add.months!=undefined){
-            d.setMonth(d.getMonth() + add.months);
-        }
-        if(add.years!=undefined){
-            d.setFullYear(d.getFullYear() + add.years);
-        }
-        if(add.hours!=undefined){
-            d.setHours(d.getHours() + add.hours);
-        }
-        if(add.minutes!=undefined){
-            d.setMinutes(d.getMinutes() + add.minutes);
-        }
-        if(add.seconds!=undefined){
-            d.setSeconds(d.getSeconds() + add.seconds);
-        }
-        if(add.milliseconds){
-            d.setMilliseconds(d.getMilliseconds()+add.milliseconds)
-        }
-        return d;
+}):Date{
+    var d = new Date(org);
+    if(add.days!=undefined){
+        d.setDate(d.getDate() + add.days);
     }
+    if(add.months!=undefined){
+        d.setMonth(d.getMonth() + add.months);
+    }
+    if(add.years!=undefined){
+        d.setFullYear(d.getFullYear() + add.years);
+    }
+    if(add.hours!=undefined){
+        d.setHours(d.getHours() + add.hours);
+    }
+    if(add.minutes!=undefined){
+        d.setMinutes(d.getMinutes() + add.minutes);
+    }
+    if(add.seconds!=undefined){
+        d.setSeconds(d.getSeconds() + add.seconds);
+    }
+    if(add.milliseconds){
+        d.setMilliseconds(d.getMilliseconds()+add.milliseconds)
+    }
+    return d;
 }
 
 export function DateDiff(date1:Date, date2:Date, unit:'date' | 'hour' | 'minute' | 'second'):number{
@@ -605,25 +590,6 @@ export class TaskLocalRef<T> extends Ref2<T|undefined>{
             loc[this.taskLocalVarName]=val;
         }else{
             super.set(val);
-        }
-    }
-}
-
-export var logger={
-    debug:function(...msg:any[]){console.debug(...msg)},
-    info:function(...msg:any[]){console.info(...msg)},
-    warning:function(...msg:any[]){console.warn(...msg)},
-    error:function(...msg:any[]){console.error(...msg)},
-    setHandler:function(level:'debug'|'info'|'warning'|'error',handler:(...msg:any[])=>void){
-        this[level]=handler;
-    },
-    getLogger:function(label:string){
-        let that=this;
-        return {
-            debug:(...msg:any[])=>{that.debug(label+':',...msg)},
-            info:(...msg:any[])=>{that.info(label+':',...msg)},
-            warning:(...msg:any[])=>{that.warning(label+':',...msg)},
-            error:(...msg:any[])=>{that.error(label+':',...msg)},
         }
     }
 }
@@ -759,5 +725,46 @@ export function ToDataUrl(data:string|ArrayBuffer|Uint8Array,mediaType:CommonMim
         return 'data:'+mediaType+';base64,'+btoa(data);
     }else{
         return 'data:'+mediaType+';base64,'+ArrayBufferToBase64(data);
+    }
+}
+
+
+interface LogHandlerArg0{level:'debug'|'info'|'warning'|'error',label:string,msg:any[]};
+export let TaskLocalLogHandler=new TaskLocalRef<((arg0:LogHandlerArg0)=>void)|null>(null);
+export function defaultLogHandler(arg0:LogHandlerArg0){
+    let handler=TaskLocalLogHandler.get();
+    if(handler!=null){
+        handler(arg0);
+    }else{
+        switch(arg0.level){
+            case 'debug':
+                console.debug(arg0.label+':',...arg0.msg);
+                break;
+            case 'info':
+                console.info(arg0.label+':',...arg0.msg);
+                break;
+            case 'warning':
+                console.warn(arg0.label+':',...arg0.msg);
+                break;
+            case 'error':
+                console.error(arg0.label+':',...arg0.msg);
+                break;
+        }
+    }
+}
+export var logger={
+    _handler:defaultLogHandler,
+    setHandler:function(handler:(arg0:LogHandlerArg0)=>void){
+        this._handler=handler;
+    },
+    getHandler:function(){return this._handler},
+    getLogger:function(label:string){
+        let that=this;
+        return {
+            debug:(...msg:any[])=>{that._handler({msg,label,level:'debug'})},
+            info:(...msg:any[])=>{that._handler({msg,label,level:'info'})},
+            warning:(...msg:any[])=>{that._handler({msg,label,level:'warning'})},
+            error:(...msg:any[])=>{that._handler({msg,label,level:'error'})},
+        }
     }
 }

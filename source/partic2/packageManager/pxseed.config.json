@@ -6,6 +6,8 @@
       "name":"rollup",
       "entryModules":["buffer","isomorphic-git"],
       "noImplicitExternal":["buffer","isomorphic-git"]
+    },{
+      "name": "pxseedjs:partic2/CodeRunner/pxseedLoader.addAsyncHookPxseedLoader"
     }
   ],
   "clean":{
