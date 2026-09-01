@@ -618,16 +618,30 @@ class NodeListener implements Listener{
 async function listen(transport: Transport, host: string, port?: string | number, options?: ListenOptions): Promise<Listener | DatagramEndpoint>{
     if(transport=='tcp'){
         let serv=new Server();
+        let result=new future<Listener>();
+        serv.on('listening',()=>{
+            result.setResult(new NodeListener(serv));
+        });
+        serv.on('error',(err)=>{
+            result.setException(err);
+        })
         serv.listen({
             host:host,port:Number(port??0)
         });
-        return new NodeListener(serv)
-    }else if(transport=='udp'){
+        return await result.get();
+    }else if(transport=='pipe'){
         let serv=new Server();
+        let result=new future<Listener>();
+        serv.on('listening',()=>{
+            result.setResult(new NodeListener(serv));
+        });
+        serv.on('error',(err)=>{
+            result.setException(err);
+        })
         serv.listen({
             path:host
         });
-        return new NodeListener(serv)
+        return await result.get();
     }else{
         throw new Error('Not implemented');
     }
