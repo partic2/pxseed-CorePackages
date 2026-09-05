@@ -135,16 +135,16 @@ async function builtinCodeContextSourceProcessor(processContext:{source:string,_
             replacePlan.plan.push({start:node.start,end:node.id.end,newString:node.id.name+'='+clsType1});
         },
         ImportExpression(node,state,ancestors){
-            replacePlan.plan.push({start:node.start,end:node.start+6,newString:'_ENV.__priv_import'})
+            replacePlan.plan.push({start:node.start,end:node.start+6,newString:'_ENV.__codeContext.importHandler'})
         },
         ImportDeclaration(node,state,ancestor){
             if(node.specifiers.length===1 && node.specifiers[0].type==='ImportNamespaceSpecifier'){
                 let spec=node.specifiers[0];
-                replacePlan.plan.push({start:node.start,end:node.end,newString:`${spec.local.name}=await _ENV.__priv_import('${node.source.value}');`})
+                replacePlan.plan.push({start:node.start,end:node.end,newString:`${spec.local.name}=await _ENV.__codeContext.importHandler('${node.source.value}');`})
                 foundDecl.push(spec.local.name)
             }else if(node.specifiers.length>0 && node.specifiers[0].type==='ImportSpecifier'){
                 let specs=node.specifiers as acorn.ImportSpecifier[];
-                let importStat=[`{let __timp=(await _ENV.__priv_import('${node.source.value}'));`]
+                let importStat=[`{let __timp=(await _ENV.__codeContext.importHandler('${node.source.value}'));`]
                 for(let spec of specs){
                     importStat.push(`_ENV.${spec.local.name}=__timp.${(spec.imported as acorn.Identifier).name};`)
                     foundDecl.push(spec.local.name)
@@ -153,7 +153,7 @@ async function builtinCodeContextSourceProcessor(processContext:{source:string,_
                 replacePlan.plan.push({start:node.start,end:node.end,newString:importStat.join('')});
             }else if(node.specifiers.length===1 && node.specifiers[0].type==='ImportDefaultSpecifier'){
                 let spec=node.specifiers[0];
-                replacePlan.plan.push({start:node.start,end:node.end,newString:`${spec.local.name}=(await _ENV.__priv_import('${node.source.value}')).default;`})
+                replacePlan.plan.push({start:node.start,end:node.end,newString:`${spec.local.name}=(await _ENV.__codeContext.importHandler('${node.source.value}')).default;`})
                 foundDecl.push(spec.local.name)
             }else{
                 replacePlan.plan.push({start:node.start,end:node.end,newString:``});
@@ -182,25 +182,25 @@ export let __internal__={
 
 export class LocalRunCodeContext implements RunCodeContext{
     importHandler:(source:string)=>Promise<any>=async (source)=>{
-        return import(source);
+        try{
+            let imp=await import(source);
+            return imp;
+        }catch(err){
+            await Promise.all(Object.keys(await requirejs.getFailed()).map(t1=>requirejs.undef(t1)));
+            throw err;
+        }
     };
+    sourceProcessors:Array<{name:string,process:(processContext:{source:string,_ENV:any,declVars:string[]})=>Promise<void>}>=[
+        {name:__name__+'.defaultCodeTranspilingProcessor',process:defaultCodeTranspilingProcessor},
+        {name:__name__+'.builtinCodeContextSourceProcessor',process:builtinCodeContextSourceProcessor}
+    ]
     event=new CodeContextEventTarget();
     localScope:{[key:string]:any}={
         //this CodeContext
-        __priv_codeContext:undefined,
-        //import implemention
-        __priv_import:async (module:string)=>{
-            let imp=await this.importHandler(module);
-            return imp;
-        },
+        __codeContext:undefined,
         //transpiler
         __topLevelTranspileDirective:{},
         __transpile__:(directive:any,source:any)=>source,
-        //some utils provide by codeContext
-        __priv_sourceProcessors:[
-            {name:__name__+'.defaultCodeTranspilingProcessor',process:defaultCodeTranspilingProcessor},
-            {name:__name__+'.builtinCodeContextSourceProcessor',process:builtinCodeContextSourceProcessor}
-        ] satisfies {process:(processContext:{source:string,_ENV:any,declVars:string[]})=>PromiseLike<void>|void,name:string}[],
         callModuleFunction:async (module:string,func:string,args:any[])=>{
             let that=this;
             //Use Task to keep TaskLocalEnv valid.
@@ -210,6 +210,7 @@ export class LocalRunCodeContext implements RunCodeContext{
             }).run()
         },
         event:null,
+        console:null,
         CodeContextEvent,
         Task:jsutils1.Task,
         tasks:{} as Record<string,jsutils1.Task<any>>,
@@ -227,7 +228,7 @@ export class LocalRunCodeContext implements RunCodeContext{
     localScopeProxy;
     constructor(){
         this.localScope.event=this.event;
-        this.localScope.__priv_codeContext=this;
+        this.localScope.__codeContext=this;
         this.localScope._ENV=this.localScope;
         this.localScope.console=console;
         this.localScopeProxy=new Proxy(this.localScope,{
@@ -245,8 +246,12 @@ export class LocalRunCodeContext implements RunCodeContext{
             }
         });
     }
+    state:'running'|'closing'|'closed'='running'
     async close() {
         try{
+            if(this.state!='running')return;
+            this.contextRunCodeQueue.cancelWaiting();
+            this.state='closing';
             this.event.dispatchEvent(new CodeContextEvent('close'));
             let that=this;
             await jsutils1.Task.fork(function*(){
@@ -257,40 +262,70 @@ export class LocalRunCodeContext implements RunCodeContext{
                     }
                 }
             }).run();
-        }catch(err){}
+        }catch(err){}finally{
+            this.state='closed'
+        }
+    }
+    protected contextRunCodeQueue=new jsutils1.ArrayWrap2<{g:()=>Generator<Promise<any>,any>,r:jsutils1.future<any>,fork?:boolean}>();
+    contextRunCodeTaskSpawner:jsutils1.Task<void>|null=null;
+    runInContextTask(task:()=>Generator<Promise<void>,any>,opt?:{fork?:boolean}){
+        if(this.contextRunCodeTaskSpawner===null){
+            let codeContext=this;
+            this.contextRunCodeTaskSpawner=jsutils1.Task.fork(function *(){
+                while(codeContext.state=='running'){
+                    //Mute log by default
+                    jsutils1.TaskLocalLogHandler.set(()=>{});
+                    try{
+                        let next=yield* jsutils1.Task.yieldWrap(codeContext.contextRunCodeQueue.queueBlockShift());
+                        function *taskMain(){
+                            let taskName='task'+jsutils1.GenerateRandomString();
+                            let curtask=jsutils1.Task.currentTask!;
+                            curtask.name=taskName;
+                            codeContext.localScope.tasks[taskName]=curtask;
+                            TaskLocalEnv.set(codeContext.localScope);
+                            try{
+                                next.r.setResult(yield* next.g());
+                            }catch(err){
+                                next.r.setException(err);
+                            }finally{
+                                delete codeContext.localScope.tasks[taskName]
+                            }
+                        }
+                        if(next.fork===false){
+                            yield* taskMain();
+                        }else{
+                            jsutils1.Task.fork(taskMain).run();
+                        }
+                    }catch(err){};
+                }
+            }).run();
+        };
+        let r=new jsutils1.future<any>();
+        this.contextRunCodeQueue.queueSignalPush({g:task,r,fork:opt?.fork});
+        return r.get();
     }
     async callFunction(name: string, args: any[]): Promise<any> {
-        let taskName='task'+jsutils1.GenerateRandomString();
         let that=this;
-        let t=jsutils1.Task.fork(function*(){
-            let curtask=jsutils1.Task.currentTask!;
-            curtask.name=taskName;
-            that.localScope.tasks[taskName]=curtask;
-            TaskLocalEnv.set(that.localScope);
-            try{
-                let r=that.localScope[name](...args);
-                if(typeof r==='object' && r!==null && typeof r.then==='function'){
-                    r=yield r;
-                }
-                return r;
-            }finally{
-                delete that.localScope.tasks[curtask.name];
+        return this.runInContextTask(function *(){
+            let r=that.localScope[name](...args);
+            if(typeof r==='object' && r!==null && typeof r.then==='function'){
+                r=yield r;
             }
-        }).run();
-        return await t;
+            return r;
+        });
     }
     async processSource(source:string){
         let that=this;
         let processContext={_ENV:this.localScope,source,declVars:new Array<string>()}
-        await jsutils1.Task.fork(function*(){
+        await this.runInContextTask(function*(){
             TaskLocalEnv.set(that.localScope);
-            for(let processor of that.localScope.__priv_sourceProcessors){
+            for(let processor of that.sourceProcessors){
                 let isAsync=processor.process(processContext);
                 if(isAsync!=null && typeof isAsync==='object' && typeof isAsync.then==='function'){
                     yield isAsync;
                 }
             }
-        }).run();
+        });
         return processContext
     }
     async runCode(source:string,resultVariable?:string){
@@ -298,7 +333,14 @@ export class LocalRunCodeContext implements RunCodeContext{
         let processResult=await this.processSource(source)
         source=processResult.source;
         try{
-            let result=await this.runCodeInScope(source);
+            let withBlockBegin='with(_ENV){';
+            let code=new Function('_ENV',withBlockBegin+
+            'return (async ()=>{Promise.__onAsyncEnter();try{\n'+source+'\n}finally{Promise.__onAsyncExit();}})();}');
+            let that=this;
+            let rt=this.runInContextTask(function*(){
+                return (yield code(that.localScopeProxy)) as any;
+            });
+            let result=await rt;
             if(resultVariable!=='')this.localScope[resultVariable]=result;
             let stringResult=(typeof(result)==='string')?result:null;
             return {stringResult,err:null}
@@ -306,25 +348,6 @@ export class LocalRunCodeContext implements RunCodeContext{
             if(resultVariable!=='')this.localScope[resultVariable]=e;
             return {stringResult:null,err:e.toString()}
         }
-    }
-    protected async runCodeInScope(source:string){
-        let withBlockBegin='with(_ENV){';
-        let code=new Function('_ENV',withBlockBegin+
-        'return (async ()=>{Promise.__onAsyncEnter();try{\n'+source+'\n}finally{Promise.__onAsyncExit();}})();}');
-        let that=this;
-        let taskName='task'+jsutils1.GenerateRandomString();
-        let r=jsutils1.Task.fork(function*(){
-            let curtask=jsutils1.Task.currentTask!;
-            curtask.name=taskName;
-            that.localScope.tasks[taskName]=curtask;
-            TaskLocalEnv.set(that.localScope);
-            try{
-                return (yield code(that.localScopeProxy)) as any;
-            }finally{
-                delete that.localScope.tasks[curtask.name];
-            }
-        }).run();
-        return await r;
     }
 }
 

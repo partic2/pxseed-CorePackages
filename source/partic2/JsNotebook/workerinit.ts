@@ -104,7 +104,7 @@ export async function initNotebookCodeEnv(_ENV:any,opt?:NotebookFileData){
                 throw new Error('File not existed');
             }
             let js=new TextDecoder().decode(jsbin);
-            let cc=_ENV.__priv_codeContext as LocalRunCodeContext;
+            let cc=_ENV.__codeContext as LocalRunCodeContext;
             let savedCodePath=this.codePath;
             this.codePath=path;
             await cc.runCode(js,'');
@@ -175,7 +175,7 @@ export async function initNotebookCodeEnv(_ENV:any,opt?:NotebookFileData){
     };
     _ENV.jsnotebook=jsnotebook;
     if(opt?.startupScript!=undefined){
-        let cc=_ENV.__priv_codeContext as LocalRunCodeContext;
+        let cc=_ENV.__codeContext as LocalRunCodeContext;
         await cc.runCode(opt.startupScript,'');
     }
 }

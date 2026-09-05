@@ -1,5 +1,5 @@
 import { CodeContextEvent, JsonStringifyWithCircular, LocalRunCodeContext, newCodeCellListData, RunCodeContext, TaskLocalEnv } from "./CodeContext";
-import { ArrayBufferToBase64, ArrayWrap2, Base64ToArrayBuffer, GenerateRandomString, future, mutex, requirejs, sleep, throwIfAbortError } from "partic2/jsutils1/base";
+import { ArrayBufferToBase64, ArrayWrap2, Base64ToArrayBuffer, GenerateRandomString, TaskLocalLogHandler, future, mutex, requirejs, sleep, throwIfAbortError } from "partic2/jsutils1/base";
 import { SimpleFileSystem, defaultFileSystem, ensureDefaultFileSystem, installedRequirejsResourceProvider } from "./JsEnviron";
 import { getWWWRoot } from "partic2/jsutils1/webutils";
 import { OnConsoleData } from "./jsutils2";
@@ -525,7 +525,7 @@ export interface ConsoleDataEventData{
 
 export async function installJavascriptInspectorForCodeContext(codeContext:LocalRunCodeContext){
     if(codeContext.localScope.autoClosable[__name__+'.consoleDataHookForCodeContext']==undefined){
-        const onConsoleLogListener=(level:string,argv:any)=>{
+        const onConsoleLogListener=(level:string,argv:any[])=>{
             let outputTexts:string[]=[];
             for(let t1 of argv){
                 if(typeof t1=='object'){
@@ -546,6 +546,11 @@ export async function installJavascriptInspectorForCodeContext(codeContext:Local
             OnConsoleData.delete(onConsoleLogListener);
         }}
         OnConsoleData.add(onConsoleLogListener);
+        codeContext.runInContextTask(function*(){
+            TaskLocalLogHandler.set((arg0)=>{
+                onConsoleLogListener(arg0.level,[arg0.label+':',...arg0.msg])
+            })
+        },{fork:false});
     }
     if(codeContext.localScope[remoteName.accessVariableAsSerializableObject]==undefined){
         codeContext.localScope[remoteName.accessVariableAsSerializableObject]=(accessPath:Array<number|string>,serializeOption:any)=>{
@@ -607,7 +612,7 @@ let codeContextAttachedInspector=Symbol(__name__+'.codeContextAttachedInspector'
 
 export async function ensureJavascriptInspectorForCodeContextInstalled(codeContext:RunCodeContext):Promise<RemoteCodeContextInspector>{
     if((codeContext as any)[codeContextAttachedInspector]==undefined){
-        await codeContext.runCode(`(await import('${__name__}')).installJavascriptInspectorForCodeContext(__priv_codeContext)`,'');
+        await codeContext.runCode(`(await import('${__name__}')).installJavascriptInspectorForCodeContext(__codeContext)`,'');
         (codeContext as any)[codeContextAttachedInspector]=new RemoteCodeContextInspector(codeContext);
     }
     return (codeContext as any)[codeContextAttachedInspector];
