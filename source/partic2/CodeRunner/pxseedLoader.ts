@@ -5,6 +5,7 @@ import * as acorn from 'acorn'
 import * as acornWalk from 'acorn-walk'
 import { GetCurrentTime, Task, assert, requirejs, throwIfAbortError } from 'partic2/jsutils1/base';
 import type { PxseedStatus } from 'pxseedBuildScript/buildlib';
+import {console} from 'pxseedBuildScript/util'
 
 const __name__=requirejs.getLocalRequireModule(require);
 

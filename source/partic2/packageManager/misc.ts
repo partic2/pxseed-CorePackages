@@ -1,4 +1,4 @@
-import { ArrayWrap2, assert, DateDiff, future, GetCurrentTime, logger, mutex, requirejs, sleep, throwIfAbortError } from 'partic2/jsutils1/base';
+import { ArrayWrap2, assert, DateDiff, future, GetCurrentTime, logger, mutex, requirejs, sleep, Task, TaskLocalLogHandler, throwIfAbortError } from 'partic2/jsutils1/base';
 import { RemoteRunCodeContext } from 'partic2/CodeRunner/RemoteCodeContext';
 
 import { defaultHttpClient, GetPersistentConfig, getWWWRoot, SavePersistentConfig } from 'partic2/jsutils1/webutils';
@@ -72,9 +72,6 @@ export async function findPxseedPackageContainFile(file:string):Promise<{
     return {sourceRoot:sourceDir,outputRoot:join(dirname(sourceDir),'www'),pkgName,pkgPath};
 }
 
-
-
-
 async function findBrowserExecutableWin32():Promise<{type:'gecko'|'chromium',exePath:string}|null>{
     let tjs=await buildTjs();
     let {fs,path}=await getNodeCompatApi()
@@ -127,7 +124,6 @@ async function findBrowserExecutabeLinux():Promise<{type:'gecko'|'chromium',exeP
     return null;
 }
 
-
 export async function findBrowserExecutable():Promise<{type:'gecko'|'chromium',exePath:string}|null>{
     let tjs=await buildTjs();
     let platform=tjs.system.platform;
@@ -140,7 +136,6 @@ export async function findBrowserExecutable():Promise<{type:'gecko'|'chromium',e
         return null;
     }
 }
-
 
 export async function openUrlInBrowser(url:string,opts?:{appMode?:boolean}){
     let browser=await findBrowserExecutable();
@@ -156,12 +151,9 @@ export async function openUrlInBrowser(url:string,opts?:{appMode?:boolean}){
     tjs.spawn(args);
 }
 
-
 export async function serverConsoleLog(msg:string){
     console.info(msg);
 }
-
-
 async function addSystemStartupCommandWindows(name:string,cmd:string){
     let tjs1=await buildTjs();
     let dir1=`${tjs1.env['APPDATA']}\\Microsoft\\Windows\\Start Menu\\Programs\\Startup`;
@@ -281,7 +273,7 @@ export async function generatePxseedServerFilesPatch(patchDir:string[]){
 
 let buildWatcher={
     event:new future<Array<{event:string,pkgName:string}>>(),
-    fsw:null as null|{close:()=>void},
+    watcherTask:null as null|Task<void>,
     pendingBuildingTask:new Set<string>()
 }
 
@@ -310,38 +302,56 @@ export async function waitBuildWatcherEvent(){
 }
 
 let __buildingMutex=new mutex();
-
 let fileSystemWatcherAutoBuildDebounceCall=new DebounceCall(async ()=>__buildingMutex.exec(async ()=>{
-    let copy=Array.from(buildWatcher.pendingBuildingTask);
-    buildWatcher.pendingBuildingTask.clear();
-    for(let t1 of copy){
-        log.info('building package:',t1);
-        let consoleContent=await buildPackageAndNotfiy(t1);
-        log.info('built package:',t1);
-        log.info('outputs:',consoleContent);
+    if(buildWatcher.watcherTask!=null){
+        await buildWatcher.watcherTask.fork(function *(){
+            let copy=Array.from(buildWatcher.pendingBuildingTask);
+            buildWatcher.pendingBuildingTask.clear();
+            for(let t1 of copy){
+                log.info('building package:',t1);
+                let consoleContent=yield* Task.yieldWrap(buildPackageAndNotfiy(t1));
+                log.info('built package:',t1);
+                log.info('outputs:',consoleContent);
+            }
+        }).run();
     }
 }),1000);
 
 export async function startFileSystemWatcherAutoBuild(){
-    if(buildWatcher.fsw==null){
-        let nfs=await import('fs');
-        let {fs,path,wwwroot}=await getNodeCompatApi();
-        let sourceRoot=path.join(wwwroot,'..','source');
-        buildWatcher.fsw=nfs.watch(sourceRoot,{recursive:true},async (ev,fn)=>{
-            if(fn!=null && fn.match(/[\\\/]\./)==null){
-                let {pkgName}=await findPxseedPackageContainFile(path.join(sourceRoot,fn));
-                if(pkgName!=null){
-                    buildWatcher.pendingBuildingTask.add(pkgName);
-                    __buildingMutex.exec(async ()=>{fileSystemWatcherAutoBuildDebounceCall.call()});
+    if(buildWatcher.watcherTask==null){
+        buildWatcher.watcherTask=Task.fork((function *(){
+            let nfs=yield* Task.yieldWrap(import('fs'));
+            let {fs,path,wwwroot}=yield* Task.yieldWrap(getNodeCompatApi());
+            let sourceRoot=path.join(wwwroot,'..','source');
+            let watchEvent=new ArrayWrap2<{fn:string}>();
+            let fsw=nfs.watch(sourceRoot,{recursive:true},(ev,fn)=>{
+                if(fn!=null){
+                    watchEvent.queueSignalPush({fn});
                 }
+            })
+            try{
+                while(buildWatcher.watcherTask===Task.currentTask){
+                    let {fn}=yield* Task.yieldWrap(watchEvent.queueBlockShift());
+                    if(fn!=null && fn.match(/[\\\/]\./)==null){
+                        let {pkgName}=yield* Task.yieldWrap(findPxseedPackageContainFile(path.join(sourceRoot,fn)));
+                        if(pkgName!=null){
+                            buildWatcher.pendingBuildingTask.add(pkgName);
+                            __buildingMutex.exec(async ()=>{fileSystemWatcherAutoBuildDebounceCall.call()});
+                        }
+                    }
+                }
+            }catch(err:any){
+                throwIfAbortError(err);
+            }finally{
+                fsw.close();
             }
-        });
+        })).run();
     }
 }
 
 export async function stopFileSystemWatcherAutoBuild(){
-    if(buildWatcher.fsw!=null){
-        buildWatcher.fsw.close();
-        buildWatcher.fsw=null;
+    if(buildWatcher.watcherTask!=null){
+        buildWatcher.watcherTask.abort();
+        buildWatcher.watcherTask=null;
     }
 }
