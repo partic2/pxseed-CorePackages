@@ -164,7 +164,7 @@ export async function createIoPxseedJsUrl(url:string):Promise<Io>{
     }else if(type=='ws'){
         let target=GetUrlQueryVariable2(url,'target');
         assert(target!=null);
-        let io=await new WebSocketIo().connect(decodeURIComponent(target));
+        let io=await new WebSocketIo().connect(target);
         return io;
     }
     throw new Error(`Unsupported type ${type}`)

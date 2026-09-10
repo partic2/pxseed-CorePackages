@@ -208,32 +208,18 @@ export function GetUrlQueryVariable(name:string):string|null{
 }
 
 export function GetUrlQueryVariable2(url:string,name:string):string|null{
-    var startOfQuery=url.indexOf('?');
-    if(startOfQuery<0){
-        return null;
-    }else{
-        var query = url.substring(startOfQuery+1)
-        var vars = query.split("&");
-        for (var i=0;i<vars.length;i++) {
-                var pair = vars[i].split("=");
-                if(pair[0] == name){return pair[1];}
-        }
-        return null;
-    }
+    let params=new URLSearchParams(new URL(url).search);
+    return params.get(name);
 }
 
 export function AddUrlQueryVariable(url:string,vars:{[key:string]:string}):string{
-    var startOfQuery=url.indexOf('&');
-    let split='&'
-    if(startOfQuery<0){
-        url+='?'
-        split=''
-    }
+    let url2=new URL(url);
+    let search=new URLSearchParams(url2.search);
     for(let k in vars){
-        url+=split+k+'='+encodeURI(vars[k]);
-        split='&'
+        search.set(k,vars[k]);
     }
-    return url;
+    url2.search=search.toString();
+    return url2.href;
     
 }
 
@@ -294,12 +280,16 @@ export class CDynamicPageCSSManager{
     constructor(cssSheetIn?:CSSStyleSheet){
         this.cssSheet=cssSheetIn??AddStyleSheetNode();
     }
-    public PutCss(selector:string,rules:string[]){
+    public PutCss(selector:string,rules:string[],pos?:'end'|'start'){
         let found=this.FindRuleFor(selector);
         if(found!=undefined){
             this.cssSheet!.deleteRule(found.index);
         }
-        this.cssSheet.insertRule(selector+'{'+rules.join(';')+'}',0);
+        if(pos=='start'){
+            this.cssSheet.insertRule(selector+'{'+rules.join(';')+'}',0);
+        }else{
+            this.cssSheet.insertRule(selector+'{'+rules.join(';')+'}',this.cssSheet.cssRules.length);
+        }
     }
     public *IterCss(){
         for(let t1=0;t1<this.cssSheet!.cssRules.length;t1++){
@@ -614,24 +604,6 @@ let getResourceManagerImpl=(modNameOrLocalRequire:string|typeof require)=>{
             assert(resp.ok,'fetch failed with error HTTP error:'+resp.status+' '+resp.statusText)
             assert(resp.body!=null);
             return resp.body;
-        },
-        async getConfig(path2?:string):Promise<any>{
-            path2=path2??'.';
-            if(path2.startsWith('/')){
-                path2=path2.substring(1)
-            }else{
-                path2=path.join(modNameOrLocalRequire,path2);
-            }
-            return await GetPersistentConfig(path2)
-        },
-        async saveConfig(config:any,path2?:string):Promise<any>{
-            path2=path2??'.';
-            if(path2.startsWith('/')){
-                path2=path2.substring(1)
-            }else{
-                path2=path.join(modNameOrLocalRequire,path2);
-            }
-            return await SavePersistentConfig(path2,config)
         }
     }
 }
@@ -644,11 +616,17 @@ export function getResourceManager(modNameOrLocalRequire:string|typeof require){
     return getResourceManagerImpl(modNameOrLocalRequire)
 }
 
-export function useDeviceWidth(){
-    let headmeta=document.createElement('meta');
-    headmeta.name='viewport';
-    headmeta.content='width=device-width user-scalable=no';
-    document.head.append(headmeta)
+let useDeviceWidthTag:HTMLMetaElement|null=null;
+export function useDeviceWidth(enable?:boolean){
+    if(useDeviceWidthTag!=null){
+        document.head.removeChild(useDeviceWidthTag);
+        useDeviceWidthTag=null;
+    }
+    if(enable===false)return;
+    useDeviceWidthTag=document.createElement('meta');
+    useDeviceWidthTag.name='viewport';
+    useDeviceWidthTag.content='width=device-width initial-scale=1';
+    document.head.append(useDeviceWidthTag)
 }
 
 export function useCssFile(cssUrl:string){
@@ -657,12 +635,14 @@ export function useCssFile(cssUrl:string){
     linkTag.type='text/css';
     linkTag.href=cssUrl;
     document.head.appendChild(linkTag);
+    return linkTag;
 }
 
 let iconLinkTag:HTMLLinkElement|null=null;
 export function usePageIcon(iconUrl:string,iconType?:'image/x-icon'|'image/png'|'image/svg+xml'){
     if(iconLinkTag!=null){
         document.head.removeChild(iconLinkTag);
+        iconLinkTag=null;
     }
     iconType=iconType??'image/x-icon';
     iconLinkTag=document.createElement('link')

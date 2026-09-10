@@ -1,7 +1,9 @@
 
 import * as React from 'preact'
-import { future, GenerateRandomString, Ref2 } from 'partic2/jsutils1/base';
-import { DynamicPageCSSManager } from 'partic2/jsutils1/webutils';
+import { future, Ref2, requirejs } from 'partic2/jsutils1/base';
+import { DynamicPageCSSManager, useDeviceWidth } from 'partic2/jsutils1/webutils';
+
+let __name__=requirejs.getLocalRequireModule(require);
 
 export class DomComponent{
     protected domElem?:HTMLElement
@@ -133,28 +135,31 @@ class DomRootComponentProxy extends Ref2<CDomRootComponent>{
 
 export var DomRootComponent:DomRootComponentProxy
 
+let cssPrefix=__name__.replace(/\//g,'-');
+
 export var css={
-    flexRow:GenerateRandomString(),
-    flexColumn:GenerateRandomString(),
-    selected:GenerateRandomString(),
-    simpleCard:GenerateRandomString(),
-    simpleTable:GenerateRandomString(),
-    simpleTableCell:GenerateRandomString(),
-    selectable:GenerateRandomString(),
-    floatLayer:GenerateRandomString()
+    flexRow:cssPrefix+'-flexRow',
+    flexColumn:cssPrefix+'-flexColumn',
+    selected:cssPrefix+'-selected',
+    simpleCard:cssPrefix+'-simpleCard',
+    simpleTable:cssPrefix+'-simpleTable',
+    simpleTableCell:cssPrefix+'-simpleTableCell',
+    selectable:cssPrefix+'-selectable',
+    floatLayer:cssPrefix+'-floatLayer'
 }
 
 
 
 export let __inited__=(async ()=>{
     if(globalThis.document!=undefined){
+        useDeviceWidth();
         DynamicPageCSSManager.PutCss('.'+css.flexRow,['display:flex','flex-direction:row']);
         DynamicPageCSSManager.PutCss('.'+css.flexColumn,['display:flex','flex-direction:column']);
-        DynamicPageCSSManager.PutCss('.'+css.selectable+':hover',['background-color:rgb(200,200,200)']);
-        DynamicPageCSSManager.PutCss('.'+css.selected,['background-color:rgb(150,150,255)'])
-        DynamicPageCSSManager.PutCss('.'+css.simpleCard,['display:inline-block','border:solid black 2px','margin:2px','padding:2px','background-color:white'])
+        DynamicPageCSSManager.PutCss('.'+css.simpleCard,['border:solid black 2px','margin:2px','padding:2px','background-color:white'])
         DynamicPageCSSManager.PutCss('.'+css.simpleTable,['border-collapse:collapse']);
         DynamicPageCSSManager.PutCss('.'+css.simpleTableCell,['border:solid black 2px']);
+        DynamicPageCSSManager.PutCss('.'+css.selectable+':hover',['background-color:rgb(200,200,200)']);
+        DynamicPageCSSManager.PutCss('.'+css.selected,['background-color:rgb(150,150,255)'])
         DynamicPageCSSManager.PutCss('.'+css.floatLayer,['position:absolute','left:0px','top:0px','width:100%','height:100%','pointer-events:none']);
         DomRootComponent=new DomRootComponentProxy(new CDomRootComponent());
         //To fix preact BUG
