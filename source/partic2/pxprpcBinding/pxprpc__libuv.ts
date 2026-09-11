@@ -175,6 +175,57 @@ export class Invoker {
         let __v2 = await __v1!.call();
         return __v2;
     }
+    async udp_bind(host:string,port:number): Promise<RpcExtendClientObject> {
+        let __v1 = await this.ensureFunc('udp_bind', 'si->o');
+        let __v2 = await __v1!.call(host,port);
+        return __v2;
+    }
+    async udp_send(udp:RpcExtendClientObject,target:Uint8Array,data:Uint8Array): Promise<void> {
+        let __v1 = await this.ensureFunc('udp_send', 'obb->');
+        let __v2 = await __v1!.call(udp,target,data);
+    }
+    async udp_recv(udp:RpcExtendClientObject): Promise<{source:Uint8Array,data:Uint8Array}[]> {
+        let __v1 = await this.ensureFunc('udp_recv', 'o->b');
+        let __v2 = await __v1!.call(udp);
+        let ser=new Serializer().prepareUnserializing(__v2);
+        let packets:Array<{source:Uint8Array,data:Uint8Array}>=[];
+        while(true){
+            let t1=ser.getBytes();
+            if(t1.length==0){
+                break;
+            }
+            let t2=ser.getBytes();
+            packets.push({source:t1,data:t2});
+        }
+        return packets;
+    }
+    async udp_set_membership(udp:RpcExtendClientObject,multicastAddr:string,interfaceAddr:string,join:boolean): Promise<void> {
+        let __v1 = await this.ensureFunc('uv_udp_set_membership', 'ossb->');
+        let __v2 = await __v1!.call(udp,multicastAddr,interfaceAddr,join);
+    }
+    async udp_option(udp:RpcExtendClientObject,name:'ttl',value:number):Promise<void>;
+    async udp_option(udp:RpcExtendClientObject,name:'broadcast',value:boolean):Promise<void>;
+    async udp_option(udp:RpcExtendClientObject,name:'multicast_ttl',value:number):Promise<void>;
+    async udp_option(udp:RpcExtendClientObject,name:'multicast_loop',value:boolean):Promise<void>;
+    async udp_option(udp:RpcExtendClientObject,name:string,value:any): Promise<void> {
+        let __v1 = await this.ensureFunc('uv_udp_option', 'osi->');
+        if(['broadcast','multicast_loop'].includes(name)){
+            __v1?.typedecl('osb->')
+        }else if(['ttl','multicast_ttl'].includes(name)){
+            __v1?.typedecl('osi->')
+        }
+        let __v2 = await __v1!.call(udp,name,value);
+    }
+    async sockaddr_to_string(addr:Uint8Array): Promise<string> {
+        let __v1 = await this.ensureFunc('sockaddr_to_string', 'b->si');
+        let __v2 = await __v1!.call(addr);
+        return __v2;
+    }
+    async sockaddr_from_string(host:string,port:number): Promise<Uint8Array> {
+        let __v1 = await this.ensureFunc('sockaddr_from_string', 'si->b');
+        let __v2 = await __v1!.call(host,port);
+        return __v2;
+    }
 }
 
 export let defaultInvoker:Invoker|null=null
