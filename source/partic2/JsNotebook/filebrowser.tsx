@@ -2,8 +2,8 @@
 import * as React from 'preact'
 var ReactDOM=React
 
-import {ArrayWrap2, future, GenerateRandomString, GetCurrentTime, mutex} from 'partic2/jsutils1/base'
-import {CKeyValueDb, DynamicPageCSSManager,getResourceManager,path,selectFile} from 'partic2/jsutils1/webutils'
+import {ArrayWrap2, future, GenerateRandomString, GetCurrentTime, mutex, throwIfAbortError} from 'partic2/jsutils1/base'
+import {CKeyValueDb, DynamicPageCSSManager,getResourceManager,getWWWRoot,path,selectFile} from 'partic2/jsutils1/webutils'
 import { ReactRefEx, ReactRender, css } from 'partic2/pComponentUi/domui'
 import { SimpleFileSystem } from 'partic2/CodeRunner/JsEnviron'
 import { FileTypeHandlerBase } from './fileviewer'
@@ -97,12 +97,23 @@ class FileBrowserComponent<P extends {fs:SimpleFileSystem}={fs:SimpleFileSystem}
         if(this._latestOpeningFile!=path)return;
         if(filetype=='dir'){
             let newPath=path;
-            let children
+            let children:Array<{
+                name: string;
+                type: "dir" | "file";
+            }>|undefined=undefined
             try{
                 children=await this.props.fs.listdir(newPath);
-            }catch(e1){
-                newPath='';
-                children=await this.props.fs.listdir(newPath);
+            }catch(e1:any){throwIfAbortError(e1);}
+            if(children==undefined){
+                try{
+                    newPath='';
+                    children=await this.props.fs.listdir(newPath)
+                }catch(err:any){
+                    throwIfAbortError(err);
+                }
+            }
+            if(children==undefined){
+                children=[]
             }
             if(this._latestOpeningFile!=path)return;
             children.sort((a,b)=>{
@@ -315,7 +326,11 @@ class FileBrowserComponent<P extends {fs:SimpleFileSystem}={fs:SimpleFileSystem}
         addressBar:new ReactRefEx<HTMLDivElement>()
     }
     async componentDidMount() {
-        await this.reloadFileInfo();
+        try{
+            await this.reloadFileInfo();
+        }catch(err:any){
+            throwIfAbortError(err);
+        }
     }
     public render(){
         return (<div className={css.flexColumn} style={{height:'100%'}}>
