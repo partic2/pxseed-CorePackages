@@ -1,8 +1,8 @@
 
 import * as React from 'preact'
 import { ReactRefEx, ReactRender, css} from 'partic2/pComponentUi/domui'
-import {getPersistentRegistered, importRemoteModule,ServerHostWorker1RpcName} from 'partic2/pxprpcClient/registry'
-import { GetCurrentTime, Ref2, Task, assert, future, requirejs, throwIfAbortError } from 'partic2/jsutils1/base'
+import {bindToRemoteRpcTask, getPersistentRegistered, importRemoteModule,ServerHostWorker1RpcName} from 'partic2/pxprpcClient/registry'
+import { GetCurrentTime, LogHandlerArg0, Ref2, Task, assert, future, requirejs, throwIfAbortError } from 'partic2/jsutils1/base'
 import { BuildUrlFromJsEntryModule, GetJsEntry, GetPersistentConfig, getResourceManager, path, RequestDownload, SavePersistentConfig, selectFile, useDeviceWidth } from 'partic2/jsutils1/webutils'
 import {promptWithForm, SimpleReactForm1} from 'partic2/pComponentUi/input'
 import {alert, appendFloatWindow, confirm, prompt, css as windowCss, WindowComponent, removeFloatWindow, rootWindowGroup, ensureRootWindowContainer, language} from 'partic2/pComponentUi/window'   
@@ -63,11 +63,16 @@ let remoteModule={
     misc:new Singleton(async ()=>{
         return await importRemoteModule(
             await (await getPersistentRegistered(ServerHostWorker1RpcName))!.ensureConnected(),'partic2/packageManager/misc') as typeof import('partic2/packageManager/misc');
+    }),
+    jsutils2:new Singleton(async ()=>{
+        return await importRemoteModule(
+            await (await getPersistentRegistered(ServerHostWorker1RpcName))!.ensureConnected(),'partic2/CodeRunner/jsutils2') as typeof import('partic2/CodeRunner/jsutils2');
     })
 }
 
 import {getIconUrl} from 'partic2/pxseedMedia1/index1'
 import { ReactDragController } from 'partic2/pComponentUi/transform'
+import { SimpleLogViewer } from '../CodeRunner/Component1'
 
 
 let resourceManager=getResourceManager(__name__);
@@ -247,7 +252,14 @@ class PackagePanel extends React.Component<{},{
         this.setState({statusText:'Installing...'})
         try{
             const registry=await remoteModule.registry.get();
-            await registry.installPackage!(source);
+            const jsutils2=await remoteModule.jsutils2.get();
+            let logBuffer=await jsutils2.newEventBuffer<LogHandlerArg0>();
+            await openNewWindow(<SimpleLogViewer logSources={[logBuffer]}/>,{title:'LOG'})
+            await Task.fork(function *(){
+                bindToRemoteRpcTask();
+                yield jsutils2.setTaskLocalLogBuffer(logBuffer)
+                yield registry.installPackage!(source);
+            }).run();
             this.refreshList();
         }catch(err:any){
             throwIfAbortError(err);
@@ -491,8 +503,15 @@ import2env('partic2/packageManager/registry');`,
             let resp=await confirm(i18n.upgradeCorePackages+'?');
             if(resp=='cancel')return;
             this.setState({statusText:'upgrading package...'});
-            let registry=await remoteModule.registry.get();
-            await registry.UpgradeCorePackages();
+            const registry=await remoteModule.registry.get();
+            const jsutils2=await remoteModule.jsutils2.get();
+            let logBuffer=await jsutils2.newEventBuffer<LogHandlerArg0>();
+            await openNewWindow(<SimpleLogViewer logSources={[logBuffer]}/>,{title:'LOG'})
+            await Task.fork(function *(){
+                bindToRemoteRpcTask();
+                yield jsutils2.setTaskLocalLogBuffer(logBuffer)
+                yield registry.UpgradeCorePackages();
+            }).run();
         }catch(err:any){
             throwIfAbortError(err);
             alert('Failed:'+err.message+err.remoteStack);

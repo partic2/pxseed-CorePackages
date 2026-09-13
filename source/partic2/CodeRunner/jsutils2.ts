@@ -1,4 +1,4 @@
-import { ArrayBufferConcat, ArrayWrap2, Ref2, Task,  future, requirejs ,TaskLocalRef, mutex, sleep, GetCurrentTime} from "partic2/jsutils1/base";
+import { ArrayBufferConcat, ArrayWrap2, Ref2, Task,  future, requirejs ,TaskLocalRef, mutex, sleep, GetCurrentTime, TaskLocalLogHandler, LogHandlerArg0} from "partic2/jsutils1/base";
 
 
 let __name__=requirejs.getLocalRequireModule(require);
@@ -545,4 +545,8 @@ export class EventBuffer<ET>{
 export async function newEventBuffer<ET>(){
 	return new EventBuffer<ET>();
 }
-
+export async function setTaskLocalLogBuffer(buffer:EventBuffer<LogHandlerArg0>){
+	TaskLocalLogHandler.set((arg0)=>{
+		buffer.push(arg0);
+	});
+}

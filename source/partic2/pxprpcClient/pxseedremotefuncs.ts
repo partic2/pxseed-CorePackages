@@ -1,4 +1,4 @@
-import { ArrayBufferConcat, ArrayWrap2, assert, future, GenerateRandomString, mutex, Ref2, requirejs } from 'partic2/jsutils1/base';
+import { ArrayBufferConcat, ArrayWrap2, assert, future, GenerateRandomString, mutex, Ref2, requirejs, sleep, Task, TaskLocalRef } from 'partic2/jsutils1/base';
 import { WebMessage, WebSocketIo } from 'pxprpc/backend';
 import { Io, Client ,Serializer} from 'pxprpc/base';
 import { defaultFuncMap, RpcExtendServerCallable, RpcExtendClientObject, RpcExtendClientCallable, RpcExtendClient1 } from 'pxprpc/extend';
@@ -81,6 +81,7 @@ function packExtraBytesArray(bytesArray:Array<Uint8Array>){
 interface CallJsonFunctionRequest{
     module?:string,
     object?:string,
+    task?:string,
     method:string,
     params:any[]
 }
@@ -89,6 +90,20 @@ interface CallJsonFunctionResonse{
     error?:{
         message:string,
         stack:string
+    }
+}
+
+
+class RemoteRpcTask extends Task<any>{
+    [RpcSerializeMagicMark]={};
+    execute<T>(fn:()=>(T|Thenable<T>)):Thenable<T>{
+        return this.fork(function *(){
+            let t1=fn();
+            if(typeof t1==='object' && t1!==null && 'then' in t1){
+                t1=yield t1;
+            }
+            return t1 as T;
+        },{locals:'share',name:this.name+'.subtask'}).run();
     }
 }
 
@@ -124,7 +139,6 @@ defaultFuncMap[rpcFuncPrefix+'.callJsonFunction']=new RpcExtendServerCallable(as
             }else{
                 return value;
             }});
-        
         let thisObject:any={};
         if(request.module!=undefined){
             thisObject=await import(request.module);
@@ -134,8 +148,20 @@ defaultFuncMap[rpcFuncPrefix+'.callJsonFunction']=new RpcExtendServerCallable(as
         extraBytesArray=new Array();
         let callable=thisObject[request.method];
         assert(typeof callable==='function',thisObject.constructor.name+'.'+request.method+' is not callable');
+        let result;
+        if(request.task!=undefined){
+            let task:RemoteRpcTask|undefined=objectPool.get(request.task) as any;
+            if(task==undefined){
+                task=new RemoteRpcTask(function *(){yield new Promise(resolve=>{})});
+                task.name=__name__+'.RpcTask-'+request.task;
+                objectPool.set(request.task,task as any);
+            }
+            result=await task.execute(()=>thisObject[request.method](...request.params));
+        }else{
+            result=await thisObject[request.method](...request.params);
+        }
         return [
-            JSON.stringify({result:(await thisObject[request.method](...request.params))??null},(key,value)=>{
+            JSON.stringify({result:result??null},(key,value)=>{
                 if(value instanceof Uint8Array){
                     extraBytesArray.push(value);
                     return {[RpcSerializeMagicMark]:true,t:'Uint8Array',i:extraBytesArray.length-1};
@@ -174,7 +200,24 @@ export type OnlyAsyncFunctionProps<Mod>={
     [P in (keyof Mod & string)]:Mod[P] extends (...args:any[])=>Promise<any>?Mod[P]:never
 }
 
+let remoteRpcTaskInfo=new TaskLocalRef<{id:string,usedInRpc:Set<RemoteRegistryFunction>}|null>(null);
 
+//Only call once for each task that is guaranteed to settle, to avoid remote task leak.
+export function bindToRemoteRpcTask(taskId?:string){
+    taskId=taskId??GenerateRandomString();
+    assert(Task.currentTask!=null);
+    if(Object.getOwnPropertyNames(Task.currentTask.locals()).includes(remoteRpcTaskInfo.taskLocalVarName)){
+        console.error('Only call once for each task that is guaranteed to settle, to avoid remote task leak.\n'+new Error().stack);
+    }
+    let info={id:taskId,usedInRpc:new Set<RemoteRegistryFunction>()};
+    remoteRpcTaskInfo.set(info);
+    function onTaskSettled(){
+        for(let t2 of info.usedInRpc){
+            t2.freeObjectInRemoteObjectPool({[RpcSerializeMagicMark]:{id:taskId}});
+        }
+    }
+    Task.currentTask.then(onTaskSettled,onTaskSettled);
+}
 
 export interface RemoteRegistryFunction{
     loadModule(name:string):Promise<void>;
@@ -274,12 +317,15 @@ class RemoteRegistryFunctionImpl implements RemoteRegistryFunction{
     
     funcs:(RpcExtendClientCallable|null)[]=[]
     client1?:RpcExtendClient1;
-    defaultObjectPool?:RpcExtendClientObject;
+    objectPool?:RpcExtendClientObject;
 
     async loadModule(name: string): Promise<void> {
         return this.funcs[0]!.call(name);
     }
-    async callJsonFunction(moduleNameOrThisObject:string|{[RpcSerializeMagicMark]:any},functionName:string,params:any,objectPool?:RpcExtendClientObject):Promise<any> {
+    async callJsonFunction(moduleNameOrThisObject:string|{[RpcSerializeMagicMark]:any},functionName:string,params:any):Promise<any> {
+        if(this.objectPool==undefined){
+            this.objectPool=await this.allocateRemoteObjectPool();
+        }
         let request:CallJsonFunctionRequest={
             method:functionName,
             params:params
@@ -289,11 +335,10 @@ class RemoteRegistryFunctionImpl implements RemoteRegistryFunction{
         }else{
             request.module=moduleNameOrThisObject as string
         }
-        if(objectPool==undefined){
-            if(this.defaultObjectPool==undefined){
-                this.defaultObjectPool=await this.allocateRemoteObjectPool();
-            }
-            objectPool=this.defaultObjectPool;
+        let t1=remoteRpcTaskInfo.get();
+        if(t1!=null){
+            request.task=t1.id;
+            t1.usedInRpc.add(this);
         }
         let extraBytesArray=new Array<Uint8Array>();
         let requestJson=JSON.stringify(request,(key,value)=>{
@@ -309,7 +354,7 @@ class RemoteRegistryFunctionImpl implements RemoteRegistryFunction{
             }
             return value
         });
-        let [responseJson,extraBytes]=await this.funcs[7]!.call(requestJson,packExtraBytesArray(extraBytesArray),objectPool);
+        let [responseJson,extraBytes]=await this.funcs[7]!.call(requestJson,packExtraBytesArray(extraBytesArray),this.objectPool);
         extraBytesArray=unpackExtraBytesArray(extraBytes);
         let response:CallJsonFunctionResonse=JSON.parse(responseJson,(key,value)=>{
             if(typeof value==='object' && value!==null){
@@ -392,10 +437,9 @@ class RemoteRegistryFunctionImpl implements RemoteRegistryFunction{
     async allocateRemoteObjectPool():Promise<RpcExtendClientObject>{
         return await this.funcs[10]!.call();
     }
-    async freeObjectInRemoteObjectPool(object:{[RpcSerializeMagicMark]:any},objectPool?:RpcExtendClientObject):Promise<void>{
-        objectPool=objectPool??this.defaultObjectPool;
-        if(objectPool!=undefined){
-            await this.funcs[11]!.call(objectPool??this.defaultObjectPool,object[RpcSerializeMagicMark].id);
+    async freeObjectInRemoteObjectPool(object:{[RpcSerializeMagicMark]:any}):Promise<void>{
+        if(this.objectPool!=undefined){
+            await this.funcs[11]!.call(this.objectPool,object[RpcSerializeMagicMark].id);
         }
     }
     async ensureInit(){

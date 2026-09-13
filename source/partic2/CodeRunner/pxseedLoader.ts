@@ -91,6 +91,11 @@ export function addAsyncHook(replacePlan:JsSourceReplacePlan){
                     newString:')'
                 });
             }
+        },
+        ForOfStatement(node,state,ancestor){
+            if(node.await===true){
+                throw new Error('"for await" is NOT supported yet')
+            }
         }
     });
 }

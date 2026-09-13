@@ -1,13 +1,14 @@
 
-import {PxseedConfig, PxseedStatus, cleanBuildStatus, processDirectory, sourceDir} from 'pxseedBuildScript/buildlib'
+import {PxseedConfig, PxseedStatus, cleanBuildStatus, getWWWLastBuildTime, processDirectory, sourceDir} from 'pxseedBuildScript/buildlib'
 import {defaultHttpClient, getWWWRoot, kvStore, path} from 'partic2/jsutils1/webutils'
-import {ArrayBufferConcat, ArrayWrap2, GenerateRandomString, assert, logger, requirejs, throwIfAbortError} from 'partic2/jsutils1/base'
+import {ArrayBufferConcat, ArrayWrap2, GenerateRandomString, GetCurrentTime, Task, TaskLocalLogHandler, assert, logger, requirejs, throwIfAbortError} from 'partic2/jsutils1/base'
 import { getNodeCompatApi, __internal__ as utilsi, withConsole } from 'pxseedBuildScript/util';
 import { defaultFileSystem, ensureDefaultFileSystem, getSimpleFileSysteNormalizedWWWRoot } from 'partic2/CodeRunner/JsEnviron';
 import { NotebookFileData, runNotebook } from 'partic2/JsNotebook/workerinit';
 import { easyCallRemoteJsonFunction, getPersistentRegistered, getRegistered, ServerHostRpcName, ServerHostWorker1RpcName } from 'partic2/pxprpcClient/registry';
 import {defaultGitClient, fetchPackage, __internal__ as pkgfetcheri} from './pkgfetcher'
 import { newCodeCellListData } from 'partic2/CodeRunner/CodeContext';
+import { EventBuffer } from '../CodeRunner/jsutils2';
 
 export let __name__=requirejs.getLocalRequireModule(require);
 
@@ -284,7 +285,7 @@ let RepositoriesRegistry={
 export async function updatePackagesDatabase(pkgNameOrPxseedConfig?:string|PxseedConfig){
     const {fs,path,wwwroot}=await getNodeCompatApi();
     if(pkgNameOrPxseedConfig==undefined){
-        for await(let pkg of listPackages()){
+        for(let pkg of await listPackagesArray('')){
             try{
                 await updatePackagesDatabase(pkg);
             }catch(err:any){
@@ -423,30 +424,26 @@ export async function getPxseedConfigForPackage(pkgname:string):Promise<PxseedCo
     }
 }
 
-async function *listPackagesInDirectory(dir:string):AsyncGenerator<{path:string,config:PxseedConfig}>{
+async function listPackagesInDirectoryArray(dir:string,filter?:(a:{path:string,config:PxseedConfig})=>Promise<boolean>):Promise<Array<{path:string,config:PxseedConfig}>>{
     const {fs,path,wwwroot}=await getNodeCompatApi();
     let children=await fs.readdir(dir,{withFileTypes:true});
+    let result=new Array<{path:string,config:PxseedConfig}>();
     if(children.find(t1=>t1.name=='.pxseed.status.json')){
-        yield {path:dir,config:(await utilsi.readJson(path.join(dir,'.pxseed.status.json'))).pxseedConfig};
+        let t1={path:dir,config:(await utilsi.readJson(path.join(dir,'.pxseed.status.json'))).pxseedConfig};
+        if(filter==undefined || await filter(t1)){
+            result.push(t1);
+        }
     }else{
         for(let t1 of children){
             if(t1.isDirectory()){
-                yield *listPackagesInDirectory(path.join(dir,t1.name));
+                result.push(...await listPackagesInDirectoryArray(path.join(dir,t1.name),filter));
             }
         }
     }
-}
-
-
-export async function *listPackages():AsyncGenerator<PxseedConfig>{
-    const {fs,path,wwwroot}=await getNodeCompatApi();
-    for await(let t1 of listPackagesInDirectory(wwwroot)){
-        yield t1.config;
-    }
+    return result;
 }
 
 export async function listPackagesArray(filterString:string){
-    let arr:PxseedConfig[]=[];
     let filterFunc:(name:string,config:PxseedConfig,pmcfg:PackageManagerConfig|undefined)=>boolean;
     if(filterString.startsWith('javascript:')){
         filterFunc=new Function('name','config','pmcfg',filterString.substring('javascript:'.length+1)) as any;
@@ -469,12 +466,12 @@ export async function listPackagesArray(filterString:string){
             }
         })()
     }
-    for await(let t1 of listPackages()){
-        if(filterFunc(t1.name,t1,t1.extra?.[__name__])){
-            arr.push(t1);
-        };
-    }
-    return arr;
+    const {fs,path,wwwroot}=await getNodeCompatApi();
+    return (await listPackagesInDirectoryArray(wwwroot,async ({path,config})=>{
+        let t1=config;
+        let t2=filterFunc(t1.name,t1,t1.extra?.[__name__]);
+        return t2;
+    })).map(t1=>t1.config);
 }
 
 export async function upgradePackage(pkgname:string){
@@ -487,7 +484,7 @@ export async function upgradePackage(pkgname:string){
 }
 
 export async function upgradeAllNonCorePackages(){
-    for await(let t1 of listPackages()){
+    for(let t1 of await listPackagesArray('')){
         if(!pxseedCorePackagesNames.has(t1.name)){
             try{
                 await upgradePackage(t1.name);
@@ -500,6 +497,7 @@ export async function upgradeAllNonCorePackages(){
 }
 
 export async function installPackage(source:string){
+    log.info('install request for:'+source)
     const {fs,path,wwwroot}=await getNodeCompatApi();
     let installProcessed=false;
     let sourceDir=path.join(wwwroot,'..','source');
@@ -551,6 +549,12 @@ export async function installPackage(source:string){
         throw new Error(`Can not handle url:${source}`)
     }
 }
+
+export async function callWithLogger<T extends keyof (typeof import('partic2/packageManager/registry'))>(method:T){
+
+}
+
+//callWithLogger('')
 
 export async function createPackageTemplate1(pxseedConfig:PxseedConfig){
     const {fs,path,wwwroot}=await getNodeCompatApi();
@@ -616,7 +620,7 @@ export async function unloadPackageModules(pkg:string){
 export async function exportPackagesInstallation(){
     let repos=await RepositoriesRegistry.ensureRepoCfg();   
     let pkgs=[];
-    for await(let t1 of listPackages()){
+    for(let t1 of await listPackagesArray('')){
         pkgs.push(t1.name);
     }
     return {repos,pkgs};
@@ -653,23 +657,33 @@ export async function cleanPackageInstallCache(){
     await fs.rm(path.join(wwwroot,...__name__.split('/'),'..','__temp'),{recursive:true});
 }
 
+let cachedListenersList=new Map<string,{listeners:Array<{module:string,func:string}>}>();
+let cachedListenersUpdateTime=0;
 export async function getPackageListeners(eventType:'onServerStartup'|'onWebuiStartup'|'onInstalled'):Promise<Array<{module:string,func:string}>>{
-    let result=new Array<{module:string,func:string}>()
-    for await (let pkg of listPackages()){
-        let pmcfg=getPMConfigFromPcfg(pkg);
-        if(pmcfg!=null){
-            if(pmcfg[eventType]!=null){
-                try{
-                    let t1={...pmcfg[eventType]};
-                    if(/^\.\.?\//.test(t1.module)){
-                        t1.module=path.join(pkg.name,t1.module)
-                    }
-                    result.push(t1);
-                }catch(err){};
+    let lastBuildTime=await getWWWLastBuildTime();
+    if(lastBuildTime>cachedListenersUpdateTime){
+        cachedListenersList.clear();
+        cachedListenersUpdateTime=GetCurrentTime().getTime();
+    }
+    if(cachedListenersList.get(eventType)==undefined){
+        let result=new Array<{module:string,func:string}>()
+        for(let pkg of await listPackagesArray('')){
+            let pmcfg=getPMConfigFromPcfg(pkg);
+            if(pmcfg!=null){
+                if(pmcfg[eventType]!=null){
+                    try{
+                        let t1={...pmcfg[eventType]};
+                        if(/^\.\.?\//.test(t1.module)){
+                            t1.module=path.join(pkg.name,t1.module)
+                        }
+                        result.push(t1);
+                    }catch(err){};
+                }
             }
         }
+        cachedListenersList.set(eventType,{listeners:result});
     }
-    return result;
+    return cachedListenersList.get(eventType)!.listeners;
 }
 
 export async function blockHttpAccessToStaticFileInWWW(path2:string){

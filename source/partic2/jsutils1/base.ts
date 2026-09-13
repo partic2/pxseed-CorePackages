@@ -81,7 +81,7 @@ if(String.prototype.at==undefined){
 
 let __name__='partic2/jsutils1/base';
 
-interface TaskCallback<T>{
+export interface TaskCallback<T>{
     then(resolve:(result:T)=>void,reject:(reason:any)=>void):void
 }
 
@@ -107,18 +107,14 @@ export class Task<T> {
     static *yieldWrap<T2>(p: Promise<T2>) {
         return (yield p) as T2;
     }
-    constructor(taskMain: Generator<TaskCallback<any>, T, any> | (() => Generator<TaskCallback<any>, T, any>),
+    constructor(public taskMain: Generator<TaskCallback<any>, T, any> | (() => Generator<TaskCallback<any>, T, any>),
         public name?: string) {
-        this.__iter = (typeof taskMain === 'function') ? taskMain() : taskMain;
         let resolver: Partial<typeof this.__resolver> = [undefined, undefined, undefined];
         resolver[0] = new Promise((resolve, reject) => {
             resolver![1] = resolve;
             resolver![2] = reject;
         });
         this.__resolver = resolver as any;
-        this.__abortController.signal.addEventListener('abort', (ev) => {
-            this.onAbort();
-        });
     }
     __resolver?: [Promise<T>, ((value: T) => void), ((reason?: any) => void)]
     __iter?: Generator<TaskCallback<any>>;
@@ -153,6 +149,7 @@ export class Task<T> {
         }
     }
     run() {
+        this.__iter = (typeof this.taskMain === 'function') ? this.taskMain() : this.taskMain;
         this.__step(undefined, undefined);
         return this;
     }
@@ -165,21 +162,51 @@ export class Task<T> {
     locals(): Record<string, any> {
         return this.__locals;
     }
-    __childrenTask = new Array<Task<any>>();
+    parentTask:Task<any>|null=null;
     //Fork a child task. 
-    //The default behaviour: set the parent locals as prototype of child locals, propagate abort signal to children.
-    fork<T2>(taskMain: Generator<TaskCallback<any>, T2, any> | (() => Generator<TaskCallback<any>, T2, any>)) {
-        let childTask = new Task(taskMain);
-        Object.setPrototypeOf(childTask.__locals, this.locals());
-        this.__childrenTask.push(childTask);
-        const cleanTask = () => this.__childrenTask.splice(this.__childrenTask.indexOf(childTask));
-        childTask.then(cleanTask, cleanTask);
+    //Will propagate abort signal to children.
+    fork<T2>(taskMain: Generator<TaskCallback<any>, T2, any> | (() => Generator<TaskCallback<any>, T2, any>),
+    options?:{
+        name?:string,
+        /*
+        The task local policy.
+        extend: set the parent locals as prototype of child locals
+        share: share same locals with parent.
+        new: new standard alone locals.
+        default: extend
+        */
+        locals?:'extend'|'share'|'new'
+    }) {
+        let childTask = new (this.constructor as any)(taskMain,options?.name) as typeof this;
+        childTask.parentTask=this;
+        const abortPropagate=()=>{
+            childTask.abort();
+        }
+        this.__abortController.signal.addEventListener('abort',abortPropagate);
+        const childTaskEnd=()=>{
+            this.__abortController.signal.removeEventListener('abort',abortPropagate);
+        }
+        childTask.then(childTaskEnd,childTaskEnd);
+        let localsPolicy=options?.locals??'extend';
+        switch(localsPolicy){
+            case 'extend':
+                Object.setPrototypeOf(childTask.__locals, this.locals());
+                break;
+            case 'share':
+                childTask.__locals=this.locals();
+                break;
+        }
         return childTask;
     }
-    onAbort() {
-        for (let t1 of [...this.__childrenTask]) {
-            t1.abort(this.__abortController.signal.reason);
+    isDescendantTaskOf(ancestor:Task<any>){
+        let curTask=this.parentTask;
+        while(curTask!=null){
+            if(curTask===ancestor){
+                return true
+            }
+            curTask=curTask.parentTask;
         }
+        return false;
     }
     then<TResult1 = T, TResult2 = never>(onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null, onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | undefined | null): Promise<TResult1 | TResult2> {
         return this.__resolver![0].then(onfulfilled, onrejected);
@@ -584,6 +611,14 @@ export class TaskLocalRef<T> extends Ref2<T|undefined>{
             return super.get();
         }
     }
+    public getInTask(t:Task<any>):T|undefined{
+        let loc=t.locals();
+        if(loc!=undefined){
+            return loc[this.taskLocalVarName];
+        }else{
+            return super.get();
+        }
+    }
     public set(val: T|undefined): void {
         let loc=Task.locals();
         if(loc!=undefined){
@@ -729,7 +764,7 @@ export function ToDataUrl(data:string|ArrayBuffer|Uint8Array,mediaType:CommonMim
 }
 
 
-interface LogHandlerArg0{level:'debug'|'info'|'warning'|'error',label:string,msg:any[]};
+export interface LogHandlerArg0{level:'debug'|'info'|'warning'|'error',label:string,msg:any[]};
 export let TaskLocalLogHandler=new TaskLocalRef<((arg0:LogHandlerArg0)=>void)|null>(null);
 export function defaultLogHandler(arg0:LogHandlerArg0){
     let handler=TaskLocalLogHandler.get();
