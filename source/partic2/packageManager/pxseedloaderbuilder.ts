@@ -3,10 +3,14 @@
 
 import {buildTjs} from 'partic2/tjshelper/tjsbuilder'
 import { getWWWRoot } from 'partic2/jsutils1/webutils';
-import { assert, requirejs } from 'partic2/jsutils1/base';
-import { utf8conv } from 'partic2/CodeRunner/jsutils2';
+import { assert, logger, requirejs } from 'partic2/jsutils1/base';
+import { utf8conv,setupAsyncHook } from 'partic2/CodeRunner/jsutils2';
+
+setupAsyncHook();
 
 let __name__=requirejs.getLocalRequireModule(require);
+
+let log=logger.getLogger(__name__);
 
 let pathsep=getWWWRoot().includes('\\')?'\\':'/';
 
@@ -30,7 +34,7 @@ let corePackOutputs=[
     {path:['www','pxseedServer2023'],filter:onlyJsCssBuildInfoFilesFilter},
     {path:['www','pxprpc'],filter:onlyJsCssBuildInfoFilesFilter},
     {path:['www','partic2','CodeRunner'],filter:onlyJsCssBuildInfoFilesFilter},
-    {path:['www','partic2','JsNotebook'],filter:(p:string)=>onlyJsCssBuildInfoFilesFilter(p) && !p.startsWith('__temp/')},
+    {path:['www','partic2','JsNotebook'],filter:(p:string)=>onlyJsCssBuildInfoFilesFilter(p) && !p.startsWith('__temp/') && !p.startsWith('workspace/')},
     {path:['www','partic2','jsutils1'],filter:onlyJsCssBuildInfoFilesFilter},
     {path:['www','partic2','nodehelper'],filter:(p:string)=>onlyJsCssBuildInfoFilesFilter(p) && !p.startsWith('__temp/')},
     {path:['www','partic2','pComponentUi'],filter:onlyJsCssBuildInfoFilesFilter},
@@ -87,19 +91,23 @@ export class PxseedLoaderBuilder{
         return found;
     }
     async runCommand(cmd:string[],cwd?:string){
-        console.info('run command:\n '+cmd.join(' ')+'\n in '+(cwd??'.'));
+        log.info('run command:\n '+cmd.join(' ')+'\n in '+(cwd??'.'));
         let tjsi=await this.ensureTjsi();
         let proc=await tjsi.spawn(cmd,{stdout:'inherit',stderr:'inherit',cwd});
         let runstat=await proc.wait();
-        console.info('commmand done.')
+        log.info('commmand done.')
         assert(runstat.exit_status==0,'process exit with code '+runstat.exit_status);
     }
     async listDir(dir:string){
         let tjsi=await this.ensureTjsi();
         let children=new Array<{path:string,name:string,type:'dir'|'file'}>();
         let iter=await tjsi.readDir(dir);
-        for await(let ch of iter){
-            children.push({name:ch.name,path:[dir,ch.name].join(pathsep),type:ch.isDirectory?'dir':'file'});
+        try{
+            for(let ch=await iter.next();!ch.done;ch=await iter.next()){
+                children.push({name:ch.value.name,path:[dir,ch.value.name].join(pathsep),type:ch.value.isDirectory?'dir':'file'});
+            }
+        }finally{
+            await iter.close();
         }
         return children;
     }
@@ -128,7 +136,7 @@ export class PxseedLoaderBuilder{
                     await tjsi.makeDir(this.dirname(dest),{recursive:true});
                     await tjsi.copyFile(src,dest);
                 }catch(err){
-                    console.warn(err);
+                    log.warning(err);
                 }
             }
         }else if(statSrc.isDirectory){
@@ -156,12 +164,12 @@ export class PxseedLoaderBuilder{
         }
         if(this.pxseedLoaderSource===null){
             this.pxseedLoaderSource=[getWWWRoot(),...__name__.split('/'),'data','pxseedloadersource'].join(pathsep);
-            console.info(`pxseed loader source not defined, use ${this.pxseedLoaderSource}`)
+            log.info(`pxseed loader source not defined, use ${this.pxseedLoaderSource}`)
         }
         try{
             await tjsi.stat(this.pxseedLoaderSource);
         }catch(err){
-            console.info('No source found, clone from remote.');
+            log.info('No source found, clone from remote.');
             await tjsi.makeDir(this.pxseedLoaderSource,{recursive:true});
             await this.runCommand([this.git,'clone','--depth=1','https://gitee.com/partic/xplatj2.git',this.pxseedLoaderSource])
         }
@@ -377,7 +385,7 @@ enableGeckoView=${this.androidEnableGeckoView}
 }
 
 export async function defaultBuild(configFile?:string){
-    console.info('prepare default build.');
+    log.info('prepare default build.');
     try{
         let buildConfig=new PxseedLoaderBuilder();
         let tjsi=await buildTjs();
@@ -389,6 +397,6 @@ export async function defaultBuild(configFile?:string){
         await buildConfig.ensurePxseedLoaderSource();
         await buildConfig.build()
     }catch(err:any){
-        console.error(err.message+'\n'+err.stack);
+        log.error(err.message+'\n'+err.stack);
     }
 }

@@ -8,7 +8,6 @@ import { NotebookFileData, runNotebook } from 'partic2/JsNotebook/workerinit';
 import { easyCallRemoteJsonFunction, getPersistentRegistered, getRegistered, ServerHostRpcName, ServerHostWorker1RpcName } from 'partic2/pxprpcClient/registry';
 import {defaultGitClient, fetchPackage, __internal__ as pkgfetcheri} from './pkgfetcher'
 import { newCodeCellListData } from 'partic2/CodeRunner/CodeContext';
-import { EventBuffer } from '../CodeRunner/jsutils2';
 
 export let __name__=requirejs.getLocalRequireModule(require);
 
@@ -528,6 +527,7 @@ export async function installPackage(source:string){
             existed=true;
         }catch(e){existed=false;}
         if(existed){
+            log.info(`package ${source} existed,upgrade it.`);
             try{
                 await upgradePackage(source)
                 installProcessed=true;
@@ -537,6 +537,7 @@ export async function installPackage(source:string){
         }
         if(!installProcessed){
             try{
+                log.info(`Try to fetch package ${source}.`);
                 let fetchResult=await fetchPackage(source);
                 await installLocalPackage!(fetchResult.localPath);
                 installProcessed=true;
@@ -638,7 +639,7 @@ export async function importPackagesInstallation(installationInfo:{repos:RepoCon
         try{
             let existed=false;
             try{
-                fs.access(path.join(sourceDir,...pkg.split('/')));
+                await fs.access(path.join(sourceDir,...pkg.split('/')));
                 existed=true;
             }catch(e){}
             if(!existed){

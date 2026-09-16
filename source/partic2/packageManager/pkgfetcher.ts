@@ -1,5 +1,5 @@
 import { getNodeCompatApi ,__internal__ as utilsi} from 'pxseedBuildScript/util';
-import { ArrayBufferConcat, ArrayWrap2, GenerateRandomString, logger, requirejs } from 'partic2/jsutils1/base';
+import { ArrayBufferConcat, ArrayWrap2, GenerateRandomString, logger, requirejs, Task } from 'partic2/jsutils1/base';
 import { defaultHttpClient, getWWWRoot } from 'partic2/jsutils1/webutils';
 import { Singleton } from 'partic2/CodeRunner/jsutils2';
 
@@ -26,8 +26,13 @@ export let defaultGitClient=new Singleton(async ()=>{
                 byteLength: number;
                 byteOffset: number;
             }[]=[];
-            for await (let t1 of c.body){
-                bodyPart.push(t1);
+            let t2=c.body[Symbol.asyncIterator]();
+            try{
+               for(let t1=await t2.next();!t1.done;t1=await t2.next()){
+                    bodyPart.push(t1.value);
+                }
+            }finally{
+                t2.return?.();
             }
             c.body=new Uint8Array(ArrayBufferConcat(bodyPart));
         }
@@ -183,6 +188,7 @@ export async function fetchPackage(nameOrUrl:string){
                 return {localPath};
             }
         }catch(err:any){
+            log.info(`fetch package ${nameOrUrl} failed. \n ${err}`);
             tryResult.push(err);
         }
     }else{
@@ -190,11 +196,13 @@ export async function fetchPackage(nameOrUrl:string){
         let info=await getRepoInfoFromPkgName(nameOrUrl);
         for(let t1 of info.urls){
             try{
+                log.info(`try to fetch from source ${t1}`)
                 let repoLocalPath=await fetchPackageFromUrl(t1);
                 if(repoLocalPath==undefined)continue;
                 let path2=info.path;
                 return {localPath:path.join(repoLocalPath,...path2)};
             }catch(err:any){
+                log.info(`fetch package ${nameOrUrl} from source ${t1} failed. \n ${err}`);
                 tryResult.push(err);
             }
         }
