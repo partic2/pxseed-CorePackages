@@ -582,7 +582,7 @@ export class HttpClient{
 			headersString.push(`${key}: ${val}`);
 		});
 		let nonChunkBody:ArrayBuffer|null=null;
-		if(!chunked && !req.headers.has('content-length')){
+		if(!chunked && !req.headers.has('content-length') && req.body!=null){
 			nonChunkBody=await req.arrayBuffer();
 			headersString.push('Content-Length:' +String(nonChunkBody.byteLength));
 		}
@@ -593,7 +593,7 @@ export class HttpClient{
 				'\r\n'
 			].join('\r\n'))
 		);
-		if(req.body!=undefined){
+		if(req.body!=null){
 			if(chunked){
 				await req.body.pipeTo(new WritableStream({
 					write:async (chunk: Uint8Array, controller: WritableStreamDefaultController)=>{
@@ -770,7 +770,7 @@ interface HttpRouterHandler{
 export class SimpleHttpServerRouter {
 	constructor() { };
 	root: HttpRouterHandler = { map: {} }
-	onfetch = async (req: Request): Promise<Response> => {
+	async fetch(req:Request){
 		let { pathname } = new URL(req.url);
 		let parts = pathname.substring(1).split(/\//).filter(t1 => t1 != '');
 		let cur: HttpRouterHandler = this.root;
@@ -791,10 +791,13 @@ export class SimpleHttpServerRouter {
 		}
 		return new Response(null, { status: 404 });
 	}
-	onwebsocket = async (controller: {
+	onfetch = async (req: Request): Promise<Response> => {
+		return await this.fetch(req);
+	}
+	async websocket(controller: {
 		request: Request
 		accept: () => Promise<WebSocketServerConnection>
-	}) => {
+	}){
 		let req = controller.request;
 		let { pathname } = new URL(req.url);
 		let parts = pathname.substring(1).split(/\//).filter(t1 => t1.length > 0);
@@ -814,6 +817,12 @@ export class SimpleHttpServerRouter {
 		if (validHandler != null) {
 			await validHandler.websocket!(controller);
 		}
+	}
+	onwebsocket = async (controller: {
+		request: Request
+		accept: () => Promise<WebSocketServerConnection>
+	}) => {
+		await this.websocket(controller);
 	}
 	setHandler(prefix: string, handler: null | Omit<HttpRouterHandler, 'map'>): void {
 		let parts = prefix.substring(1).split(/\//).filter(t1 => t1.length > 0);
@@ -856,7 +865,7 @@ export class SimpleFileServer{
 	showIndex=true;
 	cacheControl:(filePath:string)=>Promise<{maxAge:number}|'no-cache'|'no-store'>=async (filepath:string)=>({maxAge:86400})
 	interceptor:(filePath:string)=>Promise<Response|null>=async ()=>null;
-    onfetch=async (req:Request):Promise<Response>=>{
+	async fetch(req:Request){
 		let {pathname}=new URL(req.url)
         let filepath=decodeURIComponent(pathname.substring(this.pathStartAt));
         try{
@@ -917,6 +926,9 @@ export class SimpleFileServer{
         }catch(err:any){
             return new Response(err.toString(),{status:404});
         }
+	}
+    onfetch=async (req:Request):Promise<Response>=>{
+		return await this.fetch(req);
     }
 
 }
