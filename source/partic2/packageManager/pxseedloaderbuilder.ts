@@ -64,6 +64,7 @@ export class PxseedLoaderBuilder{
     androidNoExtend=false;
     //Enable geckoview on android(enlarge the .apk size).
     androidEnableGeckoView=false;
+    debugBuild=false;
     async ensureTjsi(){
         if(this.tjsi==null)this.tjsi=await buildTjs();
         return this.tjsi;
@@ -306,7 +307,11 @@ enableGeckoView=${this.androidEnableGeckoView}
             let flags=[this.cmake]
             flags.push(`-DANDROID_NATIVE_API_LEVEL=${this.androidBuildSdkVersion}`)
             flags.push(`-DCMAKE_TOOLCHAIN_FILE=${this.AndroidNdk!.replace(/\\/g,'/')}/build/cmake/android.toolchain.cmake`);
-            flags.push('-DCMAKE_BUILD_TYPE=RELEASE');
+            if(this.debugBuild){
+                flags.push('-DCMAKE_BUILD_TYPE=DEBUG');
+            }else{
+                flags.push('-DCMAKE_BUILD_TYPE=RELEASE');
+            }
             flags.push(`-DANDROID_ABI=${currAbi}`)
             flags.push('-G',`${this.cmakeGenerator}`);
             flags.push('-S',this.pxseedLoaderSource+'/launcher');
@@ -353,7 +358,11 @@ enableGeckoView=${this.androidEnableGeckoView}
             }
             try{
                 let flags=[this.cmake];
-                flags.push('-DCMAKE_BUILD_TYPE=RELEASE')
+                if(this.debugBuild){
+                    flags.push('-DCMAKE_BUILD_TYPE=DEBUG');
+                }else{
+                    flags.push('-DCMAKE_BUILD_TYPE=RELEASE');
+                }
                 flags.push(`-DCMAKE_C_COMPILER=${buildToolchain.CC.replace(/\\/g,'/')}`);
                 flags.push(`-DCMAKE_CXX_COMPILER=${buildToolchain.CXX.replace(/\\/g,'/')}`);
                 flags.push('-S',this.pxseedLoaderSource+'/launcher')
