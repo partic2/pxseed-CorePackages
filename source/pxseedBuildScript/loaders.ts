@@ -2,7 +2,7 @@
 
 import { simpleGlob, getNodeCompatApi,__internal__ as utilsi,console } from './util'
 import {type PxseedStatus} from './buildlib'
-
+import type {CompilerOptions} from 'typescript'
 
 
 export let sourceDir=''
@@ -75,13 +75,14 @@ export let pxseedBuiltinLoader={
                 let mtime=fileInfo.mtime.getTime();
                 let moduleName=dir.substring(sourceDir.length+1).replace(/\\/g,'/')+'/'+t1.replace(/.tsx?$/,'')
                 moduleName=moduleName.replace(/\/\/+/g,'/')
+                let baseCompileOption:CompilerOptions={target:ts.ScriptTarget.ES2020,module:ts.ModuleKind.AMD,esModuleInterop:false,moduleResolution:ts.ModuleResolutionKind.Node10}
                 if(mtime>status.lastSuccessBuildTime){
                     console.info('typescript transpile '+t1);
                     let transpiled='';
                     if(t1.endsWith('.ts')){
                         transpiled=ts.transpile(
                             new TextDecoder().decode(await fs.readFile(filePath)),
-                            {target:ts.ScriptTarget.ES2020,module:ts.ModuleKind.AMD,esModuleInterop:false},
+                            {...baseCompileOption},
                             filePath,
                             [],
                             moduleName
@@ -89,7 +90,7 @@ export let pxseedBuiltinLoader={
                     }else if(t1.endsWith('.tsx')){
                         transpiled=ts.transpile(
                             new TextDecoder().decode(await fs.readFile(filePath)),
-                            {target:ts.ScriptTarget.ES2020,module:ts.ModuleKind.AMD,esModuleInterop:false,jsx:ts.JsxEmit.React},
+                            {...baseCompileOption,jsx:ts.JsxEmit.React},
                             filePath,
                             [],
                             moduleName
