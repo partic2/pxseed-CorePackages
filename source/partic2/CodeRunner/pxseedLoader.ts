@@ -230,7 +230,7 @@ export async function addAsyncHookPxseedLoader(dir:string,config:{include?:strin
     status.loadersData[__name__+'.addAsyncHookPxseedLoader']={completeTime:GetCurrentTime().getTime()}
 }
 
-export async function addAutoAsyncAwaitPxseedLoader(dir:string,config:{include?:string[]},status:PxseedStatus){
+export async function addAutoAsyncAwaitPxseedLoader(dir:string,config:{include?:string[],exclude?:string[]},status:PxseedStatus){
     const {sourceDir,outputDir}=await import('pxseedBuildScript/loaders');
     const { getNodeCompatApi }=await import('pxseedBuildScript/util');
     const {fs,path}=await getNodeCompatApi();
@@ -240,7 +240,7 @@ export async function addAutoAsyncAwaitPxseedLoader(dir:string,config:{include?:
     }
     const { simpleGlob } =await import('pxseedBuildScript/util');
     let lastCompleteTime=status.loadersData[__name__+'.addAutoAsyncAwaitPxseedLoader']?.completeTime??1
-    for(let file1 of await simpleGlob(config.include,{cwd:packageOutput})){
+    for(let file1 of await simpleGlob(config.include,{cwd:packageOutput,exclude:config.exclude})){
         let fpath=path.join(packageOutput,file1);
         let finfo=await fs.stat(fpath);
         if(finfo.mtime.getTime()>lastCompleteTime){

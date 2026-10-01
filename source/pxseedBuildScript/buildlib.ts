@@ -14,7 +14,7 @@ export interface PxseedConfig{
     }[],
     clean?:{
         include?:string[],
-        excludeRegexp?:string[]
+        exclude?:string[]
     }
     description?:string,
     extra?:{
@@ -169,12 +169,7 @@ export async function cleanPackage(pkgOutDir:string){
     if(pxseedConfig!=undefined && pxseedConfig.clean!=undefined){
         let cleanConfig=pxseedConfig.clean;
         if(cleanConfig.include!=undefined){
-            let excludeRegexp:RegExp[]=[];
-            if(cleanConfig.excludeRegexp!=undefined){
-                excludeRegexp=cleanConfig.excludeRegexp.map((v:string)=>new RegExp(v));
-            }
-            for(let t1 of await simpleGlob(cleanConfig.include,{cwd:pkgOutDir})){
-                if(excludeRegexp.some((v:RegExp)=>v.test(t1))){continue;}
+            for(let t1 of await simpleGlob(cleanConfig.include,{cwd:pkgOutDir,exclude:cleanConfig.exclude})){
                 await fs.rm(path.join(pkgOutDir,t1));
             }
         }

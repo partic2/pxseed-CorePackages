@@ -379,7 +379,7 @@ class PackagePanel extends React.Component<{},{
                 ],undefined,4),
                 clean:JSON.stringify({
                     include:['**/*.js','assets/**/*'],
-                    excludeRegexp:['^data/']
+                    exclude:['data']
                 },undefined,4),
                 webui:{
                     entry:'./webui',

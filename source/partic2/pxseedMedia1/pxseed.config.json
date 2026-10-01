@@ -14,8 +14,8 @@
     "include": [
       "**/*.js","./icons/**/*","./sound/**/*"
     ],
-    "excludeRegexp": [
-      "^data/"
+    "exclude": [
+      "data"
     ]
   },
   "name": "partic2/pxseedMedia1"

@@ -11,8 +11,8 @@
     "include": [
       "**/*.js","prism/*.js","prism/*.css"
     ],
-    "excludeRegexp": [
-      "^workspace/"
+    "exclude": [
+      "workspace","data"
     ]
   },
   "name": "partic2/JsNotebook",

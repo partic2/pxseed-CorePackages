@@ -94,78 +94,173 @@ async function runBuild(){
     await runCommand('node '+buildScriptPath)
 }
 
-async function *iterPath(path2:string,opt:{includeHidenFile?:boolean,cwd:string}):AsyncGenerator<string>{
-    const {path,fs}=await getNodeCompatApi();
-    for(let child of await fs.readdir(path.join(opt.cwd,path2),{withFileTypes:true})){
-        if(!opt.includeHidenFile && child.name.startsWith('.')){
-            continue
-        }
-        if(child.isDirectory()){
-            yield* iterPath(path.join(path2,child.name),opt);
-        }else{
-            const p=path.join(path2,child.name);
-            yield p;
-        }
-    }
-}
+//Glob by Deepseek
+import type { Dirent } from 'node:fs';
+export async function simpleGlob(include: string[], opt: { cwd: string, exclude?: string[] }) {
+    let { fs, path } = await getNodeCompatApi();
 
-export async function simpleGlob(include:string[],opt:{cwd:string,includeHidenFile?:boolean}){
-    let matchRegexps:Array<Array<RegExp|'**'>>=[];
-    for(let t1 of include){
-        let pathPart=t1.split(/[\\/]/);
-        let pathPartReg:Array<RegExp|'**'>=[];
-        for(let t2 of pathPart){
-            if(t2=='.'){
-                continue
-            }else if(t2=='..'){
-                if(pathPartReg.length==0){
-                    throw new Error('simple glob do not support ".." on the top level.');
-                }
-                pathPartReg.pop();
-            }else if(t2=='**'){
-                pathPartReg.push('**');
-            }else{
-                pathPartReg.push(new RegExp('^'+
-                    t2.replace(/[\.\(\)]/g,(v)=>'\\'+v)
-                        .replace(/\*/g,'.*')+
-                    '$'));
+    type Pattern = string[];
+
+    const segmentRegexCache = new Map<string, RegExp>();
+
+    function compileSegment(segment: string): RegExp {
+        const cached = segmentRegexCache.get(segment);
+        if (cached) return cached;
+
+        let source = '^';
+        for (const ch of segment) {
+            if (ch === '*') {
+                source += '[^/]*';
+            } else if (ch === '?') {
+                source += '[^/]';
+            } else {
+                source += ch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
             }
         }
-        matchRegexps.push(pathPartReg);
+        source += '$';
+
+        const regex = new RegExp(source);
+        segmentRegexCache.set(segment, regex);
+        return regex;
     }
-    
-    let matchResult:string[]=[];
-    for await(let t1 of iterPath('',{cwd:opt.cwd,includeHidenFile:opt.includeHidenFile})){
-        let matched=false;
-        let pathPart = t1.split(/[\\/]/).filter(t1=>t1!=='');
-        for(let t2 of matchRegexps){
-            let pathPartMatched=true;
-            let doubleStar=t2.indexOf('**');
-            if(doubleStar<0)doubleStar=t2.length;
-            for(let t3=0;t3<doubleStar;t3++){
-                if(!(t2[t3] as RegExp).test(pathPart[t3])){
-                    pathPartMatched=false;
-                    break;
-                }
+
+    function segmentMatches(pathSegment: string, patternSegment: string): boolean {
+        if (patternSegment === '*') return true;
+        return compileSegment(patternSegment).test(pathSegment);
+    }
+
+    function parsePattern(pattern: string): Pattern {
+        return pattern.split('/').filter((s) => s.length > 0 && s !== '.');
+    }
+
+    function matchesPattern(pathSegments: string[], pattern: Pattern): boolean {
+        const n = pathSegments.length;
+        const m = pattern.length;
+        const memo = new Map<number, boolean>();
+
+        const go = (i: number, j: number): boolean => {
+            if (j === m) return i === n;
+
+            const key = i * (m + 1) + j;
+            const cached = memo.get(key);
+            if (cached !== undefined) return cached;
+
+            let result: boolean;
+            if (pattern[j] === '**') {
+                result = go(i, j + 1) || (i < n && go(i + 1, j));
+            } else {
+                result = i < n && segmentMatches(pathSegments[i], pattern[j]) && go(i + 1, j + 1);
             }
-            if(pathPartMatched){
-                for(let t3=t2.length-1;t3>doubleStar;t3--){
-                    if(!(t2[t3] as RegExp).test(pathPart[pathPart.length-(t2.length-t3)])){
-                        pathPartMatched=false;
-                        break;
+
+            memo.set(key, result);
+            return result;
+        };
+
+        return go(0, 0);
+    }
+
+
+    function canBePrefix(pathSegments: string[], pattern: Pattern): boolean {
+        const n = pathSegments.length;
+        const m = pattern.length;
+        const memo = new Map<number, boolean>();
+
+        const go = (i: number, j: number): boolean => {
+            if (i === n) return true; // all directory segments consumed so far
+            if (j === m) return false; // pattern exhausted, path is not
+
+            const key = i * (m + 1) + j;
+            const cached = memo.get(key);
+            if (cached !== undefined) return cached;
+
+            let result: boolean;
+            if (pattern[j] === '**') {
+                result = go(i, j + 1) || go(i + 1, j);
+            } else {
+                result = segmentMatches(pathSegments[i], pattern[j]) && go(i + 1, j + 1);
+            }
+
+            memo.set(key, result);
+            return result;
+        };
+
+        return go(0, 0);
+    }
+    function excludedDir(pathSegments: string[], pattern: Pattern): boolean {
+        const n = pathSegments.length;
+        const m = pattern.length;
+        const memo = new Map<number, boolean>();
+
+        const go = (i: number, j: number): boolean => {
+            if (i === n) {
+                // Directory path fully matched. Anything left in the pattern must be "**",
+                // meaning the whole subtree is excluded too.
+                for (let k = j; k < m; k++) {
+                    if (pattern[k] !== '**') return false;
+                }
+                return true;
+            }
+            if (j === m) return false;
+
+            const key = i * (m + 1) + j;
+            const cached = memo.get(key);
+            if (cached !== undefined) return cached;
+
+            let result: boolean;
+            if (pattern[j] === '**') {
+                result = go(i, j + 1) || go(i + 1, j);
+            } else {
+                result = segmentMatches(pathSegments[i], pattern[j]) && go(i + 1, j + 1);
+            }
+
+            memo.set(key, result);
+            return result;
+        };
+
+        return go(0, 0);
+    }
+
+    async function glob({ include, exclude, cwd }: { include: string[], exclude: string[], cwd: string }): Promise<string[]> {
+        const includePatterns = include.map(parsePattern).filter((p) => p.length > 0);
+        const excludePatterns = exclude.map(parsePattern).filter((p) => p.length > 0);
+
+        if (includePatterns.length === 0) return [];
+
+        const results: string[] = [];
+
+        const walk = async (absDir: string, relSegments: string[]): Promise<void> => {
+            let entries: Dirent[];
+            try {
+                entries = await fs.readdir(absDir, { withFileTypes: true });
+            } catch {
+                return;
+            }
+
+            for (const entry of entries) {
+                const name = entry.name;
+                const childRel = relSegments.concat(name);
+                const childAbs = path.join(absDir, name);
+
+                if (entry.isDirectory()) {
+                    if (excludePatterns.some((p) => excludedDir(childRel, p))) continue;
+                    if (!includePatterns.some((p) => canBePrefix(childRel, p))) continue;
+
+                    await walk(childAbs, childRel);
+                } else if (entry.isFile()) {
+                    if (excludePatterns.some((p) => matchesPattern(childRel, p))) continue;
+                    if (includePatterns.some((p) => matchesPattern(childRel, p))) {
+                        results.push(childRel.join('/'));
                     }
                 }
             }
-            if(pathPartMatched){
-                matched=true;
-                break;
-            }
-        }
-        if(matched){
-            matchResult.push(t1.replace(/\\/g,'/'));
-        }
+        };
+
+        await walk(cwd, []);
+
+        results.sort();
+        return results;
     }
-    return matchResult;
+    return glob({include,exclude:opt.exclude??[],cwd:opt.cwd});
 }
 
 export let console=globalThis.console;

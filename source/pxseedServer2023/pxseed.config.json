@@ -13,8 +13,8 @@
     "include": [
       "**/*.js"
     ],
-    "excludeRegexp": [
-      "^state/","^data/","^config.json$"
+    "exclude": [
+      "state","data","config.json"
     ]
   },
   "name": "pxseedServer2023",

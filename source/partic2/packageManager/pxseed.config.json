@@ -14,8 +14,8 @@
     "include": [
       "**/*.js","__temp/**/*"
     ],
-    "excludeRegexp": [
-      "^data/"
+    "exclude": [
+      "data"
     ]
   },
   "name": "partic2/packageManager"

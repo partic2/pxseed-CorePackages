@@ -8,8 +8,8 @@
     "include": [
       "**/*.js"
     ],
-    "excludeRegexp": [
-      "^data/"
+    "exclude": [
+      "data"
     ]
   },
   "name": "partic2/pxprpcBinding"
