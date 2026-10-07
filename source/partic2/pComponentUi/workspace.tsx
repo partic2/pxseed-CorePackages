@@ -2,7 +2,7 @@
 import * as React from 'preact'
 import { css as baseCss, ReactRefEx } from './domui';
 import { ensureRootWindowContainer, language, rootWindowGroup, WindowComponentProps, css as windowCss } from './window';
-import {GenerateRandomString, GetCurrentTime, Ref2, assert, copy, future, mutex, partial, requirejs, sleep} from 'partic2/jsutils1/base'
+import {GenerateRandomString, GetCurrentTime, Ref2, assert, copy, future, mutex, objectPickField, requirejs, sleep} from 'partic2/jsutils1/base'
 import { appendFloatWindow, removeFloatWindow, WindowComponent } from './window';
 import { getIconUrl } from 'partic2/pxseedMedia1/index1';
 import { DynamicPageCSSManager, GetPersistentConfig, SavePersistentConfig } from 'partic2/jsutils1/webutils';
@@ -204,7 +204,7 @@ openNewWindowPipeline.arr().push({name:__name__+'.openNewWindowLayoutWindow',han
     if(options.windowOptions?.borderless!=true){
         let layout1=context.request.windowOptions?.initialLayout??null;
         if(layout1==null &&options.layoutHint!=undefined && config1.savedWindowLayout[options.layoutHint]!=undefined){
-            layout1=partial(config1.savedWindowLayout[options.layoutHint],['left','top','width','height']) as any;
+            layout1=objectPickField(config1.savedWindowLayout[options.layoutHint],['left','top','width','height']) as any;
             config1.savedWindowLayout[options.layoutHint].time=GetCurrentTime().getTime();
             await SavePersistentConfig(__name__,config1);
         }

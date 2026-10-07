@@ -1,5 +1,5 @@
 import * as React from 'preact'
-import { MiscObject, UnidentifiedObject } from './Inspector';
+import { MiscObject, UnidentifiedArray, UnidentifiedObject,magicPropertyName } from './Inspector';
 import { assert, GenerateRandomString, LogHandlerArg0, requirejs, Task, ToDataUrl } from 'partic2/jsutils1/base';
 import { text2html } from 'partic2/pComponentUi/utils';
 import { DynamicPageCSSManager } from 'partic2/jsutils1/webutils';
@@ -10,7 +10,6 @@ import { ReactRefEx } from 'partic2/pComponentUi/domui';
 
 let __name__=requirejs.getLocalRequireModule(require)
 
-export const CustomViewerFactoryProp='__Zag7QaCUiZb1ABgM__'
 
 export type ObjectViewerProps={name:string,object:any,codeContext?:RunCodeContext,variableName?:string}
 
@@ -20,36 +19,11 @@ export let css1={
 
 
 
-export function createViewableHtml(source:{html?:string,js?:string}){
-    return {
-        [CustomViewerFactoryProp]:__name__+'.HtmlViewer',
-        ...source
-    }
-}
-
-export function createViewableImage(source:{url?:string,svg?:string,pngdata?:Uint8Array,jpegdata?:Uint8Array,bmpdata?:Uint8Array}){
-    let opt:{url?:string}={};
-    if(source.url!=undefined){
-        opt.url=source.url
-    }else if(source.svg!=undefined){
-        opt.url=ToDataUrl(source.svg,'image/svg+xml')
-    }else if(source.pngdata!=undefined){
-        opt.url=ToDataUrl(source.pngdata,'image/png')
-    }else if(source.jpegdata!=undefined){
-        opt.url=ToDataUrl(source.jpegdata,'image/jpeg')
-    }else if(source.bmpdata!=undefined){
-        opt.url=ToDataUrl(source.bmpdata,'image/bmp')
-    }
-    return {
-        [CustomViewerFactoryProp]:__name__+'.ImageViewer',
-        ...opt
-    }
-}
 if(globalThis.document!=undefined){
     DynamicPageCSSManager.PutCss('.'+css1.propName,['color:blue']);
 }
 export class ObjectViewer extends React.Component<
-    {name:string,object:any,variableName?:string},
+    {name:string,object:any,variableName?:string,codeContext?:RunCodeContext},
     {folded:boolean,displayModel?:any,lastPropObject:any,viewer:null|React.ComponentType<ObjectViewerProps>}
 >{
     constructor(props:any,ctx:any){
@@ -78,11 +52,11 @@ export class ObjectViewer extends React.Component<
     protected async onDisplayModelChanged(){
         try{
             let robj=this.state.displayModel;
-            if(typeof robj==='object' && robj!=null && CustomViewerFactoryProp in robj){
-                let viewerPath=robj[CustomViewerFactoryProp] as string;
-                let dotAt=viewerPath.lastIndexOf('.');
-                let mod=await import(viewerPath.substring(0,dotAt));
-                let viewerFactory=mod[viewerPath.substring(dotAt+1)];
+            if(typeof robj==='object' && robj!=null && magicPropertyName.customViewerFactoryProp in robj){
+                await UnidentifiedObject.identifyRecursive(robj,{maxDepth:100000,maxKeyCount:100000});
+                let viewerPath=robj[magicPropertyName.customViewerFactoryProp] as {module:string,name:string};
+                let mod=await import(viewerPath.module);
+                let viewerFactory=mod[viewerPath.name];
                 if(typeof viewerFactory==='function'){
                     if('render' in viewerFactory.prototype){
                         this.setState({viewer:viewerFactory});
@@ -100,11 +74,12 @@ export class ObjectViewer extends React.Component<
     protected lastDisplayModel=null;
     async renderUpdateCheck(){
         if(this.props.object!==this.state.lastPropObject){
+            this.setState({lastPropObject:this.props.object})
             let folded=false;
             if(this.props.object instanceof UnidentifiedObject){
                 folded=true;
             }
-            this.setState({displayModel:this.props.object,folded,lastPropObject:this.props.object});
+            this.setState({displayModel:this.props.object,folded});
             if(this.props.object instanceof Array){
                 let newArr=new Array();
                 let arrayElemUpdated=false;
@@ -175,7 +150,7 @@ export class ObjectViewer extends React.Component<
         let type1=typeof(robj);
         let TypedArray=Object.getPrototypeOf(Object.getPrototypeOf(new Uint8Array())).constructor;
         if(this.state.viewer!=null){
-            return React.createElement(this.state.viewer,{...this.props})
+            return React.createElement(this.state.viewer,{...this.props,object:robj})
         }else if(type1==='string'){
             if(robj.includes('\n')){
                 let html1=text2html('`'+robj+'`');
@@ -197,7 +172,7 @@ export class ObjectViewer extends React.Component<
         }else if(robj instanceof Array){
             return <div>
                 <a className={css1.propName} onClick={()=>this.toggleFolding()}>
-                    {this.state.folded?'+':'-'} {(this.props.variableName??'')+this.props.name} ({robj.length})
+                    {this.state.folded?'+':'-'} {(this.props.variableName??'')+this.props.name} (Array,{robj.length})
                 </a>
                 {this.renderExpandChildrenBtnIfAvailable()}<br/>
                 {(!this.state.folded)?
@@ -210,7 +185,7 @@ export class ObjectViewer extends React.Component<
         }else if(robj instanceof UnidentifiedObject){
             return <div>
                 <a className={css1.propName} onClick={()=>this.toggleFolding()}>
-                    {this.state.folded?'+':'-'} {(this.props.variableName??'')+this.props.name} ({robj.keyCount})
+                    {this.state.folded?'+':'-'} {(this.props.variableName??'')+this.props.name} ({(robj[magicPropertyName.objectConstructorName])},{robj.keyCount})
                 </a>
             </div>
         }else if(robj instanceof MiscObject){
@@ -236,10 +211,10 @@ export class ObjectViewer extends React.Component<
             <span className={css1.propName}>{this.props.name}:</span> ArrayBuffer:{u8hexconv(new Uint8Array(robj))}
         </div>
         }else{            
-            let keys=Object.keys(robj)
+            let keys=Object.keys(robj).filter(t1=>t1!==magicPropertyName.objectConstructorName);
             return <div>
                 <a className={css1.propName} onClick={()=>this.toggleFolding()}>
-                    {this.state.folded?'+':'-'}{(this.props.variableName??'')+this.props.name} ({keys.length})
+                    {this.state.folded?'+':'-'}{(this.props.variableName??'')+this.props.name} ({robj[magicPropertyName.objectConstructorName]},{keys.length})
                 </a>
                 {this.renderExpandChildrenBtnIfAvailable()}<br/>
                 {(!this.state.folded)?
@@ -252,7 +227,8 @@ export class ObjectViewer extends React.Component<
         }
     }
 }
-class HtmlViewer extends React.Component<{name:string,object:{html?:string,js?:string}}>{
+
+export class HtmlViewer extends React.Component<{name:string,object:{html?:string,js?:string}}>{
     divRef=new ReactRefEx<HTMLDivElement>();
     render(props?: React.RenderableProps<ObjectViewerProps, any> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChildren {
         if(this.props.object.js!=undefined){
@@ -282,7 +258,6 @@ export class ImageViewer extends React.Component<{name:string,object:{url?:strin
         }
     }
 }
-
 
 
 export class SimpleLogViewer extends React.Component<

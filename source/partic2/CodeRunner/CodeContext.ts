@@ -41,14 +41,15 @@ export class CodeContextEventTarget extends EventTarget{
 
 export interface RunCodeContext{
     //resultVariable=resultVariable??'_'
-    //'runCode' will process source before execute, depend on the implemention.
+    //'runCode' will process source before execute, depend on the implementation.
     // Only string result will be stored into 'stringResult', otherwise null will be stored.
     // If error occured, The "resultVariable" will store the catched object. and err=catched.toString()
     // if resultVariable equals '', result will not be stored.
     runCode(source:string,resultVariable?:string):Promise<{stringResult:string|null,err:string|null}>;
 
-    //Call function this.localScope[name]. To ensure can be used in RemoteCodeContext, params and result should only include JSON-serializable Object/Uint8Array/{[RpcSerializeMagicMark]:{}}
-    callFunction(name:string,args:any[]):Promise<any>
+    //Call function this.localScope[func]  or Call function (await import(func.module))[func.name]
+    //To ensure can be used in RemoteCodeContext, params and result should only include JSON-serializable Object/Uint8Array/{[RpcSerializeMagicMark]:{}}
+    callFunction(func:string|{module:string,name:string},args:any[]):Promise<any>
 
     event:CodeContextEventTarget;
 
@@ -201,14 +202,6 @@ export class LocalRunCodeContext implements RunCodeContext{
         //transpiler
         __topLevelTranspileDirective:{},
         __transpile__:(directive:any,source:any)=>source,
-        callModuleFunction:async (module:string,func:string,args:any[])=>{
-            let that=this;
-            //Use Task to keep TaskLocalEnv valid.
-            return jsutils1.Task.fork(function*(){
-                let imp=yield that.importHandler(module);
-                return yield imp[func](...args);
-            }).run()
-        },
         event:null,
         console:null,
         CodeContextEvent,
@@ -304,14 +297,23 @@ export class LocalRunCodeContext implements RunCodeContext{
         this.contextRunCodeQueue.queueSignalPush({g:task,r,fork:opt?.fork});
         return r.get();
     }
-    async callFunction(name: string, args: any[]): Promise<any> {
+    async callFunction(func: string|{module:string,name:string}, args: any[]): Promise<any> {
         let that=this;
         return this.runInContextTask(function *(){
-            let r=that.localScope[name](...args);
-            if(typeof r==='object' && r!==null && typeof r.then==='function'){
-                r=yield r;
+            if(typeof func==='string'){
+                let r=that.localScope[func](...args);
+                if(typeof r==='object' && r!==null && typeof r.then==='function'){
+                    r=yield r;
+                }
+                return r;
+            }else{
+                let m=yield import(func.module) as any;
+                let r=m[func.name](...args);
+                if(typeof r==='object' && r!==null && typeof r.then==='function'){
+                    r=yield r;
+                }
+                return r;
             }
-            return r;
         });
     }
     async processSource(source:string){

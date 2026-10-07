@@ -20,7 +20,6 @@ if(String.prototype.at==undefined){
     Object.getPrototypeOf(Uint8Array.prototype).at=arrayAt;
 }
 
-
 //AbortController polyfill on https://github.com/mo/abortcontroller-polyfill
 (function(){
     class AbortSignal extends EventTarget {
@@ -219,36 +218,45 @@ export function throwIfAbortError(e:Error){
     }
 }
 
-export function copy<T>(src: T, dst: any, depth: number) {
-    if (depth == 0) {
-        return;
-    }
-
-    Object.getOwnPropertyNames(src).forEach(function (key, i) {
-        let srcObj = <{ [key: string]: any }>src;
-        let v = srcObj[key];
-        if (v instanceof Function) {
-            dst[key] = srcObj[key];
-        } else if (depth > 1 && (v instanceof Array)) {
-            dst[key] = new Array();
-            copy(srcObj[key], dst[key], depth - 1);
-        } else if (depth > 1 && v instanceof Object) {
-            dst[key] = new Object();
-            copy(srcObj[key], dst[key], depth - 1);
-        } else {
-            dst[key] = srcObj[key];
+export function copy<T>(src: T, dst: any, depth: number): any {
+    if (depth <= 0) return dst;
+    if (Array.isArray(src)) {
+        if (!Array.isArray(dst)) dst = [];
+        dst.length = src.length;
+        for (let i = 0; i < src.length; i++) {
+            let v = src[i];
+            if (depth > 1 && v !== null && typeof v === "object") {
+                dst[i] = copy(v, Array.isArray(v) ? [] : {}, depth - 1);
+            } else {
+                dst[i] = v;
+            }
         }
-    })
-
-    Object.setPrototypeOf(dst, Object.getPrototypeOf(src));
+        return dst;
+    }
+    if (src !== null && typeof src === "object") {
+        if (dst === undefined || dst === null) dst = {};
+        Object.keys(src).forEach(key => {
+            const v = (src as any)[key];
+            if (depth > 1 && v !== null && typeof v === "object") {
+                dst[key] = copy(v, Array.isArray(v) ? [] : {}, depth - 1);
+            } else {
+                dst[key] = v;
+            }
+        });
+        Object.setPrototypeOf(dst, Object.getPrototypeOf(src));
+    }
+    return dst;
 }
-
-export function clone<T>(src: T, depth: number): T {
-    let dst = new Object();
-    copy(src, dst, depth);
-    return dst as T;
+export function clone<T>(src: T, depth: number ): T {
+    return copy(src, undefined, depth) as T;
 }
-
+export function objectPickField<T, K extends keyof T>(o: T,fields: Iterable<K> | ReadonlyArray<K>): Pick<T, K> {
+  const r = {} as Pick<T, K>;
+  for (const f of fields) {
+    r[f] = o[f];
+  }
+  return r;
+}
 
 export function FormatDate(date: Date, layout: string) {
     let outstr=layout;
@@ -476,6 +484,9 @@ export let requirejs = {
         //partic2-iamdee feature
         return require.getFailed();
     },
+    clearFailed:async function (){
+        Object.keys(require.getFailed()).forEach(t1=>require.undef(t1));
+    },
     undef:async function (mod:string){
         require.undef(mod)
     },
@@ -590,11 +601,12 @@ export class Ref2<CT>{
     }
     //tsc complain with it's type, So I use Function directly.
     protected watcher:Set<Function>=new Set();
-    public watch(onUpdated:(r:this,previousValue:CT)=>void){
-        this.watcher.add(onUpdated);
+    public watch(onChange:(r:this,previousValue:CT)=>void){
+        this.watcher.add(onChange);
+        return {unwatch:()=>this.unwatch(onChange)}
     }
-    public unwatch(onUpdated:(r:this,previousValue:CT)=>void){
-        this.watcher.delete(onUpdated);
+    public unwatch(onChange:(r:this,previousValue:CT)=>void){
+        this.watcher.delete(onChange);
     }
 }
 
@@ -737,21 +749,14 @@ export function ArrayBufferConcat(bufs:Array<{
 
 export async function WaitUntil(cond:()=>boolean,intervalMs?:number,timeoutMs?:number){
     if(intervalMs==undefined){intervalMs=200};
+    let task=Task.currentTask
     for(let i1=Math.ceil((timeoutMs??30000)/intervalMs);i1>=0;i1--){
         if(cond())return;
+        if(task!=undefined)task.getAbortSignal().throwIfAborted();
         await sleep(intervalMs,null);
     }
     throw new Error('WaitUntil timeout')
 }
-
-export function partial<T>(o:T,fields:Generator<keyof T,keyof T>|(ReadonlyArray<keyof T>)):Partial<T>{
-    let r={} as Partial<T>
-    for(let f of fields){
-        r[f]=o[f]
-    }
-    return r;
-}
-
 
 export type CommonMimeType='text/html'|'text/xml'|'text/javascript'|'application/javascript'|'application/xhtml+xml'|'text/plain'|'application/pdf'|'image/png'|'image/gif'|'image/webp'|'image/bmp'|'image/jpeg'|'audio/basic'|'audio/midi'|'audio/x-midi'|'audio/x-pn-realaudio'|'video/mpeg'|'video/x-msvideo'|'application/x-gzip'|'application/x-tar'|'application/octet-stream'|'audio/ogg'|'audio/aac'|'image/svg+xml'|'image/x-icon'
 
@@ -762,7 +767,6 @@ export function ToDataUrl(data:string|ArrayBuffer|Uint8Array,mediaType:CommonMim
         return 'data:'+mediaType+';base64,'+ArrayBufferToBase64(data);
     }
 }
-
 
 export interface LogHandlerArg0{level:'debug'|'info'|'warning'|'error',label:string,msg:any[]};
 export let TaskLocalLogHandler=new TaskLocalRef<((arg0:LogHandlerArg0)=>void)|null>(null);

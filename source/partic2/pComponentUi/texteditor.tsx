@@ -1,5 +1,5 @@
 
-import { partial } from 'partic2/jsutils1/base';
+import { objectPickField } from 'partic2/jsutils1/base';
 import * as React from 'preact'
 import { docNode2text, text2html } from './utils';
 import { ReactEventTarget, ReactRefEx } from './domui';
@@ -148,7 +148,7 @@ export class TextEditor<RP extends TextEditorProps=TextEditorProps> extends Reac
         if(sel!=null && this.rref.div1.current!=null && this.rref.div1.current.contains(document.activeElement) && 
             this.rref.div1.current.contains(sel.anchorNode) && this.rref.div1.current.contains(sel.focusNode)
         ){
-            this.savedSelection=partial(sel,['anchorNode','anchorOffset','focusNode','focusOffset']) as any;
+            this.savedSelection=objectPickField(sel,['anchorNode','anchorOffset','focusNode','focusOffset']) as any;
         }else{
             this.savedSelection=undefined;
         }

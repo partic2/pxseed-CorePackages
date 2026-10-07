@@ -1,7 +1,7 @@
 import { CodeContextEvent, JsonStringifyWithCircular, LocalRunCodeContext, newCodeCellListData, RunCodeContext, TaskLocalEnv } from "./CodeContext";
-import { ArrayBufferToBase64, ArrayWrap2, Base64ToArrayBuffer, GenerateRandomString, TaskLocalLogHandler, future, mutex, requirejs, sleep, throwIfAbortError } from "partic2/jsutils1/base";
+import { Task,ArrayBufferToBase64, ArrayWrap2, Base64ToArrayBuffer, GenerateRandomString, TaskLocalLogHandler, ToDataUrl, future, mutex, requirejs, sleep, throwIfAbortError } from "partic2/jsutils1/base";
 import { SimpleFileSystem, defaultFileSystem, ensureDefaultFileSystem, installedRequirejsResourceProvider } from "./JsEnviron";
-import { getWWWRoot } from "partic2/jsutils1/webutils";
+import { getWWWRoot, path } from "partic2/jsutils1/webutils";
 import { OnConsoleData } from "./jsutils2";
 import { RpcSerializeMagicMark } from "partic2/pxprpcClient/registry";
 
@@ -14,7 +14,12 @@ let DefaultSerializingOption={
     enumerateMode:'for in' as 'for in'|'Object.getOwnPropertyNames'
 }
 
-export let serializingEscapeMark='__Zag7QaCUiZb1ABgL__';
+
+export let magicPropertyName={
+    serializingEscapeMark:'__Zag7QaCUiZb1ABgL__',
+    customViewerFactoryProp:'__Zag7QaCUiZb1ABgL__.customViewerFactoryProp',
+    objectConstructorName:'__Zag7QaCUiZb1ABgL__.objectConstructorName'
+}
 
 function forInListProps(obj:any){
     let t1=[]
@@ -23,8 +28,11 @@ function forInListProps(obj:any){
     }
     return t1;
 }
+
+type TypeAccessPath=(string|number)[]
+
 //The return value should be JSON-serializable.
-//using serializingEscapeMark to represent non-JSON-serializable object.
+//using magicPropertyName.serializingEscapeMark to represent non-JSON-serializable object.
 export function toSerializableObject(v:any,opt:Partial<typeof DefaultSerializingOption>):any{
     let listProps=forInListProps;
     let TypedArray=Object.getPrototypeOf(Object.getPrototypeOf(new Uint8Array())).constructor;
@@ -35,43 +43,43 @@ export function toSerializableObject(v:any,opt:Partial<typeof DefaultSerializing
     if(v===null)return null;
     if(typeof(v)!=='object'){
         if(typeof(v)==='function'){
-            return {[serializingEscapeMark]:'function',name:v.name};
+            return {[magicPropertyName.serializingEscapeMark]:'function',name:v.name};
         }else if(v===undefined){
-            return {[serializingEscapeMark]:'undefined'}
+            return {[magicPropertyName.serializingEscapeMark]:'undefined'}
         }else if(typeof v==='bigint'){
-            return {[serializingEscapeMark]:'bigint',value:v.toString()}
+            return {[magicPropertyName.serializingEscapeMark]:'bigint',value:v.toString()}
         }else{
             return v
         }
     }else if(opt.maxDepth==0){
-        let isArray=v instanceof Array;
+        let isArray=Array.isArray(v);
         let keyCount=isArray?v.length:listProps(v).length;
-        return {[serializingEscapeMark]:'unidentified',isArray,keyCount}
+        return {[magicPropertyName.serializingEscapeMark]:'unidentified',isArray,keyCount,[magicPropertyName.objectConstructorName]:v.constructor?.name}
     }else{
         if(v instanceof Array){
             if(v.length>opt.maxKeyCount!){
-                return {[serializingEscapeMark]:'unidentified',isArray:true,keyCount:v.length};
+                return {[magicPropertyName.serializingEscapeMark]:'unidentified',isArray:true,keyCount:v.length,[magicPropertyName.objectConstructorName]:v.constructor?.name};
             }else{
                 return v.map(v2=>toSerializableObject(v2,{...opt,maxDepth:opt.maxDepth!-1}));
             }
-        }else if(v[serializingEscapeMark]!=undefined){
+        }else if(v[magicPropertyName.serializingEscapeMark]!=undefined){
             let v2={...v};
-            delete v2[serializingEscapeMark];
-            return {[serializingEscapeMark]:'unescape',value:toSerializableObject(v2,opt),
-                markValue:toSerializableObject(v[serializingEscapeMark],{...opt,maxDepth:opt.maxDepth!-1})};
+            delete v2[magicPropertyName.serializingEscapeMark];
+            return {[magicPropertyName.serializingEscapeMark]:'unescape',value:toSerializableObject(v2,opt),
+                markValue:toSerializableObject(v[magicPropertyName.serializingEscapeMark],{...opt,maxDepth:opt.maxDepth!-1})};
         }else if(v instanceof Date){
-            return {[serializingEscapeMark]:'date',time:v.getTime()};
+            return {[magicPropertyName.serializingEscapeMark]:'date',time:v.getTime()};
         }else if(v instanceof TypedArray){
             let typename=v.constructor.name
             if(typename=='Buffer'){
                 //For node
                 typename='Uint8Array'
             }
-            return {[serializingEscapeMark]:typename,
+            return {[magicPropertyName.serializingEscapeMark]:typename,
                 value:ArrayBufferToBase64(new Uint8Array(v.buffer,v.byteOffset,v.length*v.BYTES_PER_ELEMENT))
             }
         }else if(v instanceof ArrayBuffer){
-            return {[serializingEscapeMark]:'ArrayBuffer',
+            return {[magicPropertyName.serializingEscapeMark]:'ArrayBuffer',
                 value:ArrayBufferToBase64(v)
             }
         }else if(v instanceof UnidentifiedObject || v instanceof MiscObject){
@@ -80,7 +88,7 @@ export function toSerializableObject(v:any,opt:Partial<typeof DefaultSerializing
             let r={} as Record<string,any>;
             let keys=listProps(v);
             if(keys.length>opt.maxKeyCount!){
-                return {[serializingEscapeMark]:'unidentified',isArray:false,keyCount:keys.length}
+                return {[magicPropertyName.serializingEscapeMark]:'unidentified',isArray:false,keyCount:keys.length,[magicPropertyName.objectConstructorName]:v.constructor?.name}
             }else{
                 for(let k1 of keys){
                     if(k1===RpcSerializeMagicMark)continue;
@@ -88,13 +96,13 @@ export function toSerializableObject(v:any,opt:Partial<typeof DefaultSerializing
                         r[k1]=toSerializableObject(v[k1],{...opt,maxDepth:opt.maxDepth!-1});
                     }catch(e:any){
                         r[k1]={
-                            [serializingEscapeMark]:'error',
+                            [magicPropertyName.serializingEscapeMark]:'error',
                             message:e.toString()
                         };
                     }
                 }
-                if(v.constructor!=undefined){
-                    r.constructor=v.constructor.name;
+                if(v.constructor!=undefined && r[magicPropertyName.objectConstructorName]==undefined){
+                    r[magicPropertyName.objectConstructorName]=v.constructor.name;
                 }
                 //Error.stack Error.message
                 if(v.message!=undefined){
@@ -109,36 +117,41 @@ export function toSerializableObject(v:any,opt:Partial<typeof DefaultSerializing
     }
 }
 
-let remoteName={
-    accessVariableAsSerializableObject:'__priv_'+__name__+'.accessVariableAsSerializableObject',
-    requestCodeCompletion:'__priv_'+__name__+'.requestCodeCompletion',
-    requestExtraTooltips:'__priv_'+__name__+'.requestExtraTooltips'
-}
 
 export class RemoteCodeContextInspector{
     constructor(public codeContext:RunCodeContext){}
-    async fetchObject(accessPath:(string|number)[],opt:Partial<
+    async fetchObject(accessPath:TypeAccessPath,opt:Partial<
         typeof DefaultSerializingOption
     >):Promise<any>{
-        let resp=await this.codeContext!.callFunction(remoteName.accessVariableAsSerializableObject,[accessPath,opt]);
+        let resp=await this.codeContext!.callFunction({module:__name__,name:'__priv_codeContext_accessVariableAsSerializableObject'},[accessPath,opt]);
         return fromSerializableObject(resp,{fetcher:this,accessPath});
     }
     async requestCodeCompletion(code: string, caret: number):Promise<CodeCompletionItem[]>{
-        let resp=await this.codeContext!.callFunction(remoteName.requestCodeCompletion,[code,caret]);
+        let resp=await this.codeContext!.callFunction({module:__name__,name:'__priv_codeContext_requestCodeCompletion'},[code,caret]);
         return resp;
     }
     async requestExtraTooltips(code:string,caret:number):Promise<string|null>{
-        let resp=await this.codeContext!.callFunction(remoteName.requestExtraTooltips,[code,caret]);
+        let resp=await this.codeContext!.callFunction({module:__name__,name:'__priv_codeContext_requestExtraTooltips'},[code,caret]);
         return resp;
     }
 }
 
 
 export class UnidentifiedObject{
+    static async identifyRecursive(obj:any,opt:{maxDepth?:number,maxKeyCount?:number}){
+        for(let t1 in obj){
+            if(obj[t1] instanceof UnidentifiedObject){
+                obj[t1]=await obj[t1].identify(opt)
+            }else if(typeof obj[t1]==='object' && obj[t1]!=null){
+                await this.identifyRecursive(obj[t1],opt);
+            }
+        }
+    }
     //keyCount=-1 for non array iteratable.
     keyCount:number=0;
     fetcher?:RemoteCodeContextInspector;
-    accessPath:(number|string)[]=[];
+    accessPath:TypeAccessPath=[];
+    [magicPropertyName.objectConstructorName]='Object'
     constructor(){
     }
     async identify(opt:Partial<typeof DefaultSerializingOption>){
@@ -147,11 +160,14 @@ export class UnidentifiedObject{
     }
     toJSON(key?:string){
         return {
-            [serializingEscapeMark]:'unidentified',isArray:false,keyCount:this.keyCount,accessPath:this.accessPath
+            [magicPropertyName.serializingEscapeMark]:'unidentified',
+            isArray:false,keyCount:this.keyCount,accessPath:this.accessPath,
+            [magicPropertyName.objectConstructorName]:this[magicPropertyName.objectConstructorName]
         }
     }
 }
 export class UnidentifiedArray extends UnidentifiedObject{
+    [magicPropertyName.objectConstructorName]: string='Array';
     toJSON(key?:string){
         let objectJson=super.toJSON(key);
         objectJson.isArray=true;
@@ -163,22 +179,22 @@ export class UnidentifiedArray extends UnidentifiedObject{
 export class MiscObject{
     //"serializingError" represent the error throw during serializing, Not the real JS Error object.
     type:'serializingError'|'function'|''='';
-    accessPath:(number|string)[]=[];
+    accessPath:TypeAccessPath=[];
     fetcher?:RemoteCodeContextInspector;
     errorMessage?:string;
     functionName?:string;
     toJSON(key?:string){
         if(this.type==='serializingError'){
-            return {[serializingEscapeMark]:'error',message:this.errorMessage}
+            return {[magicPropertyName.serializingEscapeMark]:'error',message:this.errorMessage}
         }else if(this.type==='function'){
-            return {[serializingEscapeMark]:'function',name:this.functionName}
+            return {[magicPropertyName.serializingEscapeMark]:'function',name:this.functionName}
         }
         return '--- unknown object ---';
     }
 }
 export function fromSerializableObject(v:any,opt:{
     fetcher?:RemoteCodeContextInspector,
-    accessPath?:(string|number)[],
+    accessPath?:TypeAccessPath,
 }):any{
     if(opt.accessPath==undefined)opt.accessPath=[];
     if((typeof(v)!=='object')||(v===null)){
@@ -186,8 +202,8 @@ export function fromSerializableObject(v:any,opt:{
     }else{
         if(v instanceof Array){
             return v.map((v2,i2)=>fromSerializableObject(v2,{...opt,accessPath:[...opt.accessPath!,i2]}))
-        }else if(v[serializingEscapeMark]!=undefined){
-            let type1=v[serializingEscapeMark];
+        }else if(v[magicPropertyName.serializingEscapeMark]!=undefined){
+            let type1=v[magicPropertyName.serializingEscapeMark];
             switch(type1){
                 case 'unidentified':{
                     let {isArray,keyCount}=v;
@@ -200,6 +216,7 @@ export function fromSerializableObject(v:any,opt:{
                     t1.fetcher=opt.fetcher;
                     t1.keyCount=keyCount;
                     t1.accessPath=v.accessPath??opt.accessPath;
+                    t1[magicPropertyName.objectConstructorName]=v[magicPropertyName.objectConstructorName];
                     return t1;
                 };
                 case 'date':{
@@ -207,8 +224,8 @@ export function fromSerializableObject(v:any,opt:{
                 };
                 case 'unescape':{
                     let t1=fromSerializableObject(v.value,opt);
-                    t1[serializingEscapeMark]=fromSerializableObject(v.markValue,
-                        {...opt,accessPath:[...opt.accessPath!,serializingEscapeMark]});
+                    t1[magicPropertyName.serializingEscapeMark]=fromSerializableObject(v.markValue,
+                        {...opt,accessPath:[...opt.accessPath!,magicPropertyName.serializingEscapeMark]});
                     return t1;
                 };
                 case 'function':{
@@ -262,7 +279,7 @@ export function fromSerializableObject(v:any,opt:{
 }
 
 export async function inspectCodeContextVariable(fetcher:RemoteCodeContextInspector,
-    accessPath:(string|number)[],opt?:Partial<typeof DefaultSerializingOption>):Promise<any>{
+    accessPath:TypeAccessPath,opt?:Partial<typeof DefaultSerializingOption>):Promise<any>{
     opt={...DefaultSerializingOption,...opt};
     let t1=new UnidentifiedObject();
     t1.accessPath=accessPath;
@@ -515,12 +532,58 @@ export const builtInCompletionHandlers={
 }
 
 
-
-
 //Emit on console data output.
 export interface ConsoleDataEventData{
     level:string,
     message:string
+}
+
+export async function __priv_codeContext_accessVariableAsSerializableObject(accessPath: TypeAccessPath, serializeOption: any) {
+    let obj = TaskLocalEnv.get();
+    for (let t1 of accessPath) {
+        if(typeof t1==='string' || typeof t1==='number'){
+            obj = obj[t1];
+        }   
+    }
+    return toSerializableObject(obj, serializeOption);
+}
+
+export async function __priv_codeContext_requestCodeCompletion(code: string, caret: number){
+    let obj = TaskLocalEnv.get();
+    let codeContext=obj.__codeContext as LocalRunCodeContext
+    return Task.fork(function*(){
+            let completeContext={
+            code,caret,codeContext:codeContext,completionItems:[] as CodeCompletionItem[]
+        }
+        for(let t1 of defaultCompletionHandlers){
+            //Mute error
+            try{
+                yield t1(completeContext);
+            }catch(e:any){
+                throwIfAbortError(e);
+            }
+        }
+        return completeContext.completionItems;
+    }).run()
+}
+
+export async function __priv_codeContext_requestExtraTooltips(code: string, caret: number) {
+    let obj = TaskLocalEnv.get();
+    let codeContext = obj.__codeContext as LocalRunCodeContext
+    return Task.fork(function* () {
+        let tooltipsContext = {
+            code, caret, codeContext: codeContext, tooltips: null
+        }
+        for (let t1 of defaultTooltipsHandlers) {
+            //Mute error
+            try {
+                yield t1(tooltipsContext);
+            } catch (e: any) {
+                throwIfAbortError(e);
+            }
+        }
+        return tooltipsContext.tooltips;
+    }).run();
 }
 
 export async function installJavascriptInspectorForCodeContext(codeContext:LocalRunCodeContext){
@@ -552,51 +615,9 @@ export async function installJavascriptInspectorForCodeContext(codeContext:Local
             })
         },{fork:false});
     }
-    if(codeContext.localScope[remoteName.accessVariableAsSerializableObject]==undefined){
-        codeContext.localScope[remoteName.accessVariableAsSerializableObject]=(accessPath:Array<number|string>,serializeOption:any)=>{
-            let obj=TaskLocalEnv.get();
-            for(let t1 of accessPath){
-                obj=obj[t1];
-            }
-            return toSerializableObject(obj,serializeOption);
-        }
-    }
-    if(codeContext.localScope[remoteName.requestCodeCompletion]==undefined){
-        codeContext.localScope[remoteName.requestCodeCompletion]=async (code: string, caret: number)=>{
-            let completeContext={
-                code,caret,codeContext:codeContext,completionItems:[] as CodeCompletionItem[]
-            }
-            for(let t1 of defaultCompletionHandlers){
-                //Mute error
-                try{
-                    await t1(completeContext);
-                }catch(e:any){
-                    throwIfAbortError(e);
-                }
-            }
-            return completeContext.completionItems;
-        }
-    }
-    if(codeContext.localScope[remoteName.requestExtraTooltips]==undefined){
+    if(codeContext.localScope.deleteVariables[CustomObjectTooltipsSymbol]==undefined){
         codeContext.localScope.deleteVariables[CustomObjectTooltipsSymbol]=(context:TooltipsContext)=>{
             context.tooltips='TYPE:deleteVariables(names:string[])=>void'
-        }
-        codeContext.localScope.callModuleFunction[CustomObjectTooltipsSymbol]=(context:TooltipsContext)=>{
-            context.tooltips='TYPE:callModuleFunction(module:string,func:string,args:any[])=>Promise&lt;any&gt;'
-        }
-        codeContext.localScope[remoteName.requestExtraTooltips]=async (code:string,caret:number)=>{
-            let tooltipsContext={
-                code,caret,codeContext:codeContext,tooltips:null
-            }
-            for(let t1 of defaultTooltipsHandlers){
-                //Mute error
-                try{
-                    await t1(tooltipsContext);
-                }catch(e:any){
-                    throwIfAbortError(e);
-                }
-            }
-            return tooltipsContext.tooltips;
         }
     }
     if(globalThis?.process?.versions?.node!=undefined && codeContext.localScope['__priv_enableDebugger']==undefined){
@@ -631,3 +652,30 @@ export let defaultTooltipsHandlers:Array<(context:TooltipsContext)=>Promise<void
     builtInTooltipsHandlers.getCalleeInFuncCallExpr,
     builtInTooltipsHandlers.customFunctionTooltips
 ]
+
+export function createViewableHtml(source:{html?:string,js?:string}){
+    return createCustomViewerObject({module:path.join(__name__,'..','Component1'),name:'HtmlViewer'},source);
+}
+export function createViewableImage(source:{url?:string,svg?:string,pngdata?:Uint8Array,jpegdata?:Uint8Array,bmpdata?:Uint8Array}){
+    let opt:{url?:string}={};
+    if(source.url!=undefined){
+        opt.url=source.url
+    }else if(source.svg!=undefined){
+        opt.url=ToDataUrl(source.svg,'image/svg+xml')
+    }else if(source.pngdata!=undefined){
+        opt.url=ToDataUrl(source.pngdata,'image/png')
+    }else if(source.jpegdata!=undefined){
+        opt.url=ToDataUrl(source.jpegdata,'image/jpeg')
+    }else if(source.bmpdata!=undefined){
+        opt.url=ToDataUrl(source.bmpdata,'image/bmp')
+    }
+    return createCustomViewerObject({module:path.join(__name__,'..','Component1'),name:'ImageViewer'},opt);
+}
+
+//viewer should be a Class extend React.Component<{name:string,object:any,variableName?:string,codeContext?:RunCodeContext}>
+export function createCustomViewerObject(viewer:{module:string,name:string},object:any){
+    return {
+        [magicPropertyName.customViewerFactoryProp]:viewer,
+        ...object
+    }
+}

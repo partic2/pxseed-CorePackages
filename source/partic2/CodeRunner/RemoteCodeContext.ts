@@ -18,7 +18,7 @@ interface IRunCodeContextConnector{
     pullCodeContextEvent():Promise<any[]>
     pushCodeContextEvent(event:{type:string,data:any}):Promise<void>
     runCode(source: string,resultVariable?:string): Promise<{stringResult:string|null,err:string|null}>
-    callFunction(name:string,args:any[]):Promise<any>
+    callFunction(func:string|{module:string,name:string},args:any[]):Promise<any>
     close?:()=>void
 }
 
@@ -38,8 +38,8 @@ export class RunCodeContextConnector implements IRunCodeContextConnector{
     async runCode(source: string,resultVariable?:string): Promise<{stringResult:string|null,err:string|null}>{
         return this.value.runCode(source,resultVariable);
     }
-    async callFunction(name:string,args:any[]){
-        return this.value.callFunction(name,args)
+    async callFunction(func:string|{module:string,name:string},args:any[]){
+        return this.value.callFunction(func,args)
     }
 }
 
@@ -106,9 +106,9 @@ export class RemoteRunCodeContext implements RunCodeContext{
         await this.inited.get();
         return await this._remoteContext!.runCode(source,resultVariable);
     }
-    async callFunction(name: string, args: any[]): Promise<any> {
+    async callFunction(func: string|{module:string,name:string}, args: any[]): Promise<any> {
         await this.inited.get();
-        return await this._remoteContext!.callFunction(name,args);
+        return await this._remoteContext!.callFunction(func,args);
     }
     close(): void {
         let t1=this._remoteContext;
