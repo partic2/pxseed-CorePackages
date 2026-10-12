@@ -1,5 +1,5 @@
 import { defaultFileSystem, ensureDefaultFileSystem, installRequireProvider, SimpleFileSystem } from "partic2/CodeRunner/JsEnviron";
-import { assert, future, GenerateRandomString, logger, requirejs, sleep, Task, throwIfAbortError } from "partic2/jsutils1/base";
+import { assert, future, GenerateRandomString, logger, objectPickField, requirejs, sleep, Task, throwIfAbortError } from "partic2/jsutils1/base";
 import { ClientInfo, createIoPipe, easyCallRemoteJsonFunction, getPersistentRegistered, importRemoteModule, RpcSerializeMagicMark, rpcWorkerInitModule, ServerHostRpcName } from "partic2/pxprpcClient/registry";
 import { BaseCodeCellListData, CodeContextEvent, LocalRunCodeContext, newCodeCellListData, RunCodeContext, TaskLocalEnv } from "partic2/CodeRunner/CodeContext";
 import { createConnectorWithNewRunCodeContext, RemoteRunCodeContext, RunCodeContextConnector } from "partic2/CodeRunner/RemoteCodeContext";
@@ -43,11 +43,13 @@ export class NotebookFileData{
     rpc?:string;
     startupScript:string='';
     codePath?:string;
+    extra:Record<string,any>={};
     dump(){
-        return utf8conv(JSON.stringify({ver:1,rpc:this.rpc,startupScript:this.startupScript,cells:this.cells}));
+        return utf8conv(JSON.stringify({ver:1,rpc:this.rpc,startupScript:this.startupScript,cells:this.cells,extra:this.extra}));
     }
     load(data:Uint8Array){
         let r=JSON.parse(utf8conv(data));
+        this.extra=r.extra??{};
         if(r.rpc!=undefined)this.rpc=r.rpc;
         this.startupScript=r.startupScript??'';
         this.cells=r.cells??(newCodeCellListData.get()().saveTo());
@@ -172,6 +174,7 @@ export async function initNotebookCodeEnv(_ENV:any,opt?:NotebookFileData){
             switchNotebookViewerImpl:(implFactory?:{module:string,func:string})=>callMethodAttachedOnNotebookViewer('switchNotebookViewerImpl',[implFactory],true)
         },
         startupScript:opt?.startupScript??'',
+        extra:opt?.extra??{},
     };
     _ENV.jsnotebook=jsnotebook;
     if(opt?.startupScript!=undefined){
@@ -200,11 +203,14 @@ export class OpenedJsNotebookFile{
         await ensureDefaultFileSystem();
         try{
             let c1=await this.ensureRunCodeContextConnector();
-            let {startupScript}=JSON.parse((await c1.runCode(`
-return JSON.stringify({startupScript:jsnotebook.startupScript})
+            let jsnbData=JSON.parse((await c1.runCode(`
+return JSON.stringify({startupScript:jsnotebook.startupScript,extra:jsnotebook.extra})
 `)).stringResult??'{}');
-            if(startupScript!=undefined){
-                this.notebookFileData.startupScript=startupScript;
+            if(jsnbData.startupScript!=undefined){
+                this.notebookFileData.startupScript=jsnbData.startupScript;
+            }
+            if(jsnbData.extra!=undefined){
+                this.notebookFileData.extra=jsnbData.extra;
             }
             await defaultFileSystem!.writeAll(this.notebookFilePath,this.notebookFileData.dump());
         }catch(err:any){throwIfAbortError(err)}
@@ -249,7 +255,7 @@ return JSON.stringify({startupScript:jsnotebook.startupScript})
             codeContextClosed.setResult();
         }).catch((err)=>log.warning(err.stack));
         await this.connector!.runCode(`await (await import('partic2/JsNotebook/workerinit')).initNotebookCodeEnv(_ENV,${
-            JSON.stringify({...this.notebookFileData})
+            JSON.stringify(objectPickField(this.notebookFileData,['codePath','startupScript','extra']))
         });`,'');
     }
     async setRawCellsData(data:string){
