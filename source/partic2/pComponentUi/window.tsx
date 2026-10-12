@@ -1,6 +1,6 @@
 
 import * as React from 'preact'
-import { css as cssBase, DomDivComponent, DomRootComponent, FloatLayerComponent, ReactEventTarget, ReactRefEx, ReactRender } from './domui';
+import { css as cssBase, DomDivComponent, DomRootComponent, FloatLayerComponent, JsxClassComponent, ReactRefEx, ReactRender } from './domui';
 import { future, GenerateRandomString, GetCurrentTime, Ref2, requirejs, sleep } from 'partic2/jsutils1/base';
 import { DynamicPageCSSManager } from 'partic2/jsutils1/webutils';
 import { PointTrace } from './transform';
@@ -18,18 +18,9 @@ export interface WindowComponentProps{
     disableUserInputActivate?:boolean
     keepTop?:boolean
     onComponentDidUpdate?:()=>void
-    initialLayout?:{left:number,top:number,width?:number,height?:number}
-
-    //Will set by WindowGroup
-    windowGroup?:WindowGroup
 }
 
-interface WindowComponentStats{
-    activateTime:number,
-    layout:{left:number,top:number,width?:number,height?:number},
-    titleBarButton?:Array<{icon:string,onClick:()=>void}>
-    errorOccured:Error|null,
-}
+
 
 import {getIconUrl} from 'partic2/pxseedMedia1/index1'
 
@@ -49,28 +40,34 @@ if(globalThis.document!=undefined){
     DynamicPageCSSManager.PutCss('.'+css.defaultTitleStyle ,['box-sizing: border-box','background-color:silver','color:balck','border-left:solid black 1px','border-top:solid black 1px','border-right:solid black 1px'])    
 }
 
-export class DefaultWindowComponent extends ReactEventTarget<WindowComponentProps,WindowComponentStats>{
-    static defaultProps:WindowComponentProps={
-        closeIcon:getIconUrl('x.svg'),
-        title:'untitled'
-    }
+export class DefaultWindowComponent<Props=WindowComponentProps> extends JsxClassComponent<Props>{
     static getDerivedStateFromError(error: any): object | null {
         return {errorOccured:error};
     }
+    closeIcon=getIconUrl('x.svg');
+    title='untitled';
+    titleBarButton?:Array<{icon:string,onClick:()=>void}>
+    onClose?:()=>void
+    borderless?:boolean
+    disableUserInputActivate?:boolean
+    keepTop?:boolean
+    onComponentDidUpdate?:()=>void
+
+    activateTime:number=0;
+    currentLayout:{left:number,top:number,width?:number,height?:number}={left:0,top:0}
+    errorOccured:Error|null=null
+    children:React.ComponentChildren|null=null;
     rref={
         container:new ReactRefEx<HTMLDivElement>(),
         contentDiv:new ReactRefEx<HTMLDivElement>()
     }
-    constructor(props:WindowComponentProps,ctx:any){
-        super(props,ctx);
-        this.setState({activateTime:-1,layout:this.props.initialLayout??{left:0,top:0},errorOccured:null});
-    }
-    __resizeObserver=new ResizeObserver(()=>this.dispatchEvent(new Event('resize')));
+    resizeEvent=JsxClassComponent.defineEventSlot<void>();
+    moveEvent=JsxClassComponent.defineEventSlot<void>();
+    __resizeObserver=new ResizeObserver(()=>this.resizeEvent.dispatch());
     componentDidMount(): void {
         if(this.rref.container.current!=undefined){
             this.__resizeObserver.observe(this.rref.container.current);
         }
-        this.setState({titleBarButton:this.props.titleBarButton});
     }
     componentWillUnmount(): void {
         this.__resizeObserver.disconnect();
@@ -89,56 +86,58 @@ export class DefaultWindowComponent extends ReactEventTarget<WindowComponentProp
         </div>
         }
     }
+    userMoveEvent=JsxClassComponent.defineEventSlot<void>();
     __wndMove=new PointTrace({
         onMove:(curr,start)=>{
             this.layout({left:curr.x-start.x,top:curr.y-start.y});
-            this.dispatchEvent(new Event('user-move'));
+            this.userMoveEvent.dispatch();
         }
     });
     __onTitleMouseDownHandler=(evt:React.TargetedPointerEvent<HTMLDivElement>)=>{
-        this.__wndMove.start({x:evt.clientX-this.state.layout.left,y:evt.clientY-this.state.layout.top},true);
+        this.__wndMove.start({x:evt.clientX-this.currentLayout.left,y:evt.clientY-this.currentLayout.top},true);
         evt.preventDefault();
     }
+    userResizeEvent=JsxClassComponent.defineEventSlot<void>();
     __wndResize=new PointTrace({
         onMove:(curr,start)=>{
-            this.layout({...this.state.layout,width:curr.x-start.x,height:curr.y-start.y});
-            this.dispatchEvent(new Event('user-resize'));
+            this.layout({...this.currentLayout,width:curr.x-start.x,height:curr.y-start.y});
+            this.userResizeEvent.dispatch();
         }
     });
     __onResizeIconMouseDownHandler=(evt:React.TargetedPointerEvent<HTMLDivElement>)=>{
-        this.__wndResize.start({x:this.state.layout.left,y:this.state.layout.top},true);
+        this.__wndResize.start({x:this.currentLayout.left,y:this.currentLayout.top},true);
         evt.preventDefault();
     }
     activate(activateTime?:number){
-        if(this.props.keepTop){
+        if(this.keepTop){
             activateTime=95617573200000;
         }
-        this.setState({activateTime:activateTime??GetCurrentTime().getTime()},()=>{
-            windowsContainerForceUpdate();
-        });
+        this.activateTime=activateTime??GetCurrentTime().getTime();
+        this.setState({},()=>{windowsContainerForceUpdate();});
     }
     hide(){
-        this.setState({activateTime:-1});
-        windowsContainerForceUpdate();
+        this.activateTime=-1;
+        this.setState({},()=>{windowsContainerForceUpdate();});
     }
     isHidden(){
-        return this.state.activateTime<0&&!this.props.keepTop
+        return this.activateTime<0&&!this.keepTop
     }
     renderTitleIcons(){
         return [
-            ...(this.state.titleBarButton??[]).map(t1=>this.renderIcon(t1.icon,t1.onClick)),
-            this.renderIcon(this.props.closeIcon!,()=>this.onCloseClick())
+            ...(this.titleBarButton??[]).map(t1=>this.renderIcon(t1.icon,t1.onClick)),
+            this.renderIcon(this.closeIcon!,()=>this.onCloseClick())
         ]
     }
     getLayout(){
-        return this.state.layout;
+        return this.currentLayout;
     }
     async layout(layout:{left?:number,top?:number,width?:number,height?:number}){
         return new Promise<void>((resolve)=>{
-            let newLayout={...this.state.layout,...layout};
-            let oldLayout=this.state.layout;
-            if(this.props.windowGroup!=null){
-                let windowGroupSize=this.props.windowGroup.getSize();
+            let newLayout={...this.currentLayout,...layout};
+            let oldLayout=this.currentLayout;
+            let windowGroup=this.getAncestorJsxClassComponents({clazz:WindowGroup,count:1}).at(0);
+            if(windowGroup!=undefined){
+                let windowGroupSize=windowGroup.getSize();
                 if(newLayout.width!=undefined && newLayout.left+newLayout.width>windowGroupSize.width){
                     newLayout.width=windowGroupSize.width-newLayout.left;
                 }
@@ -146,16 +145,17 @@ export class DefaultWindowComponent extends ReactEventTarget<WindowComponentProp
                     newLayout.height=windowGroupSize.height-newLayout.top;
                 }
             }
-            this.setState({layout:newLayout},()=>{
+            this.currentLayout=newLayout;
+            this.setState({},()=>{
                 if(newLayout.left!=oldLayout.left || newLayout.top!=oldLayout.top){
-                    this.dispatchEvent(new Event('move'));
+                    this.moveEvent.dispatch();
                 }
                 resolve();
-            });
+            })
         });
     }
     renderTitle(){
-        let titleString=this.props.title;
+        let titleString=this.title;
         if(typeof titleString!=='string'){
             titleString=''
         }
@@ -168,10 +168,10 @@ export class DefaultWindowComponent extends ReactEventTarget<WindowComponentProp
     }
     renderContent(){
         return <div 
-            className={[this.props.borderless?css.borderlessWindowContentDiv:css.defaultContentDiv].join(' ')} ref={this.rref.contentDiv}>
-                {this.state.errorOccured==null?this.props.children:<pre style={{backgroundColor:'white',color:'black'}}>
-                    {this.state.errorOccured.message}
-                    {this.state.errorOccured.stack}
+            className={[this.borderless?css.borderlessWindowContentDiv:css.defaultContentDiv].join(' ')} ref={this.rref.contentDiv}>
+                {this.errorOccured==null?this.children:<pre style={{backgroundColor:'white',color:'black'}}>
+                    {this.errorOccured.message}
+                    {this.errorOccured.stack}
                 </pre>}
         </div>
     }
@@ -185,10 +185,11 @@ export class DefaultWindowComponent extends ReactEventTarget<WindowComponentProp
             width="12" height="12"
             />
     }
+    closeEvent=JsxClassComponent.defineEventSlot<void>();
     async onCloseClick(){
         this.hide();
-        this.dispatchEvent(new Event('close'));
-        this.props.onClose?.();
+        this.closeEvent.dispatch();
+        this.onClose?.();
     }
     sizeMeasuring=new Ref2(false);
     async sizeToContent(){
@@ -209,56 +210,57 @@ export class DefaultWindowComponent extends ReactEventTarget<WindowComponentProp
             }
             if(stableCount>=8)break;
         }
-        if(this.sizeMeasuring.get() && this.rref.container.current!=null && this.props.windowGroup!=null && (this.state.layout.width==undefined || this.state.layout.height==undefined)){
-            let layout={...this.state.layout,width:width+1,height:height+1};
+        let windowGroup=this.getAncestorJsxClassComponents({clazz:WindowGroup,count:1}).at(0);
+        if(this.sizeMeasuring.get() && this.rref.container.current!=null && windowGroup!=undefined && (this.currentLayout.width==undefined || this.currentLayout.height==undefined)){
+            let layout={...this.currentLayout,width:width+1,height:height+1};
             this.layout(layout);
         }
         this.sizeMeasuring.set(false);
     }
     renderWindowMain(){
         try{
-            if(!this.props.borderless){
-                if((this.state.layout.width==undefined||this.state.layout.height==undefined)&&!this.sizeMeasuring.get() && this.props.windowGroup!=null){
-                    this.sizeToContent();
-                }else if(this.state.layout.width!=undefined && this.state.layout.height!=undefined && this.sizeMeasuring.get()){
+            if(!this.borderless){
+                if((this.currentLayout.width==undefined||this.currentLayout.height==undefined)&&!this.sizeMeasuring.get()){
+                    let windowGroup=this.getAncestorJsxClassComponents({clazz:WindowGroup,count:1}).at(0);
+                    if(windowGroup!=undefined)this.sizeToContent();
+                }else if(this.currentLayout.width!=undefined && this.currentLayout.height!=undefined && this.sizeMeasuring.get()){
                     this.sizeMeasuring.set(false);
                 }
             }
             let windowDivStyle:React.CSSProperties={
                 position:'absolute',
-                left:this.state.layout.left+'px',
-                top:this.state.layout.top+'px',
+                left:this.currentLayout.left+'px',
+                top:this.currentLayout.top+'px',
                 touchAction:'none'
             };
-            if(this.state.layout.width!=undefined){
-                windowDivStyle.width=this.state.layout.width+'px';
+            if(this.currentLayout.width!=undefined){
+                windowDivStyle.width=this.currentLayout.width+'px';
             }
-            if(this.state.layout.height!=undefined){
-                windowDivStyle.height=this.state.layout.height+'px';
+            if(this.currentLayout.height!=undefined){
+                windowDivStyle.height=this.currentLayout.height+'px';
             }
             return <div className={[cssBase.flexColumn,css.defaultWindowDiv].join(' ')} 
                 style={windowDivStyle}
                 ref={this.rref.container}
                 onPointerDown={()=>{
-                    if(this.state.activateTime>=0 && !this.props.disableUserInputActivate)
+                    if(this.activateTime>=0 && !this.disableUserInputActivate)
                         this.activate()
                 }}>
-                    {this.props.borderless?null:this.renderTitle()}
+                    {this.borderless?null:this.renderTitle()}
                     {[
                         this.renderContent(),
-                        (this.props.borderless)?null:this.renderResizeHandler()
+                        (this.borderless)?null:this.renderResizeHandler()
                     ]}
             </div>
         }catch(err:any){
             return <div>{err.message+err.stack}</div>
         }
     }
-    componentDidUpdate(previousProps: Readonly<WindowComponentProps>, previousState: Readonly<WindowComponentStats>, snapshot: any): void {
-        if(this.props.titleBarButton!=previousProps.titleBarButton)this.setState({titleBarButton:this.props.titleBarButton});
-        this.props.onComponentDidUpdate?.();
+    componentDidUpdate(): void {
+        this.onComponentDidUpdate?.();
     }
-    render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined; }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChild {
-        return <FloatLayerComponent activateTime={this.state.activateTime}>
+    jsx(): React.ComponentChild {
+        return <FloatLayerComponent activateTime={this.activateTime}>
             {this.renderWindowMain()}
         </FloatLayerComponent> 
     }
@@ -271,36 +273,28 @@ export function setDefaultWindowComponentImplemention(impl:typeof DefaultWindowC
     WindowComponent=impl;
 }
 
-export class WindowGroup extends React.Component<{divStyle?:React.CSSProperties},{floatWindowVNodes:React.VNode[]}>{
+export class WindowGroup<Props={}> extends JsxClassComponent<Props&{divStyle?:React.CSSProperties}>{
     container=new ReactRefEx<HTMLDivElement>();
-    onResize=new Set<()=>void>();
-    constructor(prop:any,ctx:any){
-        super(prop,ctx);
-        this.setState({floatWindowVNodes:[]});
-    }
-    resizeObserver=new ResizeObserver((ent)=>{
-        for(let t1 of this.onResize){
-            t1();
-        }
-    })
+    floatWindowVNodes=new Array<React.VNode>();
+    resizeEvent=JsxClassComponent.defineEventSlot<void>();
+    resizeObserver=new ResizeObserver((ent)=>{this.resizeEvent.dispatch()})
     async componentDidMount() {
         this.resizeObserver.observe(await this.container.waitValid());
     }
     async componentWillUnmount() {
         this.resizeObserver.disconnect();
     }
-    render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined; }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChild {
-        return <div style={{width:'100%',height:'100%',...this.props.divStyle}} ref={this.container}>{this.state.floatWindowVNodes}</div>
+    jsx(): React.ComponentChild {
+        return <div style={{width:'100%',height:'100%',...this.props.divStyle}} ref={this.container}>{this.floatWindowVNodes}</div>
     }
     appendFloatWindow(window:React.VNode,active?:boolean){
         active=active??true;
-        (window.props as WindowComponentProps).windowGroup=this;
         let ref2=new ReactRefEx<React.VNode>().forward([window.ref].filter(v=>v!=undefined) as React.Ref<any>[]);
         window.ref=ref2;
         if(window.key==undefined){
             window.key=GenerateRandomString();
         }
-        this.state.floatWindowVNodes.push(window);
+        this.floatWindowVNodes.push(window);
         if(active){
             ref2.waitValid().then((v)=>{
                 if(v instanceof WindowComponent){
@@ -308,13 +302,13 @@ export class WindowGroup extends React.Component<{divStyle?:React.CSSProperties}
                 }
             });
         };
-        this.forceUpdate();
+        this.setState({});
     }
     removeFloatWindow(window:React.VNode){
-        let index=this.state.floatWindowVNodes.findIndex(v=>v===window);
+        let index=this.floatWindowVNodes.findIndex(v=>v===window);
         if(index>=0){
-            this.state.floatWindowVNodes.splice(index,1);
-            this.forceUpdate();
+            this.floatWindowVNodes.splice(index,1);
+            this.setState({});
         }
     }
     getSize(){
@@ -365,7 +359,7 @@ export async function windowsContainerForceUpdate(){
 
 export function getFloatWindowVNodeList(){
     ensureRootWindowContainer();
-    return rootWindowGroup.current?.state.floatWindowVNodes??[];
+    return rootWindowGroup.current?.floatWindowVNodes??[];
 }
 
 

@@ -1,6 +1,6 @@
 
-import { GenerateRandomString, GetCurrentTime, Ref2, assert, requirejs, sleep } from 'partic2/jsutils1/base';
-import { FloatLayerComponent, ReactRefEx, css as css1 } from 'partic2/pComponentUi/domui';
+import { GenerateRandomString, GetCurrentTime, Ref2, assert, future, mutex, requirejs, sleep, throwIfAbortError } from 'partic2/jsutils1/base';
+import { FloatLayerComponent, JsxClassComponent, ReactRefEx, css as css1 } from 'partic2/pComponentUi/domui';
 import { CodeContextEvent, newCodeCellListData, RunCodeContext } from './CodeContext';
 import * as React from 'preact'
 import { DynamicPageCSSManager, globalInputState, GlobalInputStateTracer } from 'partic2/jsutils1/webutils';
@@ -18,7 +18,7 @@ export var css={
 }
 
 interface CodeCellProps{
-    codeContext:RunCodeContext,
+    codeContext?:RunCodeContext,
     customBtns?:{label:string,title?:string,cb:()=>Promise<any>}[],
     onRun?:()=>void,
     onRunResult?:()=>void
@@ -33,16 +33,6 @@ interface CodeCellProps{
     divAttr?:React.HTMLAttributes<HTMLDivElement>,
     onPreviousCell?:()=>void,
     onNextCell?:()=>void
-}
-interface CodeCellStats{
-    //Serializable object
-    cellOutput:any,
-    resultVariable:string|null,
-    codeCompleteCandidate:(CodeCompletionItem[])|null,
-    extraTooltips:string|null,
-    focusin:boolean,
-    errorCatched:string|null,
-    focusingCompletionCandidate:number
 }
 
 
@@ -73,16 +63,60 @@ export interface CodeCellControl{
     close():void
 }
 
-export class CodeCell extends React.Component<CodeCellProps,CodeCellStats> implements CodeCellControl{
+export class CodeCell<Props={}> extends JsxClassComponent<Props&CodeCellProps> implements CodeCellControl{
     rref={
         codeInput:new ReactRefEx<TextEditor>(),
         container:new ReactRefEx<HTMLDivElement>(),
         focusingCompletionCandidateDiv:new ReactRefEx<HTMLDivElement>,
         tooltipsDiv:new ReactRefEx<HTMLDivElement>
     }
-    constructor(props:any,ctx:any){
-        super(props,ctx);
-        this.setState({codeCompleteCandidate:null,focusin:false,extraTooltips:null,errorCatched:null,focusingCompletionCandidate:0});
+    protected __codeContext?:RunCodeContext
+    set codeContext(v:RunCodeContext|undefined){
+        let prev=this.__codeContext;
+        this.__codeContext=v;
+        prev?.event.removeEventListener(`${__name__}.CodeCell.callWebuiFunction`,this.codeContextCallMethodEvent);
+        v?.event.addEventListener(`${__name__}.CodeCell.callWebuiFunction`,this.codeContextCallMethodEvent);
+        
+    }
+    get codeContext(){
+        return this.__codeContext;
+    }
+    customBtns?:{label:string,title?:string,cb:()=>Promise<any>}[]
+    onRun?:()=>void
+    onRunResult?:()=>void
+    onClearOutputs?:()=>void
+    onInputChange?:(target:CodeCell)=>void
+    //How to run code with key shortcut, default value:'Ctl+Ent'. use Ctrl+Enter for new line in 'Enter' mode.
+    runCodeKey?:'Ctl+Ent'|'Enter'
+    //To be used in code cell list.
+    onFocusChange?:(focusin:boolean)=>void
+    divStyle?:React.CSSProperties
+    inputClass?:string[]
+    divAttr?:React.HTMLAttributes<HTMLDivElement>
+    onPreviousCell?:()=>void
+    onNextCell?:()=>void
+    
+    //State
+    cellOutput:any
+    resultVariable:string|null|undefined;
+    completion:{
+        candidate:(CodeCompletionItem[])|null;
+        focusingIndex:number
+    }={
+        candidate:null,
+        focusingIndex:-1
+    }
+
+    extraTooltips:string|null=null;
+    focusin:boolean=false;
+    errorCatched:string|null=null;
+
+    constructor(prop:any,ctx:any){
+        super(prop,ctx);
+        this.initialize().then(()=>this.initialized.setResult(),(err)=>this.initialized.setException(err)).then(()=>this.setState({}));
+    }
+    initialized=new future<void>();
+    protected async initialize(){
     }
     getContainerDiv(): HTMLDivElement | null {
         return this.rref.container.current
@@ -90,19 +124,26 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats> imple
     async runCode(){
         this.props.onRun?.();
         try{
-            this.setState({cellOutput:'Running...',codeCompleteCandidate:[]});
-            let resultVariable=this.state.resultVariable??('__result_'+GenerateRandomString());
-            let runStatus=await this.codeContext!.runCode(this.getCellInput(),resultVariable);
+            this.cellOutput='Running...';
+            this.completion.candidate=null;
+            this.setState({});
+            this.resultVariable=this.resultVariable??('__result_'+GenerateRandomString());
+            let runStatus=await this.codeContext!.runCode(this.getCellInput(),this.resultVariable);
             if(runStatus.err===null && runStatus.stringResult!=null){
-                let cellOutput=runStatus.stringResult;
-                this.setState({cellOutput,resultVariable});
+                this.cellOutput=runStatus.stringResult;
+                this.setState({})
             }else{
-                let cellOutput=await inspectCodeContextVariable(await ensureJavascriptInspectorForCodeContextInstalled(this.codeContext!),[resultVariable],{maxDepth:1});
-                this.setState({cellOutput,resultVariable,errorCatched:runStatus.err});
+                this.cellOutput=await inspectCodeContextVariable(
+                    await ensureJavascriptInspectorForCodeContextInstalled(this.codeContext!),
+                    [this.resultVariable],{maxDepth:1});
+                this.errorCatched=runStatus.err;
+                this.setState({});
             }
         }catch(e){
             let err=e as Error
-            this.setState({cellOutput:{message:err.message,stack:err.stack}});
+            throwIfAbortError(err);
+            this.cellOutput={message:err.message,stack:err.stack};
+            this.setState({});
         }finally{
             this.props.onRunResult?.();
         }
@@ -115,25 +156,25 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats> imple
         }
     },300);
     protected renderTooltipsContent(){
-        if(this.state.extraTooltips==null && this.state.codeCompleteCandidate==null)return null;
+        if(this.extraTooltips==null && this.completion.candidate==null)return null;
         let coor=this.getInputCaretCoordinate();
         if(coor==null)return null;
         return <div style={{position:'absolute',left:coor?.left,top:coor.bottom,zIndex:'1',overflow:'auto',maxHeight:'300px',backgroundColor:'white',border:'solid black 1px'}} ref={this.rref.tooltipsDiv}>
-                {this.state.extraTooltips?<div dangerouslySetInnerHTML={{__html:this.state.extraTooltips}}></div>:null}
+                {this.extraTooltips?<div dangerouslySetInnerHTML={{__html:this.extraTooltips}}></div>:null}
                 {(()=>{
-                    if(this.state.codeCompleteCandidate!=null){
+                    if(this.completion.candidate!=null){
                         return <div style={{display:'flex',flexDirection:'column'}} tabIndex={0}>
-                            {this.state.codeCompleteCandidate.map((v,idx)=>{
+                            {this.completion.candidate.map((v,idx)=>{
                                 let className=[];
                                 let ref:ReactRefEx<HTMLDivElement>|null=null;
-                                if(idx===this.state.focusingCompletionCandidate){
+                                if(idx===this.completion.focusingIndex){
                                     className.push(css1.selected);
                                     ref=this.rref.focusingCompletionCandidateDiv;
                                 }
                                 return <div ref={ref} className={className.join(' ')} onClick={()=>{
                                     this.insertCodeComplete(v);
                                 }}>
-                                    {v.candidate}
+                                    [{v.type.charAt(0).toUpperCase()}]{v.candidate}
                                 </div>
                             })}
                         </div>
@@ -143,22 +184,25 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats> imple
                 })()}
             </div>;
     }
-    protected requestCodeComplete=new DebounceCall(async ()=>{
+    protected async requestCodeComplete(){
         let codeCompleteCandidate=await (await ensureJavascriptInspectorForCodeContextInstalled(this.codeContext!)).requestCodeCompletion(
                 this.getCellInput(),
                 this.rref.codeInput.current!.getTextCaretOffset());
-        this.setState({
-            codeCompleteCandidate
-        });
-    },200);
-    protected requestTooltips=new DebounceCall(async ()=>{
+        this.completion.candidate=codeCompleteCandidate;
+        this.completion.focusingIndex=0;
+        this.setState({});
+    }
+    protected requestDebouncer={
+        requestCodeComplete:new DebounceCall(async ()=>this.requestCodeComplete(),200),
+        requestTooltips:new DebounceCall(async ()=>this.requestTooltips(),200),
+    }
+    protected async requestTooltips(){
         let extraTooltips=await (await ensureJavascriptInspectorForCodeContextInstalled(this.codeContext!)).requestExtraTooltips(
                 this.getCellInput(),
                 this.rref.codeInput.current!.getTextCaretOffset());
-        this.setState({
-            extraTooltips
-        });
-    },200)
+        this.extraTooltips=extraTooltips;
+        this.setState({});
+    }
     protected getRunCodeKey(){
         return this.props.runCodeKey??'Ctl+Ent';
     }
@@ -183,17 +227,17 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats> imple
                 }
             }
         }else if(ev.code=='Tab'){
-            if(this.state.codeCompleteCandidate!=null){
-                if(this.state.codeCompleteCandidate.length>0){
-                    this.insertCodeComplete(this.state.codeCompleteCandidate[this.state.focusingCompletionCandidate]);
+            if(this.completion.candidate!=null){
+                if(this.completion.candidate.length>0){
+                    this.insertCodeComplete(this.completion.candidate[this.completion.focusingIndex]);
                 }
             }
             ev.preventDefault();
         }else if(ev.code=='ArrowUp'){
-            if(this.state.codeCompleteCandidate!=null && this.state.codeCompleteCandidate.length>0){
-                let nextFocus=this.state.focusingCompletionCandidate-1;
+            if(this.completion.candidate!=null && this.completion.candidate.length>0){
+                let nextFocus=this.completion.focusingIndex-1;
                 if(nextFocus<0){
-                    nextFocus+=this.state.codeCompleteCandidate.length
+                    nextFocus+=this.completion.candidate.length
                 }
                 this.setState({focusingCompletionCandidate:nextFocus});
                 ev.preventDefault();
@@ -205,10 +249,10 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats> imple
                 }
             }
         }else if(ev.code=='ArrowDown'){
-            if(this.state.codeCompleteCandidate!=null && this.state.codeCompleteCandidate.length>0){
-                let nextFocus=this.state.focusingCompletionCandidate+1;
-                if(nextFocus>=this.state.codeCompleteCandidate.length){
-                    nextFocus-=this.state.codeCompleteCandidate.length
+            if(this.completion.candidate!=null && this.completion.candidate.length>0){
+                let nextFocus=this.completion.focusingIndex+1;
+                if(nextFocus>=this.completion.candidate.length){
+                    nextFocus-=this.completion.candidate.length
                 }
                 this.setState({focusingCompletionCandidate:nextFocus});
                 ev.preventDefault();
@@ -220,7 +264,7 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats> imple
                     this.props.onNextCell?.();
                 }
             }
-        }else if(ev.code=='Escape' && this.state.codeCompleteCandidate!=null){
+        }else if(ev.code=='Escape' && this.completion.candidate!=null){
             this.resetTooltips();
         }
     }
@@ -239,10 +283,10 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats> imple
             }
         }
         if((inputData.char!=null&&inputData.char.search(/[a-zA-Z_\.\/]/)>=0)||inputData.type==='deleteContentBackward'){
-            this.requestCodeComplete.call();
+            this.requestDebouncer.requestCodeComplete.call();
         }
         if(inputData.char=='('){
-            this.requestTooltips.call();
+            this.requestDebouncer.requestTooltips.call();
         }else{
             //BUG?: "setState" before "onInput" return trigger by full-width character lead to double input sometimes.
             requestAnimationFrame(()=>this.setState({extraTooltips:null}));
@@ -254,13 +298,16 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats> imple
         return t1;
     }
     getCellOutput():[any,string|null]{
-        return [this.state.cellOutput,this.state.resultVariable??null];
+        return [this.cellOutput,this.resultVariable??null];
     }
     setCellInput(input:string){
         this.rref.codeInput.current!.setPlainText(input);
     }
     setCellOutput(output:any,resultVariable?:string|null){
-        this.setState({cellOutput:output,resultVariable,errorCatched:null});
+        this.cellOutput=output;
+        this.resultVariable=resultVariable;
+        this.errorCatched=null;
+        this.setState({});
     }
     getCellInputHtml(){
         return this.rref.codeInput.current?.getHtml()??null;
@@ -310,8 +357,8 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats> imple
         this.runCode();
     }
     protected async onBtnClearOutputs(){
-        if(this.state.resultVariable!=null){
-            this.codeContext!.callFunction('deleteVariables',[[this.state.resultVariable]]);
+        if(this.resultVariable!=null){
+            this.codeContext!.callFunction('deleteVariables',[[this.resultVariable]]);
         }
         this.props.onClearOutputs?.();
         this.setCellOutput(undefined,null);
@@ -328,23 +375,13 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats> imple
         result=result.map(v=>[<span>&nbsp;&nbsp;</span>,v,<span>&nbsp;&nbsp;</span>])
         return result
     }
-    codeContext?:RunCodeContext
     codeContextCallMethodEvent=async (ev:CodeContextEvent)=>{
         let {module,functionName,argv}=ev.data;
         (await import(module))[functionName](...argv,{codeCell:this,codeContext:this.codeContext})
     }
-    protected beforeRender(){
-        if(this.codeContext!=this.props.codeContext){
-            if(this.codeContext!=undefined){
-                this.codeContext.event.removeEventListener(`${__name__}.CodeCell.callWebuiFunction`,this.codeContextCallMethodEvent);
-            }
-            this.codeContext=this.props.codeContext;
-            this.codeContext.event.addEventListener(`${__name__}.CodeCell.callWebuiFunction`,this.codeContextCallMethodEvent);
-        }
-    }
     renderCellInput(){
         return <TextEditor ref={this.rref.codeInput} divAttr={{onKeyDown:(ev)=>this.onCellKeyDown(ev),onClick:()=>{
-                if(this.state.codeCompleteCandidate!=null || this.state.extraTooltips!=null){
+                if(this.completion.candidate!=null || this.extraTooltips!=null){
                     this.resetTooltips();
                 }
             }}}
@@ -352,17 +389,17 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats> imple
     }
     renderCellOutput(){
         return [
-            <div>{this.state.errorCatched!=null?'THROW:':null}</div>,
+            <div>{this.errorCatched!=null?'THROW:':null}</div>,
             <div style={{overflow:'auto'}}>
-                {this.state.cellOutput===undefined?null:<ObjectViewer 
-                    object={this.state.cellOutput} name={''} codeContext={this.codeContext!} 
-                    variableName={this.state.resultVariable??undefined} 
+                {this.cellOutput===undefined?null:<ObjectViewer 
+                    object={this.cellOutput} name={''} codeContext={this.codeContext!} 
+                    variableName={this.resultVariable??undefined} 
                 />}
             </div>
         ]
     }
-    render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined; }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChild {
-        this.beforeRender();
+    jsx(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined; }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChild {
+        if(!this.initialized.done){return null;}
         return <div style={{display:'flex',flexDirection:'column',position:'relative',...this.props.divStyle}} ref={this.rref.container} 
                 {...this.props.divAttr}
                 onFocusIn={(ev)=>{
@@ -379,7 +416,7 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats> imple
                 }}
             >
             {this.renderCellInput()}
-            {this.state.focusin?<div style={{position:'relative',display:'flex',flexDirection:'row-reverse'}}>
+            {this.focusin?<div style={{position:'relative',display:'flex',flexDirection:'row-reverse'}}>
             <div style={{position:'absolute',backgroundColor:'white',maxWidth:'50%',wordBreak:'break-all'}}>
                 <div>{this.renderActionButton()}</div>
             </div></div>:null}
@@ -403,32 +440,53 @@ export class CodeCell extends React.Component<CodeCellProps,CodeCellStats> imple
         this.rref.codeInput.current?.setTextCaretOffset('end');
     }
     async close(){
-        if(this.state.resultVariable!=null){
+        if(this.resultVariable!=null){
             try{
-                this.codeContext!.callFunction('deleteVariables',[[this.state.resultVariable]]);
+                this.codeContext!.callFunction('deleteVariables',[[this.resultVariable]]);
             }catch(e){};
         }
     }
 }
 
-export class DefaultCodeCellList extends React.Component<
-        {
-            codeContext:RunCodeContext,
-            onRun?:(cellKey:string)=>void,
-            onCellListChange?:()=>void,
-            cellProps?:{runCodeKey?:'Ctl+Ent'|'Enter',inputClass?:string[],onInputChange?:(target:CodeCellControl)=>void},
-            onCellFocusChange?:(state:{cellKey:string,focusIn:boolean})=>void
-        },{
-            list:{ref:ReactRefEx<CodeCellControl>,key:string}[],
-            consoleOutput:{[cellKey:string]:{content:string}},
-            error:string|null,
-            codeContext:RunCodeContext|null,
-            lastFocusCellKey:string,
-        }>{
+
+export class DefaultCodeCellList<Props={}> extends JsxClassComponent<Props&{codeContext:RunCodeContext,
+    onRun?:(cellKey:string)=>void,
+    onCellListChange?:()=>void,
+    cellProps?:{runCodeKey?:'Ctl+Ent'|'Enter',inputClass?:string[],onInputChange?:(target:CodeCellControl)=>void},
+    onCellFocusChange?:(state:{cellKey:string,focusIn:boolean})=>void
+}>{
+
+    __codeContext?:RunCodeContext;
+
+    set codeContext(cur:RunCodeContext|undefined){
+        let pre=this.__codeContext;
+        this.__codeContext=cur;
+        if(pre!=null){this.detachCodeContext(pre);}
+        if(cur!=null){this.attachCodeContext(cur);}
+    }
+    get codeContext(){
+        return this.__codeContext;
+    }
+    
+    onRun?:(cellKey:string)=>void
+    onCellListChange?:()=>void
+    cellProps?:{runCodeKey?:'Ctl+Ent'|'Enter',inputClass?:string[],onInputChange?:(target:CodeCellControl)=>void}
+    onCellFocusChange?:(state:{cellKey:string,focusIn:boolean})=>void
+
+    list:{ref:ReactRefEx<CodeCellControl>,key:string}[]=[]
+    consoleOutput:{[cellKey:string]:{content:string}}={}
+    error:string|null=null;
+    lastFocusCellKey:string|null=null;
+    
+
     protected lastRunCellKey:string='';
     constructor(prop:any,ctx:any){
         super(prop,ctx);
-        this.resetState();
+        this.initialize().then(()=>this.initialized.setResult(),(err)=>this.initialized.setException(err)).then(()=>this.setState({}));
+    }
+    initialized=new future<void>();
+    protected async initialize(){
+        this.setState({list:[],consoleOutput:{},error:null,codeContext:null,lastFocusCellKey:''})
     }
     protected __currentCodeContext:RunCodeContext|null=null;
     rref={
@@ -441,18 +499,9 @@ export class DefaultCodeCellList extends React.Component<
         ensureJavascriptInspectorForCodeContextInstalled(codeContext);
         this.props.codeContext!.event.addEventListener('console.data',this.onConsoleData as any);
     }
-    protected beforeRender(){
-        if(this.props.codeContext!=this.state.codeContext){
-            if(this.state.codeContext!=null){
-                this.detachCodeContext(this.state.codeContext);
-            }
-            this.setState({codeContext:this.props.codeContext});
-            if(this.props.codeContext!=null){
-                this.attachCodeContext(this.props.codeContext);
-            }
-        }
-        if(this.state.list.length==0){
-            this.newCell();
+    async componentDidUpdate(){
+        if(this.getCellList().length==0){
+            await this.newCell();
         }
     }
     componentWillUnmount(): void {
@@ -464,66 +513,62 @@ export class DefaultCodeCellList extends React.Component<
         }
     }
     async newCell(afterCellKey?:string){
-        let pos=afterCellKey==undefined?-1:this.state.list.findIndex(v=>v.key===afterCellKey);
+        let pos=afterCellKey==undefined?-1:this.list.findIndex(v=>v.key===afterCellKey);
         let newKey=GenerateRandomString();
         if(pos<0){
-            this.state.list.push({ref:new ReactRefEx<CodeCellControl>(),key:newKey})
+            this.list.push({ref:new ReactRefEx<CodeCellControl>(),key:newKey})
         }else{
-            this.state.list.splice(pos+1,0,{ref:new ReactRefEx<CodeCellControl>(),key:newKey});
+            this.list.splice(pos+1,0,{ref:new ReactRefEx<CodeCellControl>(),key:newKey});
         }
         this.setState({});
         this.props.onCellListChange?.();
         return newKey;
     }
     async deleteCell(cellKey:string){
-        let pos=this.state.list.findIndex(v=>v.key==cellKey);
+        let pos=this.list.findIndex(v=>v.key==cellKey);
         try{
-            this.state.list[pos].ref.current?.close();
+            this.list[pos].ref.current?.close();
         }catch(e){};
         if(pos>=0){
-            this.state.list.splice(pos,1);
+            this.list.splice(pos,1);
             this.setState({});
         }
         this.props.onCellListChange?.();
     }
     getCellList(){
-        return this.state.list;
+        return this.list;
     }
     async runCell(cellKey:string){
-        let cell=this.state.list.find(v=>v.key==cellKey);
+        let cell=this.list.find(v=>v.key==cellKey);
         assert(cell!=undefined);
         cell!.ref.current!.runCode();
     }
     async setCurrentEditing(cellKey:string){
-        let cell2=this.state.list.find(v=>v.key==cellKey);
+        let cell2=this.list.find(v=>v.key==cellKey);
         if(cell2!=undefined && cell2.ref.current!=undefined){
             await cell2.ref.current.setAsEditTarget()
         }
     }
     async setCellInput(cellKey:string,input:string){
-        let cell=this.state.list.find(v=>v.key==cellKey);
+        let cell=this.list.find(v=>v.key==cellKey);
         assert(cell!=undefined);
         cell!.ref.current!.setCellInput(input);
     }
     clearConsoleOutput(key:string){
-        delete this.state.consoleOutput[key];
+        delete this.consoleOutput[key];
         this.forceUpdate();
     }
     async resetState(){
         this.lastRunCellKey='';
-        await new Promise<void>(resolve=>this.setState({
-            list:[],
-            consoleOutput:{},
-            error:null,
-            codeContext:null,
-            lastFocusCellKey:''
-        },resolve));
-        await this.newCell();
+        for(let t1 of [...this.getCellList()].reverse()){
+            await this.deleteCell(t1.key);
+        }
+        this.setState({});
     }
     async scrollToCell(cellIndex:number){
         //To prevent user agent scroll handler overwrite the scrollTo position.
         await new Promise(requestAnimationFrame);
-        let v=this.state.list.at(cellIndex)!;
+        let v=this.list.at(cellIndex)!;
         let cellDiv=v.ref.current?.getContainerDiv();
         let listDiv=this.rref.container.current;
         if(cellDiv!=null && listDiv!=null){
@@ -537,7 +582,7 @@ export class DefaultCodeCellList extends React.Component<
     }
     renderCodeCell(v:{ref:ReactRefEx<CodeCellControl>,key:string},index:number,cellCssStyle:React.AllCSSProperties){
         return <CodeCell ref={v.ref} key={v.key} 
-                    codeContext={this.state.codeContext!} 
+                    codeContext={this.codeContext!} 
                     customBtns={[
                         {label:'New',cb:()=>this.newCell(v.key)},
                         {label:'Del',cb:()=>this.deleteCell(v.key)}
@@ -546,9 +591,9 @@ export class DefaultCodeCellList extends React.Component<
                     onRun={async ()=>{
                         this.props.onRun?.(v.key);
                         this.lastRunCellKey=v.key;
-                        if(v.key==this.state.list.at(-1)?.key){
+                        if(v.key==this.list.at(-1)?.key){
                             await this.newCell(v.key);
-                            let ccelem=this.state.list.at(-1)!;
+                            let ccelem=this.list.at(-1)!;
                             let cc=await ccelem.ref.waitValid();
                             await cc.setAsEditTarget();
                         }
@@ -561,13 +606,13 @@ export class DefaultCodeCellList extends React.Component<
                         }
                     }}
                     onPreviousCell={async ()=>{
-                        let cc=this.state.list.at(index-1);
+                        let cc=this.list.at(index-1);
                         if(cc!=undefined){
                             await cc.ref.current?.setAsEditTarget();
                         }
                     }}
                     onNextCell={async ()=>{
-                        let cc=this.state.list.at(index+1);
+                        let cc=this.list.at(index+1);
                         if(cc!=undefined){
                             await cc.ref.current?.setAsEditTarget();
                         }
@@ -576,49 +621,50 @@ export class DefaultCodeCellList extends React.Component<
                     {...this.props.cellProps}
                 />
     }
-    render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined; }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChild {
-        this.beforeRender();        
-        return (this.state.codeContext!=null && this.state.error==null)?
+    jsx(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined; }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChild {     
+        if(!this.initialized.done){return null;}
+        return (this.codeContext!=null && this.error==null)?
         <div style={{width:'100%',height:'100%',overflow:'auto',position:'relative'}} ref={this.rref.container}>
-            {FlattenArraySync(this.state.list.map((v,index)=>{
+            {FlattenArraySync(this.list.map((v,index)=>{
                 let cellCssStyle:React.AllCSSProperties={};
-                if(this.state.lastFocusCellKey===v.key){
+                if(this.lastFocusCellKey===v.key){
                     cellCssStyle.zIndex=100;
                 }
                 let r=[this.renderCodeCell(v,index,cellCssStyle)];
-                if(v.key in this.state.consoleOutput){
-                    r.push(<div style={{wordBreak:'break-all'}} dangerouslySetInnerHTML={{__html:text2html(this.state.consoleOutput[v.key].content)}}></div>)
+                if(v.key in this.consoleOutput){
+                    r.push(<div style={{wordBreak:'break-all'}} dangerouslySetInnerHTML={{__html:text2html(this.consoleOutput[v.key].content)}}></div>)
                 }
                 return r;
             }))}
         <div style={{minHeight:'300px'}}></div>
         </div>:
-        <div style={{width:'100%',overflow:'auto',position:'relative'}} ref={this.rref.container}><pre>{this.state.error}</pre>
+        <div style={{width:'100%',overflow:'auto',position:'relative'}} ref={this.rref.container}><pre>{this.error}</pre>
             <a href="javascript:;" onClick={()=>this.resetState()}>Reset</a>
         </div>
     }
     saveTo():string{
         let cellData=newCodeCellListData.get()();
-        cellData.cellList=this.state.list.map((cell,index)=>({
+        cellData.cellList=this.list.map((cell,index)=>({
                 cellInput:cell.ref.current!.getCellInput(),
                 cellOutput:toSerializableObject(cell.ref.current!.getCellOutput(),{}),
                 key:cell.key
             }));
-        cellData.consoleOutput=this.state.consoleOutput;
+        cellData.consoleOutput=this.consoleOutput;
         return cellData.saveTo();
     }
     async loadFrom(data:string){
+        await this.initialized.get();
         try{
             let cellData=newCodeCellListData.get()();
-            cellData.loadFrom(data);;
+            cellData.loadFrom(data);
             while(this.getCellList().length<cellData.cellList.length){
                 await this.newCell();
             }
-            let consoleOutput={} as typeof this.state.consoleOutput;
+            let consoleOutput={} as typeof this.consoleOutput;
             for(let k1 in cellData.consoleOutput){
                 let index=cellData.cellList.findIndex(v=>v.key===k1);
                 if(index>=0){
-                    consoleOutput[this.state.list[index].key]=cellData.consoleOutput[k1];
+                    consoleOutput[this.list[index].key]=cellData.consoleOutput[k1];
                 }
             }
             let cellList=this.getCellList();
@@ -627,7 +673,7 @@ export class DefaultCodeCellList extends React.Component<
                 let val=cellData.cellList[t1];
                 cell.setCellInput(val.cellInput);
                 cell.setCellOutput(fromSerializableObject(
-                    val.cellOutput[0],{fetcher:await ensureJavascriptInspectorForCodeContextInstalled(this.state.codeContext!),accessPath:[val.cellOutput[1]??'']}),
+                    val.cellOutput[0],{fetcher:await ensureJavascriptInspectorForCodeContextInstalled(this.codeContext!),accessPath:[val.cellOutput[1]??'']}),
                 val.cellOutput[1])
             }
             this.setState({consoleOutput})
@@ -637,13 +683,13 @@ export class DefaultCodeCellList extends React.Component<
         }
     }
     protected onConsoleData=(event:CodeContextEvent<ConsoleDataEventData>)=>{
-        let index=this.state.list.findIndex(v=>v.key===this.lastRunCellKey);
+        let index=this.list.findIndex(v=>v.key===this.lastRunCellKey);
         if(index<0)index=0;
-        let cell=this.state.list[index];
-        if(!(cell.key in this.state.consoleOutput)){
-            this.state.consoleOutput[cell.key]={content:''};
+        let cell=this.list[index];
+        if(!(cell.key in this.consoleOutput)){
+            this.consoleOutput[cell.key]={content:''};
         }
-        this.state.consoleOutput[cell.key].content+=`[${event.data?.level??''}]:${event.data?.message??''}\n`
+        this.consoleOutput[cell.key].content+=`[${event.data?.level??''}]:${event.data?.message??''}\n`
         this.forceUpdate();
     }
 }
@@ -653,5 +699,5 @@ export let CodeCellList=DefaultCodeCellList;
 export type CodeCellList=DefaultCodeCellList;
 
 export function setCodeCellListImpl(ccl:{new(...args:any[]):DefaultCodeCellList}){
-    CodeCellList=ccl;
+    CodeCellList=ccl as any;
 }

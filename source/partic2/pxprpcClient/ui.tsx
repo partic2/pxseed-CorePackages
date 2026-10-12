@@ -2,7 +2,7 @@
 
 import * as React from 'preact'
 import { ClientInfo, addClient, removeClient, getRegistered, listRegistered, listPersistentRegistered, ServerHostRpcName, isServerHost, easyCallRemoteJsonFunction, getPersistentRegistered, importRemoteModule, persistentClientStore } from './registry';
-import { ReactRefEx, css, event } from 'partic2/pComponentUi/domui';
+import { ReactRefEx, css } from 'partic2/pComponentUi/domui';
 import { prompt,alert} from 'partic2/pComponentUi/window';
 import { ArrayWrap2, assert, GenerateRandomString, requirejs } from 'partic2/jsutils1/base';
 import { rpcId } from './rpcworker';
@@ -147,10 +147,7 @@ export class RegistryUI extends React.Component<{rpc?:RpcExtendClient1},
         }
         let r=await this._getRegistyModule();
         let clients=await r.listPersistentRegistered();
-        this.setState({clients:clients},()=>{
-            let div=this.rref.div.current
-            div?.dispatchEvent(new Event(event.layout,{bubbles:true}))
-        });
+        this.setState({clients:clients});
     }
     componentDidMount(): void {
         this.doLoadConfig()

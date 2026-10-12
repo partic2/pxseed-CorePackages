@@ -1,7 +1,7 @@
 
 import * as React from 'preact'
 import { css as baseCss, ReactRefEx } from './domui';
-import { ensureRootWindowContainer, language, rootWindowGroup, WindowComponentProps, css as windowCss } from './window';
+import { DefaultWindowComponent, ensureRootWindowContainer, language, rootWindowGroup, WindowComponentProps, css as windowCss, WindowGroup } from './window';
 import {GenerateRandomString, GetCurrentTime, Ref2, assert, copy, future, mutex, objectPickField, requirejs, sleep} from 'partic2/jsutils1/base'
 import { appendFloatWindow, removeFloatWindow, WindowComponent } from './window';
 import { getIconUrl } from 'partic2/pxseedMedia1/index1';
@@ -27,6 +27,7 @@ interface OpenNewWindopwOption{
     title?:string,
     //If specifed, the layout will be saved(For days?), to recover the layout when window with same layoutHint open again.
     layoutHint?:string
+    initialLayout?:{left:number,top:number,width?:number,height?:number}
     parentWindow?:NewWindowHandle,
     windowOptions?:WindowComponentProps
     WindowComponentClass?:{new(prop:WindowComponentProps,ctx:any):WindowComponent}
@@ -52,7 +53,7 @@ export interface NewWindowRequestContext{
 export let WorkspaceWindowContext=React.createContext<{lastWindow?:NewWindowHandle}>({});
 
 
-export class DefaultWorkspaceWindowComponent extends WindowComponent{
+export class DefaultWorkspaceWindowComponent<Props={}> extends DefaultWindowComponent<Props>{
     protected beforeMaximizeSize:{left:number,top:number,width?:number,height?:number}|null=null;
     async onMaximizeClick(){
         await this.setMaximized(!this.getMaximized());
@@ -60,20 +61,20 @@ export class DefaultWorkspaceWindowComponent extends WindowComponent{
     getMaximized(){
         return this.beforeMaximizeSize!=null;
     }
-    protected __onAnyUserLayout=()=>{this.beforeMaximizeSize=null;}
+    static componentClassName=__name__+'.DefaultWorkspaceWindowComponent';
     componentDidMount(): void {
         super.componentDidMount();
-        this.addEventListener('user-move',this.__onAnyUserLayout);
-        this.addEventListener('user-resize',this.__onAnyUserLayout);
+        this.userMoveEvent.setListener(DefaultWorkspaceWindowComponent.componentClassName,()=>{this.beforeMaximizeSize=null;});
+        this.userResizeEvent.setListener(DefaultWorkspaceWindowComponent.componentClassName,()=>{this.beforeMaximizeSize=null;});
     }
     componentWillUnmount(): void {
-        this.removeEventListener('user-move',this.__onAnyUserLayout);
-        this.removeEventListener('user-resize',this.__onAnyUserLayout);
+        this.userMoveEvent.clearListener(DefaultWorkspaceWindowComponent.componentClassName)
+        this.userResizeEvent.clearListener(DefaultWorkspaceWindowComponent.componentClassName)
         super.componentWillUnmount();
     }
     async setMaximized(maximized:boolean){
         if(maximized){
-            this.beforeMaximizeSize={...this.state.layout};
+            this.beforeMaximizeSize={...this.currentLayout};
             let containerDiv=await this.rref.container.waitValid();
             this.layout({left:0,top:0,
                 width:(containerDiv.offsetParent as HTMLElement).offsetWidth,
@@ -87,9 +88,9 @@ export class DefaultWorkspaceWindowComponent extends WindowComponent{
     }
     renderTitleIcons(){
         return [
-            ...(this.state.titleBarButton??[]).map(t1=>this.renderIcon(t1.icon,t1.onClick)),
+            ...(this.titleBarButton??[]).map(t1=>this.renderIcon(t1.icon,t1.onClick)),
             this.renderIcon(getIconUrl('maximize-2.svg'),()=>this.onMaximizeClick()),
-            this.renderIcon(this.props.closeIcon!,()=>this.onCloseClick())
+            this.renderIcon(this.closeIcon!,()=>this.onCloseClick())
         ]
     }
     hide(): void {
@@ -104,17 +105,18 @@ export class DefaultWorkspaceWindowComponent extends WindowComponent{
 
 export let WorkspaceWindowUtils={
     async centerWindow(windowComponent:WindowComponent){
-        if(windowComponent.props.windowGroup!=null){
+        let windowGroup=windowComponent.getAncestorJsxClassComponents({clazz:WindowGroup,count:1}).at(0);
+        if(windowGroup!=undefined){
             for(let t1=0;t1<40;t1++){
-                let wndSize=windowComponent.props.windowGroup.getSize();
+                let wndSize=windowGroup.getSize();
                 let width=windowComponent.rref.container.current?.offsetWidth??0;
                 let height=windowComponent.rref.container.current?.offsetHeight??0;
                 if(width>wndSize.width-5)width=wndSize.width-5;
                 if(height>wndSize.height-5)height=wndSize.height-5;
                 let left=(wndSize.width-width)>>1;
                 let top=(wndSize.height-height)>>1;
-                if(left!=windowComponent.state.layout.left || top!=windowComponent.state.layout.top){
-                    await windowComponent.layout({...windowComponent.state.layout,left:left,top:top});
+                if(left!=windowComponent.currentLayout.left || top!=windowComponent.currentLayout.top){
+                    await windowComponent.layout({...windowComponent.currentLayout,left:left,top:top});
                 }
                 if(!windowComponent.sizeMeasuring.get())break;
                 await sleep(25);
@@ -202,7 +204,7 @@ openNewWindowPipeline.arr().push({name:__name__+'.openNewWindowLayoutWindow',han
     let window1=await windowRef.waitValid();
     
     if(options.windowOptions?.borderless!=true){
-        let layout1=context.request.windowOptions?.initialLayout??null;
+        let layout1=context.request?.initialLayout??null;
         if(layout1==null &&options.layoutHint!=undefined && config1.savedWindowLayout[options.layoutHint]!=undefined){
             layout1=objectPickField(config1.savedWindowLayout[options.layoutHint],['left','top','width','height']) as any;
             config1.savedWindowLayout[options.layoutHint].time=GetCurrentTime().getTime();
@@ -214,7 +216,7 @@ openNewWindowPipeline.arr().push({name:__name__+'.openNewWindowLayoutWindow',han
                 let crowded=false;
                 for(let t2 of NewWindowHandleLists.value){
                     if(t2.windowRef.current!=null){
-                        let top=t2.windowRef.current.state.layout.top;
+                        let top=t2.windowRef.current.currentLayout.top;
                         if(top>=t1-10 && top<t1+10){
                             crowded=true;
                             break;
@@ -233,7 +235,7 @@ openNewWindowPipeline.arr().push({name:__name__+'.openNewWindowLayoutWindow',han
             context.result!.saveWindowPosition=async ()=>{
                 config1=await GetPersistentConfig(__name__);
                 if(config1.savedWindowLayout==undefined)config1.savedWindowLayout={};
-                config1.savedWindowLayout[options.layoutHint!]={time:GetCurrentTime().getTime(),...(await windowRef.waitValid()).state.layout};
+                config1.savedWindowLayout[options.layoutHint!]={time:GetCurrentTime().getTime(),...(await windowRef.waitValid()).currentLayout};
                 let allEnt=Array.from(Object.entries(config1.savedWindowLayout!));
                 if(allEnt.length>16){
                     allEnt.sort((a,b)=>(a[1].time??0)-(b[1].time??0));
@@ -244,12 +246,12 @@ openNewWindowPipeline.arr().push({name:__name__+'.openNewWindowLayoutWindow',han
                 await SavePersistentConfig(__name__,config1);
             }
             let saveLayout=new DebounceCall(()=>context.result!.saveWindowPosition!(),3000);
-            let onWindowLayoutChange=()=>{saveLayout.call()}
-            window1.addEventListener('move',onWindowLayoutChange);
-            window1.addEventListener('resize',onWindowLayoutChange);
+            let layoutHintTracer=__name__+'.layoutHintTracer';
+            window1.moveEvent.setListener(layoutHintTracer,()=>{saveLayout.call()});
+            window1.resizeEvent.setListener(layoutHintTracer,()=>{saveLayout.call()});
             context.result!.waitClose().then(()=>{
-                window1.removeEventListener('move',onWindowLayoutChange);
-                window1.removeEventListener('resize',onWindowLayoutChange);
+                window1.moveEvent.clearListener(layoutHintTracer);
+                window1.resizeEvent.clearListener(layoutHintTracer);
             })
         }
     }
@@ -270,29 +272,36 @@ export let openNewWindow=async function(contentVNode:React.VNode,options?:OpenNe
 let baseWindowComponnet:React.VNode|null=null
 let baseWindowRef=new ReactRefEx<WindowComponent>();
 
-const onRootWindowGroupResize=()=>{
-    if(baseWindowRef.current!=null){
-        baseWindowRef.current.setState({layout:{left:0,top:0,
-            width:rootWindowGroup.current?.container?.current?.offsetWidth,
-            height:rootWindowGroup.current?.container?.current?.offsetHeight
-        }})
-    }
-}
+
 export function setBaseWindowView(vnode:React.VNode){
     ensureRootWindowContainer();
     if(baseWindowComponnet!=null){
         removeFloatWindow(baseWindowComponnet);
     }
     baseWindowComponnet=vnode;
-    appendFloatWindow(<WindowComponent disableUserInputActivate={true} borderless={true} ref={baseWindowRef} initialLayout={{left:0,top:0,
-        width:rootWindowGroup.current?.container?.current?.offsetWidth,
-        height:rootWindowGroup.current?.container?.current?.offsetHeight}}>
+    appendFloatWindow(<WindowComponent disableUserInputActivate={true} borderless={true} ref={baseWindowRef} >
         {vnode}
     </WindowComponent>);
-    rootWindowGroup.waitValid().then((wndGroup)=>{
-        if(!wndGroup.onResize.has(onRootWindowGroupResize)){
-            wndGroup.onResize.add(onRootWindowGroupResize);
-        }
+    rootWindowGroup.waitValid().then((wndGroup) => {
+        wndGroup.resizeEvent.setListener(__name__ + '.setBaseWindowView', () => {
+            if (baseWindowRef.current != null) {
+                let wndSize = wndGroup.getSize();
+                baseWindowRef.current.layout({
+                    left: 0, top: 0,
+                    width: wndSize.width,
+                    height: wndSize.height
+                });
+            }
+        });
+        baseWindowRef.waitValid().then((baseWindow) => {
+            let wndSize = wndGroup.getSize();
+            baseWindow.layout({
+                left: 0, top: 0,
+                width: wndSize.width,
+                height: wndSize.height
+
+            })
+        });
     });
     baseWindowRef.waitValid().then((wnd)=>wnd.activate(1));
 }

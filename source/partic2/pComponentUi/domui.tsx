@@ -1,6 +1,6 @@
 
 import * as React from 'preact'
-import { future, Ref2, requirejs } from 'partic2/jsutils1/base';
+import { future, GenerateRandomString, Ref2, requirejs } from 'partic2/jsutils1/base';
 import { DynamicPageCSSManager, useDeviceWidth } from 'partic2/jsutils1/webutils';
 
 let __name__=requirejs.getLocalRequireModule(require);
@@ -173,23 +173,65 @@ export let __inited__=(async ()=>{
     }
 })()
 
-export abstract class ReactEventTarget<P={},S={}> extends React.Component<P,S> implements EventTarget{
-    eventTarget:EventTarget=new EventTarget();
-    addEventListener(type: string, callback: EventListenerOrEventListenerObject | null, options?: boolean | AddEventListenerOptions | undefined): void {
-        this.eventTarget.addEventListener(type,callback,options);
+
+export let JsxClassComponentParent=React.createContext<JsxClassComponent|null>(null);
+
+export abstract class JsxClassComponent<Props={}> extends React.Component<Props>{
+    protected __updateStateToField(state:Record<string,any>){
+        for(let k1 in state){
+            let v1=state[k1];
+            if(v1!==undefined && (this as any)[k1]!=v1){
+                (this as any)[k1]=v1;
+            }
+        }
     }
-    dispatchEvent(event: Event): boolean {
-        return this.eventTarget.dispatchEvent(event);
+    static defineEventSlot<Event>(){
+        let eventStore=new Map<string,(e:Event)=>void>();
+        return {
+            setListener(name:string|undefined,cb:(e:Event)=>void){
+                name=name??GenerateRandomString();
+                eventStore.set(name,cb);
+                return name;
+            },
+            clearListener(name:string){
+                eventStore.delete(name);
+            },
+            listListeners(){
+                return eventStore.entries();
+            },
+            dispatch(e:Event){
+                Array.from(eventStore.values()).forEach(t1=>t1(e));
+            }
+        }
     }
-    removeEventListener(type: string, callback: EventListenerOrEventListenerObject | null, options?: boolean | EventListenerOptions | undefined): void {
-        this.eventTarget.removeEventListener(type,callback,options);
+    static contextType=JsxClassComponentParent;
+    getAncestorJsxClassComponents<ComponentClass=JsxClassComponent>(options?:{clazz?:{new():ComponentClass},count?:number}):Array<ComponentClass>{
+        let result=new Array<JsxClassComponent>();
+        let curr:JsxClassComponent|null=this.context;
+        while(curr!=null){
+            if(options?.clazz==undefined || curr instanceof options.clazz){
+                result.push(curr);
+            }
+            if(options?.count!=undefined && result.length>=options.count){
+                break;
+            }
+            curr=curr.context;
+        }
+        return result as any;
     }
+    render(): React.ComponentChildren {
+        this.__updateStateToField(this.props);
+        return <JsxClassComponentParent.Provider value={this}>
+            {this.jsx()}
+        </JsxClassComponentParent.Provider>;
+    }
+    setState(state: Record<string,any>, callback?: (() => void) | undefined): void {
+        this.__updateStateToField(state);
+        super.setState({},callback);
+    }
+    abstract jsx():React.ComponentChildren
 }
 
-
-export var event={
-    layout:'partic2-layout' as const
-}
 
 export let floatLayerZIndexBase=600;
 

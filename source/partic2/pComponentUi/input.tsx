@@ -1,11 +1,21 @@
 import { ArrayWrap2, future, GenerateRandomString } from "partic2/jsutils1/base"
 import { getIconUrl } from "partic2/pxseedMedia1/index1"
-import { css, ReactEventTarget, ReactRefEx } from "./domui"
+import { css, ReactRefEx } from "./domui"
 import * as React from 'preact'
-import { PlainTextEditorInput } from "./texteditor"
 import { prompt } from "./window"
 
-
+export abstract class ReactEventTarget<P={},S={}> extends React.Component<P,S> implements EventTarget{
+    eventTarget:EventTarget=new EventTarget();
+    addEventListener(type: string, callback: EventListenerOrEventListenerObject | null, options?: boolean | AddEventListenerOptions | undefined): void {
+        this.eventTarget.addEventListener(type,callback,options);
+    }
+    dispatchEvent(event: Event): boolean {
+        return this.eventTarget.dispatchEvent(event);
+    }
+    removeEventListener(type: string, callback: EventListenerOrEventListenerObject | null, options?: boolean | EventListenerOptions | undefined): void {
+        this.eventTarget.removeEventListener(type,callback,options);
+    }
+}
 
 export class ValueCheckBox extends ReactEventTarget<{value?:boolean,style?:React.JSX.CSSProperties,className?:string},{}>{
     protected cbref=React.createRef();

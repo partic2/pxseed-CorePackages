@@ -2,7 +2,7 @@
 import { objectPickField } from 'partic2/jsutils1/base';
 import * as React from 'preact'
 import { docNode2text, text2html } from './utils';
-import { ReactEventTarget, ReactRefEx } from './domui';
+import { JsxClassComponent, ReactRefEx } from './domui';
 
 export interface TextEditorProps{
     onFocus?:(target:TextEditor)=>void,onBlur?:(target:TextEditor)=>void
@@ -11,114 +11,210 @@ export interface TextEditorProps{
     divStyle?:React.CSSProperties,
     divAttr?:React.DOMAttributes<HTMLDivElement>
 }
-export class TextEditor<RP extends TextEditorProps=TextEditorProps> extends ReactEventTarget<RP,{}>{
+
+type EditKind =
+    | 'insert' | 'deleteBackward' | 'deleteForward'
+    | 'paste' | 'cut' | 'composition' | 'other';
+
+interface HistoryEntry{
+    text:string;
+    caret:number;
+    kind:EditKind;
+    time:number;
+}
+
+
+const UNDO_LIMIT = 30;
+const MERGE_MS = 800;
+
+export class TextEditor<Props={}> extends JsxClassComponent<Props&TextEditorProps>{
+    //Prop
+    onFocus?:(target:TextEditor)=>void
+    onBlur?:(target:TextEditor)=>void
+    onInput?:(target:TextEditor,inputData:{char:string|null,text:string|null,type:string})=>void
+    divClass?:string[]
+    divStyle?:React.CSSProperties
+    divAttr?:React.DOMAttributes<HTMLDivElement>
+
     rref={div1:new ReactRefEx<HTMLDivElement>()};
-    protected undoHistory:{text:string,caret:number}[]=[];
+
+    protected undoHistory:HistoryEntry[]=[];
     protected undoHistoryCurrent=-1;
-    pushHistory(){
-        let currText=this.getPlainText();
-        if(currText==this.undoHistory.at(this.undoHistoryCurrent)?.text)return;
-        if(this.undoHistoryCurrent>=this.undoHistory.length-1){
-            this.undoHistory.push({text:currText,caret:this.getTextCaretOffset()});
-            if(this.undoHistory.length>10){
-                this.undoHistory.unshift();
-            }
-            this.undoHistoryCurrent=this.undoHistory.length-1;
-        }else{
-            this.undoHistoryCurrent++;
-            this.undoHistory[this.undoHistoryCurrent]={text:currText,caret:this.getTextCaretOffset()};
+
+
+    protected normalizeInputType(inputType:string):
+        {kind:EditKind,mergeable:boolean}{
+        switch(inputType){
+            case 'insertText':
+                return {kind:'insert',mergeable:true};
+            case 'insertCompositionText':
+            case 'insertFromComposition':
+                return {kind:'composition',mergeable:false};
+            case 'insertParagraph':
+            case 'insertLineBreak':
+                return {kind:'insert',mergeable:false};
+            case 'deleteContentBackward':
+                return {kind:'deleteBackward',mergeable:true};
+            case 'deleteContentForward':
+                return {kind:'deleteForward',mergeable:true};
+            case 'deleteByCut':
+                return {kind:'cut',mergeable:false};
+            case 'insertFromPaste':
+                return {kind:'paste',mergeable:false};
+            default:
+                return {kind:'other',mergeable:false};
         }
     }
-    textUndo(){
-        if(this.undoHistoryCurrent<0){
+
+    protected commitHistory(kind:EditKind,mergeable:boolean){
+        const text=this.getPlainText();
+        const caret=this.getTextCaretOffset();
+        const now=Date.now();
+
+        const top=this.undoHistory[this.undoHistoryCurrent];
+        if(top && top.text===text){
             return;
         }
-        this.pushHistory();
-        this.undoHistoryCurrent--;
-        let last=this.undoHistory.at(this.undoHistoryCurrent)!;
-        this.undoHistoryCurrent--;
-        this.setPlainText(last.text);
-        this.setTextCaretOffset(last.caret);
+
+        const canMerge =
+            mergeable &&
+            top!==undefined &&
+            top.kind===kind &&
+            now-top.time<=MERGE_MS &&
+            this.undoHistoryCurrent===this.undoHistory.length-1; 
+
+        if(canMerge){
+            top.text=text;
+            top.caret=caret;
+            top.time=now;
+            return;
+        }
+
+        if(this.undoHistoryCurrent<this.undoHistory.length-1){
+            this.undoHistory.length=this.undoHistoryCurrent+1;
+        }
+        this.undoHistory.push({text,caret,kind,time:now});
+
+        while(this.undoHistory.length>UNDO_LIMIT){
+            this.undoHistory.shift();
+        }
+        this.undoHistoryCurrent=this.undoHistory.length-1;
     }
+
+    textUndo(){
+        if(this.undoHistoryCurrent<=0)return;
+        this.undoHistoryCurrent--;
+        const entry=this.undoHistory[this.undoHistoryCurrent];
+        this.applyHistoryEntry(entry);
+    }
+
     textRedo(){
-        let currText=this.getPlainText();
-        for(;this.undoHistoryCurrent+1<this.undoHistory.length;this.undoHistoryCurrent++){
-            let last=this.undoHistory[this.undoHistoryCurrent+1];
-            if(currText!=last.text){
-                this.setPlainText(last.text);
-                this.setTextCaretOffset(last.caret);
-                break;
-            }
-        }
+        if(this.undoHistoryCurrent>=this.undoHistory.length-1)return;
+        this.undoHistoryCurrent++;
+        const entry=this.undoHistory[this.undoHistoryCurrent];
+        this.applyHistoryEntry(entry);
     }
-    protected onInputHandler(ev: React.TargetedEvent<HTMLDivElement,InputEvent>){
-        this.props.divAttr?.onInput?.(ev);
+
+    protected applyHistoryEntry(entry:HistoryEntry){
+        this.setPlainText(entry.text);
+        this.setTextCaretOffset(entry.caret);
+    }
+
+    canUndo(){return this.undoHistoryCurrent>0;}
+    canRedo(){return this.undoHistoryCurrent<this.undoHistory.length-1;}
+
+    markHistory(){this.commitHistory('other',false);}
+
+    protected onInputHandler(ev:React.TargetedEvent<HTMLDivElement,InputEvent>){
+        this.divAttr?.onInput?.(ev);
         if(ev.defaultPrevented)return;
-        if(!this.compositing){
-            let ch=ev.data;
-            if(ev.inputType=='insertParagraph'||(ev.inputType=='insertText' && ch==null)){
-                ch='\n';
-            }
-            if(/[^0-9a-zA-Z]/.test(ch??'')){
-                this.pushHistory();
-            }
-            this.props.onInput?.(this,{char:ch,text:ev.dataTransfer?.getData('text/plain')??null,type:ev.inputType});
+
+        if(this.compositing)return;
+
+        let ch=ev.data;
+        if(ev.inputType=='insertParagraph'||(ev.inputType=='insertText' && ch==null)){
+            ch='\n';
         }
+
+        const {kind,mergeable}=this.normalizeInputType(ev.inputType);
+        this.commitHistory(kind,mergeable);
+
+        this.onInput?.(this,{
+            char:ch,
+            text:ev.dataTransfer?.getData('text/plain')??null,
+            type:ev.inputType
+        });
     }
+
     compositing=false;
+
     protected onCompositionStart(ev:React.TargetedEvent<HTMLDivElement,CompositionEvent>){
-        this.props.divAttr?.onCompositionStart?.(ev)
+        this.divAttr?.onCompositionStart?.(ev)
         if(ev.defaultPrevented)return;
         this.compositing=true;
     }
+
     protected onCompositionEnd(ev:React.TargetedEvent<HTMLDivElement,CompositionEvent>){
-        this.props.divAttr?.onCompositionEnd?.(ev)
+        this.divAttr?.onCompositionEnd?.(ev)
         if(ev.defaultPrevented)return;
         this.compositing=false;
-        this.props.onInput?.(this,{char:ev.data,text:ev.data,type:'insertText'});
+        this.commitHistory('composition',false);
+        this.onInput?.(this,{char:ev.data,text:ev.data,type:'insertText'});
     }
+
     protected onPasteHandler(ev:React.TargetedEvent<HTMLDivElement,ClipboardEvent>){
-        this.props.divAttr?.onPaste?.(ev);
+        this.divAttr?.onPaste?.(ev);
         if(ev.defaultPrevented)return;
-        let text=ev.clipboardData!.getData('text/plain')
-        this.pushHistory();
+        const text=ev.clipboardData!.getData('text/plain');
+
+        this.commitHistory('paste',false);
         this.insertText(text);
-        this.props.onInput?.(this,{char:null,text:text,type:'paste'});
+        this.commitHistory('paste',false);
+
+        this.onInput?.(this,{char:null,text,type:'paste'});
         ev.preventDefault();
     }
-    protected onKeyDownHandler(ev:React.JSX.TargetedKeyboardEvent<HTMLDivElement>){
-        if(this.props.divAttr?.onKeyDown!=undefined){
-            this.props.divAttr.onKeyDown(ev);
+
+    protected onKeyDownHandler(ev:React.TargetedKeyboardEvent<HTMLDivElement>){
+        if(this.divAttr?.onKeyDown!=undefined){
+            this.divAttr.onKeyDown(ev);
         }
         if(ev.defaultPrevented){
             return;
         }
-        if(ev.code=='KeyZ' && ev.ctrlKey){
+        if((ev.ctrlKey||ev.metaKey) && ev.code=='KeyZ'){
             ev.preventDefault();
             if(ev.shiftKey){
                 this.textRedo();
             }else{
                 this.textUndo();
             }
+            return;
         }
     }
+
     async componentDidMount(): Promise<void> {
         let div1=await this.rref.div1.waitValid();
         div1.addEventListener('compositionstart',(ev)=>this.onCompositionStart(ev as any));
         div1.addEventListener('compositionend',(ev)=>this.onCompositionEnd(ev as any));
-        div1.addEventListener('compositionupdate',(ev)=>this.props.divAttr?.onCompositionUpdate?.(ev as any));
+        div1.addEventListener('compositionupdate',(ev)=>this.divAttr?.onCompositionUpdate?.(ev as any));
+
+        this.commitHistory('other',false);
     }
-    render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined; }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChild {
+
+    jsx(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined; }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChild {
         return <div contentEditable={true} ref={this.rref.div1} 
-        style={{wordBreak:'break-all',overflowWrap:'word-break',whiteSpace:'pre-wrap',position:'relative',...this.props.divStyle}}
-        className={(this.props.divClass??[]).join(' ')}
-        {...this.props.divAttr}
+        style={{wordBreak:'break-all',overflowWrap:'word-break',whiteSpace:'pre-wrap',position:'relative',...this.divStyle}}
+        className={(this.divClass??[]).join(' ')}
+        {...this.divAttr}
         onPaste={(ev)=>{this.onPasteHandler(ev);}}
         onInput={(ev)=>this.onInputHandler(ev as any)}
         onBlur={(ev)=>this.onBlurHandler(ev)} onFocus={(ev)=>this.onFocusHandler(ev)}
         onKeyDown={(ev)=>this.onKeyDownHandler(ev)}
         ></div>
     }
+
+
     insertText(text:string){
         let {anchor,focus}=this.getTextCaretSelectedRange();
         let fullText=this.getPlainText();
@@ -127,6 +223,7 @@ export class TextEditor<RP extends TextEditorProps=TextEditorProps> extends Reac
         this.setPlainText(fullText.substring(0,min1)+text+fullText.substring(max1));
         this.setTextCaretOffset(min1+text.length);
     }
+
     deleteText(count:number){
         let offset=this.getTextCaretOffset();
         let fullText=this.getPlainText();
@@ -134,15 +231,20 @@ export class TextEditor<RP extends TextEditorProps=TextEditorProps> extends Reac
         this.setPlainText(newText);
         this.setTextCaretOffset(Math.max(0,offset-count))
     }
+
+
     protected savedSelection?:{anchorNode:Node|null,anchorOffset:number,focusNode:Node|null,focusOffset:number}
+
     protected onBlurHandler(ev: React.TargetedFocusEvent<HTMLDivElement>){
-        (this.props.divAttr?.onBlur as any|undefined)?.bind(ev.currentTarget)?.(ev.currentTarget);
-        this.props?.onBlur?.(this);
+        (this.divAttr?.onBlur as any|undefined)?.bind(ev.currentTarget)?.(ev.currentTarget);
+        this?.onBlur?.(this);
     }
+
     protected onFocusHandler(ev: React.TargetedFocusEvent<HTMLDivElement>){
-        (this.props.divAttr?.onFocus as any|undefined)?.bind(ev.currentTarget)?.(ev.currentTarget);
-        this.props.onFocus?.(this);
+        (this.divAttr?.onFocus as any|undefined)?.bind(ev.currentTarget)?.(ev.currentTarget);
+        this.onFocus?.(this);
     }
+
     protected saveSelection(){
         let sel=window.getSelection();
         if(sel!=null && this.rref.div1.current!=null && this.rref.div1.current.contains(document.activeElement) && 
@@ -153,6 +255,7 @@ export class TextEditor<RP extends TextEditorProps=TextEditorProps> extends Reac
             this.savedSelection=undefined;
         }
     }
+
     protected restoreSelection(){
         let sel=window.getSelection();
         if(sel!=null && this.savedSelection!=undefined && this.rref.div1.current!=null && this.rref.div1.current.contains(document.activeElement)){
@@ -161,26 +264,35 @@ export class TextEditor<RP extends TextEditorProps=TextEditorProps> extends Reac
         }
         this.savedSelection=undefined;
     }
+
     getHtml(){
         return this.rref.div1.current?.innerHTML;
     }
+
     setHtml(html:string){
         if(this.rref.div1.current){
             this.rref.div1.current.innerHTML=html;
         }
     }
+
     getPlainText(){
         if(this.rref.div1.current==null)return '';
         return docNode2text(this.rref.div1.current!).concat();
     }
-    setPlainText(text:string){
+
+    setPlainText(text:string,opt?:{record?:boolean}){
         if(text==''){
             //firefox prefer this.
             this.setHtml('');
         }else{
             this.setHtml(text2html(text))
         }
+        if(opt?.record){
+            this.commitHistory('other',false);
+        }
     }
+
+
     getTextCaretOffset(){
         let sel=document.getSelection();
         let textParts=docNode2text(this.rref.div1.current!);
@@ -189,6 +301,7 @@ export class TextEditor<RP extends TextEditorProps=TextEditorProps> extends Reac
         }
         return textParts.textOffsetFromNode(sel.focusNode,sel.focusOffset)
     }
+
     getTextCaretSelectedRange(){
         let sel=document.getSelection();
         let textParts=docNode2text(this.rref.div1.current!);
@@ -199,6 +312,7 @@ export class TextEditor<RP extends TextEditorProps=TextEditorProps> extends Reac
         let anchorPos=textParts.textOffsetFromNode(sel.anchorNode!,sel.anchorOffset);
         return {anchor:anchorPos,focus:focusPos};
     }
+
     getCoordinateByTextOffset(textOffset:number){
         let textParts=docNode2text(this.rref.div1.current!);
         let pos1=textParts.nodeFromTextOffset(textOffset);
@@ -227,6 +341,7 @@ export class TextEditor<RP extends TextEditorProps=TextEditorProps> extends Reac
         }
         return null;
     }
+
     setTextCaretOffset(offset:number|'start'|'end'){
         let sel=window.getSelection();
         let textParts=docNode2text(this.rref.div1.current!);
@@ -246,6 +361,7 @@ export class TextEditor<RP extends TextEditorProps=TextEditorProps> extends Reac
             sel.setPosition(rng1.endContainer,rng1.endOffset);
         }
     }
+
     setTextCaretSelectedRange(anchorPos:number,focusPos:number){
         let sel=window.getSelection();
         let textParts=docNode2text(this.rref.div1.current!);
@@ -257,9 +373,11 @@ export class TextEditor<RP extends TextEditorProps=TextEditorProps> extends Reac
             sel.extend(focus.node,focus.offset)
         }
     }
+
     scrollToBottom(){
         this.rref.div1.current!.scrollTop=this.rref.div1.current!.scrollHeight;
     }
+
     isEditing(){
         return document.activeElement!=null && 
             this.rref.div1.current!=null && 
@@ -274,19 +392,14 @@ interface PlainTextEditorInputProps extends TextEditorProps{
     onChange?:(newValue:string)=>void
 }
 
-export class PlainTextEditorInput<RP extends PlainTextEditorInputProps=PlainTextEditorInputProps> extends TextEditor<RP>{
+import {ReactEventTarget} from './input'
+export class PlainTextEditorInput<RP extends PlainTextEditorInputProps=PlainTextEditorInputProps> extends ReactEventTarget<RP>{
+    ref=new ReactRefEx<TextEditor>();
     get value(){
-        return this.getPlainText();
+        return this.ref.current?.getPlainText()??'';
     }
     set value(v:string){
-        this.setPlainText(v);
-    }
-    protected onInputHandler(ev: React.TargetedEvent<HTMLDivElement, InputEvent>): void {
-        super.onInputHandler(ev);
-        if(!ev.defaultPrevented){
-            this.dispatchEvent(new Event('change'));
-            this.props.onChange?.(this.value);
-        }
+        this.ref.current?.setPlainText(v);
     }
     protected _savedState:Record<string,any>={};
     protected _checkValueProp(){
@@ -297,8 +410,9 @@ export class PlainTextEditorInput<RP extends PlainTextEditorInputProps=PlainText
             }
         }
     }
+
     render(){
         this._checkValueProp();
-        return super.render();
+        return <TextEditor onInput={()=>this.dispatchEvent(new Event('change'))} {...this.props} ref={this.ref}/>
     }
 }
