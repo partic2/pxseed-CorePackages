@@ -330,13 +330,20 @@ export function setupAsyncHook(){
 interface ArrayWrap3IteratorCallbackInput<T>{
 	value:T,
 	index:number,
+	pickByOffset:(offset:number)=>T,
+	wrap:ArrayWrap3<T>,
 	break2:()=>void,
 	iterating:boolean
 }
 export class ArrayWrap3<T> extends ArrayWrap2<T>{
 	async forEach2(cb:(input:ArrayWrap3IteratorCallbackInput<T>)=>(Promise<void>|void)){
 		let arr=this.arr();
-		let input={index:0,break2(){this.iterating=false},iterating:true} as ArrayWrap3IteratorCallbackInput<T>;
+		let input={
+			index:0,wrap:this,
+			break2(){this.iterating=false},iterating:true,
+			pickByOffset(offset){return this.wrap.arr()[this.index+offset]},
+			value:undefined as T,
+		} satisfies ArrayWrap3IteratorCallbackInput<T>;
 		for(let t1=0;t1<arr.length && input.iterating;t1++){
 			input.index=t1;
 			input.value=arr[t1];
@@ -352,7 +359,7 @@ export class ArrayWrap3<T> extends ArrayWrap2<T>{
 		return new (this.constructor as any)(r);
 	}
 	async forEach(cb:(value:T,index:number,arr:this)=>(Promise<void>|void)){
-		this.forEach2(async ({value,index})=>{
+		await this.forEach2(async ({value,index})=>{
 			await cb(value,index,this);
 		})
 	}
@@ -369,7 +376,7 @@ export class ArrayWrap3<T> extends ArrayWrap2<T>{
 	}
 	async findIndexs(condition:(input:ArrayWrap3IteratorCallbackInput<T>,found:Array<number>)=>(Promise<boolean>|boolean)){
 		let found=new Array<number>();
-		this.forEach2(async (i)=>{
+		await this.forEach2(async (i)=>{
 			let b=await condition(i,found);
 			if(b && i.iterating){found.push(i.index);}
 		})
@@ -413,7 +420,7 @@ export class ArrayWrap3<T> extends ArrayWrap2<T>{
 	}
 	async groupBy2(cb:(input:ArrayWrap3IteratorCallbackInput<T>)=>(Promise<string>|string)):Promise<Record<string,ArrayWrap3<T>>>{
 		let r:Record<string,ArrayWrap3<T>>={};
-		this.forEach2(async (input)=>{
+		await this.forEach2(async (input)=>{
 			let id=await cb(input);
 			if(input.iterating){
 				if(r[id]==undefined){

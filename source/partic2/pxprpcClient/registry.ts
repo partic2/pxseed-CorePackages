@@ -165,25 +165,34 @@ export async function isServerHost(){
 
 
 
-//"ServerHost" usually refer to the server hosting pxseed web, and shared by all js worker in one pxeed application.
+//See also ServerHostRpc below
 export const ServerHostRpcName='server host';
-
-//"ServerHostWorker1" refer to the worker spawn by ServerHost to handle the most remote requests.
 export const ServerHostWorker1RpcName='server host worker 1';
-
+export const ServerHostWorker2RpcName='server host worker 2';
+export const ServerHostWorker3RpcName='server host worker 3';
 export const WebWorker1RpcName='webworker 1'
+export const WebWorker2RpcName='webworker 2'
 export const ServiceWorkerRpcName='service worker 1';
 
 
 
 let persistent={
+    storeName:'',
     save:async function(){
-        let config=await GetPersistentConfig(__name__);
+        let name=__name__;
+        if(persistent.storeName!=''){
+            name=name+'.'+persistent.storeName;
+        }
+        let config=await GetPersistentConfig(name);
         config.registered=Array.from(registered.values()).filter(t1=>t1.persistent).map(t1=>t1.toJSON());
-        await SavePersistentConfig(__name__,config);
+        await SavePersistentConfig(name,config);
     },
     load:async function() {
-        let config=await GetPersistentConfig(__name__);
+        let name=__name__;
+        if(persistent.storeName!=''){
+            name=name+'.'+persistent.storeName;
+        }
+        let config=await GetPersistentConfig(name);
         if(config.registered != undefined){
             (config.registered as {name:string,url:string}[]).forEach(item=>{
                 let clie=registered.get(item.name);
@@ -196,16 +205,31 @@ let persistent={
                 registered.set(clie.name,clie);
             })
         }       
+    },
+    useStoreName:(name:string)=>{
+        persistent.storeName=name;
     }
 }
 
-export async function persistentClientStore(call:'save'|'load'){
-    return await persistent[call]();
+export async function persistentClientStore(call:'save'|'load'|'useStoreName',argv?:any[]){
+    return await (persistent[call] as any)(...(argv??[]));
 }
 
+/* pxseed server, usually for data forward, basic host api and http server */
 export let ServerHostRpc=new Singleton(async ()=>(await getPersistentRegistered(ServerHostRpcName))!.ensureConnected());
+
+/* pxseed server worker, usually for handling the most server requests, except CPU-intensive tasks */
 export let ServerHostWorker1Rpc=new Singleton(async ()=>(await getPersistentRegistered(ServerHostWorker1RpcName))!.ensureConnected());
-export let WebWorker1Rpc=new Singleton(async ()=>(await getPersistentRegistered(WebWorker1RpcName))!.ensureConnected());
+
+/* pxseed server worker, For CPU-intensive tasks */
+export let ServerHostWorker2ForComputeRpc=new Singleton(async ()=>(await getPersistentRegistered(ServerHostWorker2RpcName))!.ensureConnected());
+export let ServerHostWorker3ForComputeRpc=new Singleton(async ()=>(await getPersistentRegistered(ServerHostWorker3RpcName))!.ensureConnected());
+
+/* local webworker, For CPU-intensive tasks */
+export let WebWorker1ForComputeRpc=new Singleton(async ()=>(await getPersistentRegistered(WebWorker1RpcName))!.ensureConnected());
+export let WebWorker2ForComputeRpc=new Singleton(async ()=>(await getPersistentRegistered(WebWorker2RpcName))!.ensureConnected());
+
+/* service worker on webui */
 export let ServiceWorkerRpc=new Singleton(async ()=>(await getPersistentRegistered(ServiceWorkerRpcName))!.ensureConnected());
 
 let addingDefaultPxseedJsBuiltinRpcClient=new mutex();
@@ -219,11 +243,29 @@ async function addDefaultPxseedJsBuiltinRpcClient(){
         if(await getRegistered(WebWorker1RpcName)==null){
             await addClient({url:'webworker:'+__name__+'/worker/1',name:WebWorker1RpcName})
         }
-        if(await getRegistered(ServerHostRpcName)!=null && await getRegistered(ServerHostWorker1RpcName)==null && !workerinternal.isPxseedWorker){
-            await addClient({
-                url:'iooverpxprpc:'+ServerHostRpcName+'/'+
-            encodeURIComponent('webworker:'+__name__+'/worker/1'),
-                name:ServerHostWorker1RpcName})
+        if(await getRegistered(WebWorker2RpcName)==null){
+            await addClient({url:'webworker:'+__name__+'/worker/2',name:WebWorker2RpcName})
+        }
+        if(await getRegistered(ServerHostRpcName)!=null){
+            if(await getRegistered(ServerHostWorker1RpcName)==null){
+                await addClient({
+                    url:'iooverpxprpc:'+ServerHostRpcName+'/'+
+                encodeURIComponent('webworker:'+__name__+'/worker/1'),
+                    name:ServerHostWorker1RpcName})
+            }
+            if(await getRegistered(ServerHostWorker2RpcName)==null){
+                await addClient({
+                    url:'iooverpxprpc:'+ServerHostRpcName+'/'+
+                encodeURIComponent('webworker:'+__name__+'/worker/2'),
+                    name:ServerHostWorker2RpcName})
+            }
+            if(await getRegistered(ServerHostWorker3RpcName)==null){
+                await addClient({
+                    url:'iooverpxprpc:'+ServerHostRpcName+'/'+
+                encodeURIComponent('webworker:'+__name__+'/worker/3'),
+                    name:ServerHostWorker3RpcName})
+            }
+
         }
     })
 }

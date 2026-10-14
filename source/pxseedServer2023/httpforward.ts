@@ -1,4 +1,4 @@
-import { ArrayBufferConcat, ArrayBufferToBase64, ArrayWrap2, assert, Base64ToArrayBuffer, future, GenerateRandomString, partial, requirejs } from "partic2/jsutils1/base";
+import { ArrayBufferConcat, ArrayBufferToBase64, ArrayWrap2, assert, Base64ToArrayBuffer, future, GenerateRandomString, objectPickField, requirejs } from "partic2/jsutils1/base";
 import { defaultFuncMap, RpcExtendClient1, RpcExtendClientCallable, RpcExtendClientObject, RpcExtendServerCallable } from "pxprpc/extend";
 
 import {defaultHttpHandler, defaultRouter} from './pxseedhttpserver'
