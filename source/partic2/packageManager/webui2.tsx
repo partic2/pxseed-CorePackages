@@ -7,7 +7,7 @@ import { BuildUrlFromJsEntryModule, GetJsEntry, GetPersistentConfig, getResource
 import {promptWithForm, SimpleReactForm1} from 'partic2/pComponentUi/input'
 import {alert, appendFloatWindow, confirm, prompt, css as windowCss, WindowComponent, removeFloatWindow, rootWindowGroup, ensureRootWindowContainer, language} from 'partic2/pComponentUi/window'   
 var registryModuleName='partic2/packageManager/registry';
-import {TaskLocalRef,Singleton, utf8conv} from 'partic2/CodeRunner/jsutils2'
+import {TaskLocalRef,Singleton, utf8conv, newEventBuffer} from 'partic2/CodeRunner/jsutils2'
 
 export var __name__=requirejs.getLocalRequireModule(require);
 //remote code context
@@ -34,7 +34,8 @@ let i18n={
     packageManager:"package manager",
     done:'done',
     cleanPackageInstallCache:'clean install cache',
-    updatePackageIndex:'update package index'
+    updatePackageIndex:'update package index',
+    installAndUseV2:'install and use v2'
 }
 
 if(language.get().split('-').includes('zh')){
@@ -53,6 +54,7 @@ if(language.get().split('-').includes('zh')){
     i18n.done='完成'
     i18n.cleanPackageInstallCache='清除安装缓存'
     i18n.updatePackageIndex='更新包信息'
+    i18n.installAndUseV2='安装并使用V2版'
 }
 
 let remoteModule={
@@ -73,9 +75,14 @@ let remoteModule={
 import {getIconUrl} from 'partic2/pxseedMedia1/index1'
 import { ReactDragController } from 'partic2/pComponentUi/transform'
 import { SimpleLogViewer } from '../CodeRunner/Component1'
+import { setPackageManagerWebuiEntry } from './webui'
 
 
 let resourceManager=getResourceManager(__name__);
+
+
+
+
 
 class WindowListIcon extends React.Component<{},{
     hideList:boolean,
@@ -151,6 +158,7 @@ class WindowListIcon extends React.Component<{},{
         </div>
     }
 }
+
 
 const SimpleButton=(props:React.RenderableProps<{
     onClick: () => void;
@@ -254,12 +262,14 @@ class PackagePanel extends React.Component<{},{
             const registry=await remoteModule.registry.get();
             const jsutils2=await remoteModule.jsutils2.get();
             let logBuffer=await jsutils2.newEventBuffer<LogHandlerArg0>();
-            await openNewWindow(<SimpleLogViewer logSources={[logBuffer]}/>,{title:'LOG'})
+            let localLogBuffer=await newEventBuffer<LogHandlerArg0>();
+            await openNewWindow(<SimpleLogViewer logSources={[logBuffer,localLogBuffer]}/>,{title:'LOG'})
             await Task.fork(function *(){
                 bindToRemoteRpcTask();
                 yield jsutils2.setTaskLocalLogBuffer(logBuffer)
                 yield registry.installPackage!(source);
             }).run();
+            localLogBuffer.push({level:'info',label:__name__,msg:['installed']});
             this.refreshList();
         }catch(err:any){
             throwIfAbortError(err);
@@ -476,7 +486,6 @@ class PackagePanel extends React.Component<{},{
         try{
             let {openWorkspaceWithProfile}=await import('partic2/JsNotebook/workspace')
             let nbw=await openWorkspaceWithProfile.openJSNotebookFirstProfileWorkspace({
-                defaultRpc:ServerHostWorker1RpcName,
                 defaultStartupScript:`import2env('partic2/jsutils1/base');
 import2env('partic2/jsutils1/webutils');
 import2env('partic2/CodeRunner/jsutils2');
@@ -506,12 +515,14 @@ import2env('partic2/packageManager/registry');`,
             const registry=await remoteModule.registry.get();
             const jsutils2=await remoteModule.jsutils2.get();
             let logBuffer=await jsutils2.newEventBuffer<LogHandlerArg0>();
-            await openNewWindow(<SimpleLogViewer logSources={[logBuffer]}/>,{title:'LOG'})
+            let localLogBuffer=await newEventBuffer<LogHandlerArg0>();
+            await openNewWindow(<SimpleLogViewer logSources={[logBuffer,localLogBuffer]}/>,{title:'LOG'})
             await Task.fork(function *(){
                 bindToRemoteRpcTask();
                 yield jsutils2.setTaskLocalLogBuffer(logBuffer)
                 yield registry.UpgradeCorePackages();
             }).run();
+            localLogBuffer.push({level:'info',label:__name__,msg:['upgrading core packages done.']});
         }catch(err:any){
             throwIfAbortError(err);
             alert('Failed:'+err.message+err.remoteStack);
@@ -544,6 +555,22 @@ import2env('partic2/packageManager/registry');`,
         }
     }
     lastWindow?:NewWindowHandle
+    async installAndUseV2(){
+        let registry=await remoteModule.registry.get();
+        let jsutils2=await remoteModule.jsutils2.get();
+        this.setState({statusText:'processing...'})
+        let logBuffer=await jsutils2.newEventBuffer<LogHandlerArg0>();
+        let localLogBuffer=await newEventBuffer<LogHandlerArg0>();
+        await openNewWindow(<SimpleLogViewer logSources={[logBuffer,localLogBuffer]}/>,{title:'LOG'})
+        await Task.fork(function *(){
+            bindToRemoteRpcTask();
+            yield jsutils2.setTaskLocalLogBuffer(logBuffer)
+            yield registry.installPackage('partic2/packageManager2');
+            localLogBuffer.push({level:'info',label:__name__,msg:['installing packageManager2 done.']});
+            yield setPackageManagerWebuiEntry({module:'partic2/packageManager2/webui',func:'main'});
+            location.reload();
+        }).run();
+    }
     render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChild {
         return [
             <WorkspaceWindowContext.Consumer>
@@ -553,7 +580,7 @@ import2env('partic2/packageManager/registry');`,
             }}
             </WorkspaceWindowContext.Consumer>,
             <div className={css.flexColumn}>
-                <div>
+                <div style={{display:'flex',flexDirection:'row',flexWrap:'wrap'}}>
                     <SimpleButton onClick={()=>this.requestListPackage()}>{i18n.list}</SimpleButton>
                     <SimpleButton onClick={()=>this.install()}>{i18n.install}</SimpleButton>
                     <SimpleButton onClick={()=>this.uninstall()}>{i18n.uninstall}</SimpleButton>
@@ -564,6 +591,7 @@ import2env('partic2/packageManager/registry');`,
                     <SimpleButton onClick={()=>this.cleanPackageInstallCache()} >{i18n.cleanPackageInstallCache}</SimpleButton>
                     <SimpleButton onClick={()=>this.updatePackageIndex()} >{i18n.updatePackageIndex}</SimpleButton>
                     <SimpleButton onClick={()=>this.openNotebook()} >notebook</SimpleButton>
+                    <SimpleButton onClick={()=>this.installAndUseV2()} >{i18n.installAndUseV2}</SimpleButton>
                     <div style={{display:'inline-block',color:'red'}}>{this.state.statusText}</div>
                 </div>
                 <div style={{flexGrow:1}}>{
@@ -579,14 +607,18 @@ import2env('partic2/packageManager/registry');`,
 export let floatTaskListView={
     ref:new ReactRefEx() as ReactRefEx<WindowComponent>|null,
     component:null as React.VNode|null,
-    event:new EventTarget()
+    event:new EventTarget(),
+    windowListIconRef:new ReactRefEx<WindowListIcon>(),
+    setHideList(hide:boolean){
+        this.windowListIconRef.current?.setState({hideList:hide});
+    }
 }
 
 let renderPackagePanel=async()=>{
     openNewWindow(<PackagePanel/>,{title:i18n.packageManager,layoutHint:__name__+'.PackagePanel',windowOptions:{closeIcon:null}});
     if(floatTaskListView.ref!=null){
         floatTaskListView.component=<WindowComponent keepTop={true} ref={floatTaskListView.ref} borderless={true} initialLayout={{left:0,top:0,width:0,height:0}}>
-        <WindowListIcon/>
+        <WindowListIcon ref={floatTaskListView.windowListIconRef}/>
     </WindowComponent>
         appendFloatWindow(floatTaskListView.component)
     }

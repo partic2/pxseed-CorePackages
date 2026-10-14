@@ -5,7 +5,7 @@ import { text2html } from 'partic2/pComponentUi/utils';
 import { DynamicPageCSSManager } from 'partic2/jsutils1/webutils';
 import {EventBuffer, u8hexconv} from './jsutils2'
 import { RunCodeContext } from './CodeContext';
-import { ReactRefEx } from 'partic2/pComponentUi/domui';
+import { JsxClassComponent, ReactRefEx } from 'partic2/pComponentUi/domui';
 
 
 let __name__=requirejs.getLocalRequireModule(require)
@@ -260,9 +260,32 @@ export class ImageViewer extends React.Component<{name:string,object:{url?:strin
 }
 
 
-export class SimpleLogViewer extends React.Component<
-    {logSources:Array<EventBuffer<LogHandlerArg0>>},
-    {history:Array<{level:'debug'|'info'|'warning'|'error',label:string,msg:string[]}>,filter: string}>{
+export class SimpleLogViewer<Props={logSources:Array<EventBuffer<LogHandlerArg0>>}> extends JsxClassComponent<Props>{
+    history=new Array<{level:'debug'|'info'|'warning'|'error',label:string,msg:string[]}>();
+    fitler='';
+    __logSources=new Array<EventBuffer<LogHandlerArg0>>();
+    set logSources(value:Array<EventBuffer<LogHandlerArg0>>){
+        if(this.pollTask!=null){
+            this.pollTask.abort();
+        }
+        this.__logSources=value;
+        this.pollTask=Task.fork(function *(this:SimpleLogViewer<Props>){
+            let rootPollTask=Task.currentTask;
+            yield Promise.allSettled(this.logSources.map(logBuffer=>{
+                return Task.fork(function *(this:SimpleLogViewer<Props>){
+                    while(this.pollTask===rootPollTask){
+                        let logmsg=yield *Task.yieldWrap(logBuffer.take(this.consumerId));
+                        this.history.push(...logmsg.map(t1=>({...t1.event,msg:t1.event.msg.map(t2=>String(t2))})));
+                        this.setState({});
+                    }
+                }.bind(this)).run();
+            }))
+        }.bind(this));
+        this.pollTask.run();
+    }
+    get logSources(){
+        return this.__logSources;
+    }
     constructor(props:any,ctx:any){
         super(props,ctx);
         this.setState({filter:'',history:[]})
@@ -275,30 +298,15 @@ export class SimpleLogViewer extends React.Component<
     }
     consumerId=GenerateRandomString()
     pollTask:Task<any>|null=null;
-    componentDidMount(){
-        this.pollTask=Task.fork(function *(this:SimpleLogViewer){
-            let rootPollTask=Task.currentTask;
-            yield Promise.allSettled(this.props.logSources.map(logBuffer=>{
-                return Task.fork(function *(this:SimpleLogViewer){
-                    while(this.pollTask===rootPollTask){
-                        let logmsg=yield *Task.yieldWrap(logBuffer.take(this.consumerId));
-                        this.state.history.push(...logmsg.map(t1=>({...t1.event,msg:t1.event.msg.map(t2=>String(t2))})));
-                        this.setState({});
-                    }
-                }.bind(this)).run();
-            }))
-        }.bind(this));
-        this.pollTask.run();
-    }
     componentWillUnmount(){
         if(this.pollTask!=null){
             this.pollTask.abort();
             this.pollTask=null;
         }
     }
-    render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined; }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChildren {
+    jsx(): React.ComponentChildren {
         return <div style={{ display: 'flex', flexDirection: 'column', height: '100%' ,minWidth:'400px',minHeight:'300px'}}>
-            <div style={{ flexGrow: '1', flexShrink: '1', overflow: 'auto' }}>{this.state.history.filter(t1 => t1.label.includes(this.state.filter) || t1.msg.some(t2=>t2.includes(this.state.filter))).map((t1,t2) => {
+            <div style={{ flexGrow: '1', flexShrink: '1', overflow: 'auto' }}>{this.history.filter(t1 => t1.label.includes(this.fitler) || t1.msg.some(t2=>t2.includes(this.fitler))).map((t1,t2) => {
                 return <div style={{ whiteSpace: 'pre-wrap' }}>
                     [{t1.level}]{t1.label}:{t1.msg.map(t2=>t2.toString()).join(' ')}
                 </div>

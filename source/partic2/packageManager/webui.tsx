@@ -1,4 +1,4 @@
-import { BuildUrlFromJsEntryModule, GetJsEntry,  GetPersistentConfig } from "partic2/jsutils1/webutils";
+import { BuildUrlFromJsEntryModule, GetJsEntry,  GetPersistentConfig, SavePersistentConfig } from "partic2/jsutils1/webutils";
 import { requirejs } from "partic2/jsutils1/base";
 import { easyCallRemoteJsonFunction, getPersistentRegistered, ServerHostRpcName, ServerHostWorker1RpcName } from "partic2/pxprpcClient/registry";
 import { RemotePxseedJsIoServer } from "partic2/pxprpcClient/bus";
@@ -13,7 +13,7 @@ export let packageManagerWebuiEntry={
     module:'partic2/packageManager/webui2',func:'main'
 }
 
-let persistentConfig:{onWebuiStartup?:Array<{module:string,func:string}>}={};
+let persistentConfig:{onWebuiStartup?:Array<{module:string,func:string}>,packageManagerWebuiEntry?:typeof packageManagerWebuiEntry}={};
 
 export let config={
     warningBeforeUnload:true
@@ -28,6 +28,9 @@ window.addEventListener('beforeunload',(ev)=>{
 ;(async ()=>{
     if(GetJsEntry()==__name__){
         persistentConfig=await GetPersistentConfig(__name__);
+        if(persistentConfig.packageManagerWebuiEntry!=undefined){
+            packageManagerWebuiEntry=persistentConfig.packageManagerWebuiEntry;
+        }
         if(persistentConfig.onWebuiStartup!=undefined){
             await Promise.allSettled(persistentConfig.onWebuiStartup.map(t1=>import(t1.module).then((mod)=>mod[t1.func]()).catch((err)=>{console.warn(err)})))
         }
@@ -48,6 +51,12 @@ window.addEventListener('beforeunload',(ev)=>{
     }
 })()
 
+export async function setPackageManagerWebuiEntry(entry:typeof packageManagerWebuiEntry){
+    packageManagerWebuiEntry=entry;
+    let config=await GetPersistentConfig(__name__);
+    config.packageManagerWebuiEntry=entry;
+    await SavePersistentConfig(__name__,config);
+}
 
 export function navigateWindowToThisWebui(urlarg?:string){
     window.open(BuildUrlFromJsEntryModule(__name__,urlarg),'_self')
