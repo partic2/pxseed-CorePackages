@@ -196,7 +196,7 @@ export async function getTypescriptModuleTjs():Promise<typeof import('typescript
     await Promise.all(Object.keys(await requirejs.getFailed()).map((t1)=>requirejs.undef(t1)));
   }
   try{
-    let ts=await import('partic2/packageManager/typescript4tjs' as any);
+    let ts=await import('partic2/prebuiltTypescript5d8/typescript' as any);
     importTyescriptSucc=true;
     cachedTypescriptModule=ts.default??ts;
     return cachedTypescriptModule!;
@@ -204,17 +204,24 @@ export async function getTypescriptModuleTjs():Promise<typeof import('typescript
     await Promise.all(Object.keys(await requirejs.getFailed()).map((t1)=>requirejs.undef(t1)));
   }
   {
-    let downloadTs=await fetch('https://cdnjs.cloudflare.com/ajax/libs/typescript/5.8.3/typescript.min.js');
-    assert(downloadTs.ok);
-    let tstxt=await downloadTs.text();
-    tstxt="define(['exports','module'],function(exports,module){"+tstxt+"})";
-    const {fs,wwwroot,path}=await buildNodeCompatApiTjs();
-    await fs.promises.writeFile(path.join(wwwroot,'partic2','packageManager','typescript4tjs.js'),new TextEncoder().encode(tstxt));
+    let {buildTjs}=await import('partic2/tjshelper/tjsbuilder')
+    let tjs=await buildTjs();
+    let {fetchPackage}=await import('./pkgfetcher');
+    let {localPath}=await fetchPackage('partic2/prebuiltTypescript5d8');
+    let installDir=pathCompat.join(getWWWRoot(),'..','source','partic2','prebuiltTypescript5d8');
+    await tjs.rename(localPath,installDir);
+    let {processDirectoryInRecursive}=await import('pxseedBuildScript/buildlib');
+    await processDirectoryInRecursive(installDir)
   }
-  {
-    let ts=await import('partic2/packageManager/typescript4tjs' as any);
+  try{
+    let ts=await import('partic2/prebuiltTypescript5d8/typescript' as any);
     importTyescriptSucc=true;
     cachedTypescriptModule=ts.default??ts;
     return cachedTypescriptModule!;
+  }catch(err){
+    await Promise.all(Object.keys(await requirejs.getFailed()).map((t1)=>requirejs.undef(t1)));
   }
+  assert(cachedTypescriptModule!=null,'load typescript module failed');
+  return cachedTypescriptModule
+  
 }
