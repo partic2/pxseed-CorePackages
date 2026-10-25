@@ -15,7 +15,7 @@ export var __name__=requirejs.getLocalRequireModule(require);
 import type * as registryModType from 'partic2/packageManager/registry'
 import type { PxseedConfig } from 'pxseedBuildScript/buildlib'
 import { PlainTextEditorInput, TextEditor } from 'partic2/pComponentUi/texteditor'
-import { DefaultWorkspaceWindowComponent, NewWindowHandle, NewWindowHandleLists, openNewWindow, openNewWindowPipeline, setBaseWindowView, WorkspaceWindowContext  } from 'partic2/pComponentUi/workspace'
+import { DefaultWorkspaceWindowComponent, NewWindowHandle, NewWindowHandleLists, openNewWindow, openNewWindowPipeline  } from 'partic2/pComponentUi/workspace'
 
 
 let i18n={
@@ -121,13 +121,13 @@ class WindowListIcon extends React.Component<{},{
     async componentDidMount(): Promise<void> {
         this.setState({listWidth:Math.min(250,window.innerWidth),listHeight:Math.min(320,window.innerHeight-32)});
         this.mounted=true;
-        NewWindowHandleLists.addEventListener('change',this.onWindowListChange);
+        NewWindowHandleLists.onChange.setListener(__name__+'.WindowListIcon',this.onWindowListChange);
         window.addEventListener('resize',this.onWindowResize);
         await this.onWindowListChange();
     }
     componentWillUnmount(): void {
         this.mounted=false;
-        NewWindowHandleLists.removeEventListener('change',this.onWindowListChange);
+        NewWindowHandleLists.onChange.clearListener(__name__+'.WindowListIcon');
         window.removeEventListener('resize',this.onWindowResize);
     }
     render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChildren {
@@ -360,7 +360,7 @@ class PackagePanel extends React.Component<{},{
     async showCreatePackage(){
         try{
             let basicInfo=await promptWithForm(<SimpleReactForm1>{(form1)=>{
-                return <div style={{padding:'8px'}}>
+                return <div style={{padding:'8px',minHeight:'0px',overflow:'auto',minWidth:'250px'}}>
                     <div>name:</div>
                     <div><input style={{width:'100%',boxSizing:'border-box'}} ref={form1.getRefForInput('name')} type='text'/></div>
                     <div>loaders:</div>
@@ -554,7 +554,6 @@ import2env('partic2/packageManager/registry');`,
             this.setState({statusText:''})
         }
     }
-    lastWindow?:NewWindowHandle
     async installAndUseV2(){
         let registry=await remoteModule.registry.get();
         let jsutils2=await remoteModule.jsutils2.get();
@@ -573,12 +572,6 @@ import2env('partic2/packageManager/registry');`,
     }
     render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChild {
         return [
-            <WorkspaceWindowContext.Consumer>
-            {(v)=>{
-                this.lastWindow=v.lastWindow;
-                return null;
-            }}
-            </WorkspaceWindowContext.Consumer>,
             <div className={css.flexColumn}>
                 <div style={{display:'flex',flexDirection:'row',flexWrap:'wrap'}}>
                     <SimpleButton onClick={()=>this.requestListPackage()}>{i18n.list}</SimpleButton>

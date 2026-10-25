@@ -1,6 +1,6 @@
 
 import * as React from 'preact'
-import { css as baseCss, ReactRefEx } from './domui';
+import { css as baseCss, JsxClassComponent, ReactRefEx } from './domui';
 import { DefaultWindowComponent, ensureRootWindowContainer, language, rootWindowGroup, WindowComponentProps, css as windowCss, WindowGroup } from './window';
 import {GenerateRandomString, GetCurrentTime, Ref2, assert, copy, future, mutex, objectPickField, requirejs, sleep} from 'partic2/jsutils1/base'
 import { appendFloatWindow, removeFloatWindow, WindowComponent } from './window';
@@ -16,8 +16,11 @@ export let css={
     dialogBoxContainer:cssPrefix+'-dialogBoxContainer',
 }
 
-class CNewWindowHandleLists extends EventTarget{
+type NewWindowHandleListsChangeEventArg='hide'|'show'|'add'|'remove'
+class CNewWindowHandleLists{
     value=new Array<NewWindowHandle>();
+    onChange=JsxClassComponent.defineEventSlot<NewWindowHandleListsChangeEventArg>();
+    
 }
 export let NewWindowHandleLists=new CNewWindowHandleLists();
 
@@ -50,7 +53,6 @@ export interface NewWindowRequestContext{
     request:OpenNewWindopwOption;
     result:NewWindowHandle|null
 }
-export let WorkspaceWindowContext=React.createContext<{lastWindow?:NewWindowHandle}>({});
 
 
 export class DefaultWorkspaceWindowComponent<Props={}> extends DefaultWindowComponent<Props>{
@@ -95,11 +97,11 @@ export class DefaultWorkspaceWindowComponent<Props={}> extends DefaultWindowComp
     }
     hide(): void {
         super.hide();
-        NewWindowHandleLists.dispatchEvent(new Event('change'));
+        NewWindowHandleLists.onChange.dispatch('hide')
     }
     activate(activateTime?:number): void {
         super.activate(activateTime);
-        NewWindowHandleLists.dispatchEvent(new Event('change'));
+        NewWindowHandleLists.onChange.dispatch('show')
     }
 }
 
@@ -152,7 +154,7 @@ openNewWindowPipeline.arr().push({name:__name__+'.openNewWindowCreateWindow',han
                 }
                 let at=NewWindowHandleLists.value.indexOf(handle);
                 if(at>=0)NewWindowHandleLists.value.splice(at,1);
-                NewWindowHandleLists.dispatchEvent(new Event('change'));
+                NewWindowHandleLists.onChange.dispatch('remove');
             }
         },
         async activate(){
@@ -185,14 +187,14 @@ openNewWindowPipeline.arr().push({name:__name__+'.openNewWindowCreateWindow',han
         icon:getIconUrl('minus.svg'),
         onClick:async()=>handle.hide()
     }]} title={options.title} {... (options.windowOptions??{})}
-    ><WorkspaceWindowContext.Provider value={{lastWindow:handle}}>{contentVNode}</WorkspaceWindowContext.Provider></WindowComponentClass>;
+    >{contentVNode}</WindowComponentClass>;
     handle.windowVNode=windowVNode;
     appendFloatWindow(windowVNode,true);
     if(options.parentWindow!=undefined){
         options.parentWindow.children.add(handle);
     }
     NewWindowHandleLists.value.push(handle);
-    NewWindowHandleLists.dispatchEvent(new Event('change'));
+    NewWindowHandleLists.onChange.dispatch('add');
     context.result=handle;
 }});
 
@@ -336,28 +338,30 @@ language.watch((r)=>{
 
 language.set(language.get());
 
-let dialogContainerWindow:NewWindowHandle|null=null;
-
-NewWindowHandleLists.addEventListener('change',(ev)=>{
-    if(dialogContainerWindow!=null){
-        let hasDialog=NewWindowHandleLists.value.some(t1=>t1.parentWindow==dialogContainerWindow);
-        if(!hasDialog){
-            dialogContainerWindow.close();
-            dialogContainerWindow=null;
-        }
-    }
-});
-
-async function ensureDialogContainerWindowWindow(){
-    if(dialogContainerWindow==null){
-        //XXX:Should we use mask to prevent user input outside the dialog box?
-        dialogContainerWindow=await openNewWindow(<div></div>,{windowOptions:{borderless:true,disableUserInputActivate:true},title:i18n.dialogBox});
-    }
-}
-
 export let defaultDialogBoxImplemention={
-    async alert(message:React.ComponentChild,title?:string){
-        await ensureDialogContainerWindowWindow();
+    dialogContainerWindow:null as NewWindowHandle|null,
+    async ensureDialogContainerWindowWindow(){
+        if(this.dialogContainerWindow==null){
+            //XXX:Should we use mask to prevent user input outside the dialog box?
+            this.dialogContainerWindow=await openNewWindow(<div></div>,
+            {windowOptions:{borderless:true,disableUserInputActivate:true},title:i18n.dialogBox});
+            NewWindowHandleLists.onChange.setListener(__name__+'.defaultDialogBoxImplemention.newWindowHandleListsChange',(e)=>{
+                this.newWindowHandleListsChange(e);
+            })
+        }
+    },
+    newWindowHandleListsChange:function(ev:string){
+        if(this.dialogContainerWindow!=null){
+            let hasDialog=NewWindowHandleLists.value.some(t1=>t1.parentWindow==this.dialogContainerWindow);
+            if(!hasDialog){
+                this.dialogContainerWindow.close();
+                this.dialogContainerWindow=null;
+                NewWindowHandleLists.onChange.clearListener(__name__+'.defaultDialogBoxImplemention.newWindowHandleListsChange');
+            }
+        }
+    },
+    async alertImpl(message:React.ComponentChild,title?:string){
+        await this.ensureDialogContainerWindowWindow();
         let result=new future<'ok'|'closed'>();
         let newWnd=await openNewWindow(<div className={css.dialogBoxContainer}
         style={{width:'100%',height:'100%',minWidth:Math.min((rootWindowGroup.current?.container.current?.offsetWidth)??0-10,300),whiteSpace:'pre-wrap'}}>
@@ -365,7 +369,7 @@ export let defaultDialogBoxImplemention={
             <div className={[baseCss.flexRow].join(' ')}>
                 <input type='button' style={{flexGrow:'1'}} onClick={()=>result.setResult('ok')} value={i18n.ok}/>
             </div>
-        </div>,{title:title??i18n.caution,parentWindow:dialogContainerWindow!});
+        </div>,{title:title??i18n.caution,parentWindow:this.dialogContainerWindow!});
         newWnd.waitClose().then(()=>result.setResult('closed'));
         WorkspaceWindowUtils.centerWindow(await newWnd.windowRef.waitValid());
         let r=await result.get();
@@ -373,8 +377,9 @@ export let defaultDialogBoxImplemention={
             newWnd.close();
         }
     },
-    async confirm(message:React.ComponentChild,title?:string):Promise<'ok'|'cancel'>{
-        await ensureDialogContainerWindowWindow();
+    alert:(...args:any[])=>(defaultDialogBoxImplemention.alertImpl as any)(...args),
+    async confirmImpl(message:React.ComponentChild,title?:string):Promise<'ok'|'cancel'>{
+        await this.ensureDialogContainerWindowWindow();
         let result=new future<'ok'|'cancel'|'closed'>();
         let newWnd=await openNewWindow(<div className={css.dialogBoxContainer}
         style={{width:'100%',height:'100%',minWidth:Math.min((rootWindowGroup.current?.container.current?.offsetWidth)??0-10,300),whiteSpace:'pre-wrap'}}>
@@ -383,7 +388,7 @@ export let defaultDialogBoxImplemention={
                     <input type='button' style={{flexGrow:'1'}} onClick={()=>result.setResult('ok')} value={i18n.ok}/>
                     <input type='button' style={{flexGrow:'1'}} onClick={()=>result.setResult('cancel')} value={i18n.cancel}/>
                 </div>
-            </div>,{title:title??i18n.caution,parentWindow:dialogContainerWindow!});
+            </div>,{title:title??i18n.caution,parentWindow:this.dialogContainerWindow!});
         newWnd.waitClose().then(()=>result.setResult('closed'));
         WorkspaceWindowUtils.centerWindow(await newWnd.windowRef.waitValid());
         let r=await result.get();
@@ -394,12 +399,13 @@ export let defaultDialogBoxImplemention={
         }
         return r;
     },
-    async prompt(form:React.ComponentChild,opt?:{
+    confirm:(...args:any[])=>(defaultDialogBoxImplemention.confirmImpl as any)(...args),
+    async promptImpl(form:React.ComponentChild,opt?:{
         onButtonClick?:(clicked:'ok'|'cancel')=>void
         title?:string,
         noButton?:boolean
     }|string){
-        await ensureDialogContainerWindowWindow();
+        await this.ensureDialogContainerWindowWindow();
         let result=new future<'ok'|'cancel'>();
         if(typeof opt==='string'){
             opt={title:opt}
@@ -420,14 +426,15 @@ export let defaultDialogBoxImplemention={
                         opt?.onButtonClick?.('cancel');
                     }} value={i18n.cancel}/>
                 </div>:null}
-            </div>,{title:title??i18n.caution,parentWindow:dialogContainerWindow!});
+            </div>,{title:title??i18n.caution,parentWindow:this.dialogContainerWindow!});
         newWnd.waitClose().then(()=>result.setResult('cancel'));
         WorkspaceWindowUtils.centerWindow(await newWnd.windowRef.waitValid());
         return {
             response:result,
             close:()=>newWnd.close()
         }
-    }
+    },
+    prompt:(...args:any[])=>(defaultDialogBoxImplemention.promptImpl as any)(...args),
 };
 
 export let __inited__=new Promise<void>(resolve=>resolve());
