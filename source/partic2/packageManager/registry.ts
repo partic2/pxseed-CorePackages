@@ -1,11 +1,11 @@
 
 import {PxseedConfig, PxseedStatus, cleanBuildStatus, getWWWLastBuildTime, processDirectory, sourceDir} from 'pxseedBuildScript/buildlib'
-import {defaultHttpClient, getWWWRoot, kvStore, path} from 'partic2/jsutils1/webutils'
-import {ArrayBufferConcat, ArrayWrap2, GenerateRandomString, GetCurrentTime, Task, TaskLocalLogHandler, assert, logger, requirejs, throwIfAbortError} from 'partic2/jsutils1/base'
+import {defaultHttpClient, getWWWRoot, kvStore, lifecycle, path} from 'partic2/jsutils1/webutils'
+import {ArrayBufferConcat, ArrayWrap2, GenerateRandomString, GetCurrentTime, Task, assert, future, logger, requirejs, throwIfAbortError} from 'partic2/jsutils1/base'
 import { getNodeCompatApi, __internal__ as utilsi, withConsole } from 'pxseedBuildScript/util';
 import { defaultFileSystem, ensureDefaultFileSystem, getSimpleFileSysteNormalizedWWWRoot } from 'partic2/CodeRunner/JsEnviron';
 import { NotebookFileData, runNotebook } from 'partic2/JsNotebook/workerinit';
-import { easyCallRemoteJsonFunction, getPersistentRegistered, getRegistered, ServerHostRpcName, ServerHostWorker1RpcName } from 'partic2/pxprpcClient/registry';
+import { easyCallRemoteJsonFunction, getPersistentRegistered, ServerHostRpcName, ServerHostWorker1RpcName } from 'partic2/pxprpcClient/registry';
 import {defaultGitClient, fetchPackage, __internal__ as pkgfetcheri} from './pkgfetcher'
 import { newCodeCellListData } from 'partic2/CodeRunner/CodeContext';
 
@@ -278,6 +278,23 @@ let RepositoriesRegistry={
         repoCfg.repositories!.scope![scopeName]=repos;
         let pkgdb=await kvStore(pkgdbName);
         await pkgdb.setItem('repo',repoCfg);
+    },
+    upgradeFromPkgConfig:async function(pkgConfig:PackageManagerConfig|null){
+        if(pkgConfig?.repositories !=undefined){
+            for(let scopeName in pkgConfig.repositories){
+                let toMerge=pkgConfig.repositories![scopeName];
+                assert(toMerge instanceof Array);
+                let repos=new Set(await RepositoriesRegistry.getScopeRepo(scopeName));
+                for(let t1 of toMerge){
+                    if(t1.charAt(0)==='!'){
+                        repos.delete(t1.substring(1));
+                    }else{
+                        repos.add(t1);
+                    }
+                }
+                await RepositoriesRegistry.setScopeRepo(scopeName,Array.from(repos))
+            }
+        }
     }
 }
 
@@ -299,21 +316,7 @@ export async function updatePackagesDatabase(pkgNameOrPxseedConfig?:string|Pxsee
             pxseedConfig=pkgNameOrPxseedConfig;
         }
         let pkgConfig=getPMConfigFromPcfg(pxseedConfig);
-        if(pkgConfig?.repositories !=undefined){
-            for(let scopeName in pkgConfig.repositories){
-                let toMerge=pkgConfig.repositories![scopeName];
-                assert(toMerge instanceof Array);
-                let repos=new Set(await RepositoriesRegistry.getScopeRepo(scopeName));
-                for(let t1 of toMerge){
-                    if(t1.charAt(0)==='!'){
-                        repos.delete(t1.substring(1));
-                    }else{
-                        repos.add(t1);
-                    }
-                }
-                await RepositoriesRegistry.setScopeRepo(scopeName,Array.from(repos))
-            }
-        }
+        await RepositoriesRegistry.upgradeFromPkgConfig(pkgConfig);
     }
 }
 
@@ -327,32 +330,59 @@ async function getOutputDirForPakcage(pkgname:string){
     return path.join(wwwroot,...pkgname.split('/'))
 }
 
+let pendingInstallingTask=new Map<string,future<void>>();
+
 export async function installLocalPackage(path2:string){
     const {fs,path,wwwroot}=await getNodeCompatApi();
     let pxseedConfig=await utilsi.readJson(path.join(path2,"pxseed.config.json")) as PxseedConfig;
     let pkgname=pxseedConfig.name as string;
-    let destDir=await getSourceDirForPackage(pkgname);
-    await fs.mkdir(destDir,{recursive:true});
-    if(path2!=destDir){
-        await copyFilesNewer(destDir,path2);
+    if(pendingInstallingTask.get(pkgname)!=undefined){
+        log.warning(`Package '${pkgname}' is already being installed. This may indicate a circular dependency or a concurrent installation attempt.`);
+        return;
     }
-    let pkgConfig=getPMConfigFromPcfg(pxseedConfig);
-    if(pkgConfig?.dependencies!=undefined){
-        for(let dep of pkgConfig.dependencies){
-            let config=await getPxseedConfigForPackage(dep);
-            if(config==null){
-                try{
-                    await installPackage(dep);
-                }catch(e:any){
-                    log.error(e.toString()+e.stack)
+    pendingInstallingTask.set(pkgname,new future())
+    try{
+        let destDir=await getSourceDirForPackage(pkgname);
+        await fs.mkdir(destDir,{recursive:true});
+        if(path2!=destDir){
+            await copyFilesNewer(destDir,path2);
+        }
+        //add repositories before dependencies resolving.
+        let pkgConfig=getPMConfigFromPcfg(pxseedConfig);
+        await RepositoriesRegistry.upgradeFromPkgConfig(pkgConfig);
+        if(pkgConfig?.dependencies!=undefined){
+            for(let dep of pkgConfig.dependencies){
+                let config=await getPxseedConfigForPackage(dep);
+                if(config==null){
+                    try{
+                        await installPackage(dep);
+                    }catch(e:any){
+                        throwIfAbortError(e);
+                        log.error(e.toString()+e.stack)
+                    }
+                }else{
+                    try{
+                        await upgradePackage(dep);
+                    }catch(e:any){
+                        throwIfAbortError(e);
+                        log.error(e.toString()+e.stack);
+                    }
                 }
             }
         }
+        try{
+            let buildResult=await buildPackageAndNotfiy(pkgname);
+            log.info('build result:'+buildResult);
+        }catch(err:any){
+            throwIfAbortError(err);
+            log.error(err+err.stack);
+        }
+        listener.onInstall.forEach((l)=>import(l.module).then(m=>m[l.func](pkgname)).catch(()=>{}));
+        await Promise.allSettled((await getPackageListeners('onInstalled')).map(t1=>import(t1.module).then(t2=>t2[t1.func]())));
+    }finally{
+        pendingInstallingTask.get(pkgname)?.setResult();
+        pendingInstallingTask.delete(pkgname);
     }
-    await buildPackageAndNotfiy(pkgname);
-    await updatePackagesDatabase(pxseedConfig);
-    listener.onInstall.forEach((l)=>import(l.module).then(m=>m[l.func](pkgname)).catch(()=>{}));
-    await Promise.allSettled((await getPackageListeners('onInstalled')).map(t1=>import(t1.module).then(t2=>t2[t1.func]())));
 }
 
 
@@ -551,11 +581,6 @@ export async function installPackage(source:string){
     }
 }
 
-export async function callWithLogger<T extends keyof (typeof import('partic2/packageManager/registry'))>(method:T){
-
-}
-
-//callWithLogger('')
 
 export async function createPackageTemplate1(pxseedConfig:PxseedConfig){
     const {fs,path,wwwroot}=await getNodeCompatApi();
