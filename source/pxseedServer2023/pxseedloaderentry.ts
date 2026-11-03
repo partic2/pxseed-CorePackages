@@ -21,7 +21,7 @@ let __name__=requirejs.getLocalRequireModule(require);
 export let pxprpcRuntimeBridgeClient:RpcExtendClient1|null=null;
 export let pxprpcJavaRtbClient:RpcExtendClient1|null=null
 
-let cachedLoaderInfo:{pxseedLoaderDataDir:string,processTag:string,hostFlags:string}|null=null;
+let cachedLoaderInfo:({pxseedLoaderDataDir:string,processTag:string,hostFlags:string,releasePseedLoaderFlagsFile:Record<string,string>})|null=null;
 
 export async function ensurePxprpcJavaRtbClient(){
     if(pxprpcJavaRtbClient!==null)return pxprpcJavaRtbClient;
@@ -31,19 +31,55 @@ export async function ensurePxprpcJavaRtbClient(){
     return pxprpcJavaRtbClient
 }
 export async function getLoaderInfo() {
-    let __v1 = await getRpcFunctionOn(pxprpcRuntimeBridgeClient!,'pxprpc_PxseedLoader.getLoaderInfo', '->b');
-    let __v2 = await __v1!.call();
-    cachedLoaderInfo=new TableSerializer().load(__v2).toMapArray()[0]
+    if(cachedLoaderInfo==null){
+        let __v1 = await getRpcFunctionOn(pxprpcRuntimeBridgeClient!,'pxprpc_PxseedLoader.getLoaderInfo', '->b');
+        let __v2 = await __v1!.call();
+        cachedLoaderInfo=new TableSerializer().load(__v2).toMapArray()[0];
+        const parseFlagsFileContent=(text:string)=>{
+            let t2:Record<string,string>={};
+            for(let t1 of text.split(/\n/)){
+                let sep=t1.indexOf('=');
+                if(sep>=0){
+                    t2[t1.substring(0,sep).trim()]=t1.substring(sep+1);
+                }else{
+                    t2[t1.trim()]='';
+                }
+            }
+            return t2;
+        }
+        if(cachedLoaderInfo!.hostFlags.includes(' __ANDROID__ ')){
+            let readApkAssetAsText=await getRpcFunctionOn(await ensurePxprpcJavaRtbClient(),'AndroidHelper.Sysbase.readApkAssetAsText','s->s');
+            let flagsFile=await readApkAssetAsText!.call('res/pxseedloader-flags.txt');
+            cachedLoaderInfo!.releasePseedLoaderFlagsFile=parseFlagsFileContent(flagsFile);
+        }else{
+            let sep=getWWWRoot().includes('\\')?'\\':'/';
+            let parts=getWWWRoot().split(sep);
+            let tjs=await buildTjs();
+            let flagsFile=utf8conv(await tjs.readFile([...parts.slice(0,parts.length-3),'res','pxseedloader-flags.txt'].join(sep)));
+            cachedLoaderInfo!.releasePseedLoaderFlagsFile=parseFlagsFileContent(flagsFile);
+        }
+    }
     return cachedLoaderInfo;
 }
 
+export async function getReleasePseedLoaderFlagsFile(){
+    let loaderInfo=await getLoaderInfo();
+    if(loaderInfo!.hostFlags.includes(' __ANDROID__ ')){
+        return loaderInfo!.hostFlags;
+    }
+    return '';
+}
 
 export async function openWebviewForEntry(entryUrl:string){
     try{
-        let loaderInfo=await getLoaderInfo()!;
+        let loaderInfo=await getLoaderInfo();
         if(loaderInfo!.hostFlags.includes(' __ANDROID__ ')){
             let openHttpUrl=await getRpcFunctionOn(await ensurePxprpcJavaRtbClient(),'AndroidHelper.Intent.openHttpUrl','ss->')
-            openHttpUrl!.call(entryUrl,'');
+            let openFlag='';
+            if(loaderInfo!.releasePseedLoaderFlagsFile['androidEnableGeckoView']=='true'){
+                openFlag+=' use-gecko ';
+            }
+            openHttpUrl!.call(entryUrl,openFlag);
         }else{
             await openUrlInBrowser(entryUrl,{appMode:true});
         }

@@ -185,6 +185,10 @@ export class PxseedLoaderBuilder{
             new Function('c',configJs)(this);
         }catch(err){};
         await this.initializeEnviron();
+        let flags=new Array<string>();
+        flags.push(`buildTime=${new Date().getTime()}`);
+        flags.push(`androidEnableGeckoView=${this.androidEnableGeckoView}`);
+        await this.writeFile([this.pxseedLoaderSource,'commonj','src','main','assets','res','pxseedloader-flags.txt'].join(pathsep),utf8conv(flags.join('\n')));
         if(this.androidBuild)await this.buildAndroidRelease();
         await this.buildDesktopRelease();
     }
