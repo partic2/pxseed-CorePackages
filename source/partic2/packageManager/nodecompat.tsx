@@ -209,6 +209,8 @@ export async function getTypescriptModuleTjs():Promise<typeof import('typescript
     let {fetchPackage}=await import('./pkgfetcher');
     let {localPath}=await fetchPackage('partic2/prebuiltTypescript5d8');
     let installDir=pathCompat.join(getWWWRoot(),'..','source','partic2','prebuiltTypescript5d8');
+    await tjs.makeDir(installDir,{recursive:true});
+    await tjs.remove(installDir);
     await tjs.rename(localPath,installDir);
     let {processDirectoryInRecursive}=await import('pxseedBuildScript/buildlib');
     await processDirectoryInRecursive(installDir)

@@ -65,6 +65,12 @@ export async function setWWWLastBuildTime(time?:number){
     await utili.writeJson(buildstatusFile,status);
 }
 
+function throwIfAbortError(e:Error){
+    if(e.name==='AbortError'){
+        throw e;
+    }
+}
+
 
 export async function processDirectoryInRecursive(dir:string,context?:any){
     await inited;
@@ -85,6 +91,7 @@ export async function processDirectoryInRecursive(dir:string,context?:any){
                 try{
                     await processDirectoryInRecursive(path.join(dir,child.name),context);
                 }catch(err:any){
+                    throwIfAbortError(err);
                     console.warn('recursive pxseed process failed.'+err.toString()+'\n'+err.stack)
                 };
             }
@@ -104,7 +111,7 @@ export async function processDirectoryInRecursive(dir:string,context?:any){
                     if(packages!=undefined){
                         for(let p1 of packages){
                             if(!context._ensuredPackages.has(p1)){
-                                await processDirectoryInRecursive(path.join(sourceDir,p1),context);
+                                await processDirectoryInRecursive(path.join(sourceDir,p1),context).catch(()=>{});
                                 context._ensuredPackages.add(p1);
                             }
                         }
@@ -124,13 +131,20 @@ export async function processDirectoryInRecursive(dir:string,context?:any){
                 }else{
                     await pxseedBuiltinLoader[loaderConfig.name](dir,loaderConfig,pstat);
                 }
-            }catch(e){
+            }catch(e:any){
+                throwIfAbortError(e);
                 pstat.currentBuildError.push(`loader "${loaderConfig.name}" failed with error ${String(e)}`);
             }
         }
         if(pstat.subpackages.length>0){
             for(let t1 of pstat.subpackages){
-                await processDirectoryInRecursive(path.join(dir,t1),context);
+                try{
+                    await processDirectoryInRecursive(path.join(dir,t1),context).catch(()=>{});
+                }catch(e:any){
+                    throwIfAbortError(e);
+                    console.warn(`Failed to process subpackage ${t1} with message ${e.toString()}`)
+                    pstat.currentBuildError.push(`Failed to process subpackage ${t1} with message ${e.toString()}`);
+                }
             }
             //Don't save ".subpackages" to file.
             pstat.subpackages=[];

@@ -56,15 +56,11 @@ export let pxseedBuiltinLoader={
     typescript:async function(dir:string,config:{include?:string[],createTsConfig?:boolean},status:PxseedStatus){
         const {fs,path}=await getNodeCompatApi();
         let ts:typeof import('typescript')
-        if(globalThis?.process?.versions?.node==undefined){
-            //use non node typescript
-            const {getTypescriptModuleTjs}=await import('partic2/packageManager/nodecompat');
-            ts=await getTypescriptModuleTjs();
-            ts=(ts as any).default??ts
-        }else{
-            ts=await import('typescript');
-            ts=(ts as any).default??ts
-        }
+
+        const {getTypescriptModuleTjs}=await import('partic2/packageManager/nodecompat');
+        ts=await getTypescriptModuleTjs();
+        ts=(ts as any).default??ts
+        
         let include=config.include??["./**/*.ts","./**/*.tsx"];
         let files=await simpleGlob(include,{cwd:dir});
         for(let t1 of files){
