@@ -120,6 +120,7 @@ export async function UpgradeCorePackages(){
         }
     }
     if(err===null){
+        await copyFilesNewer(path.join(pxseedCorePath,'www'),path.join(pxseedCorePath,'copysource'),undefined,30);
         for(let t1 of corePackFiles){
             if(t1[0]==='source'){
                 let joinedPath=path.join(pxseedCorePath,...t1);

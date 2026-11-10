@@ -2,7 +2,7 @@
 import { ExtendStreamReader, utf8conv } from "partic2/CodeRunner/jsutils2";
 import { buildTjs } from "partic2/tjshelper/tjsbuilder";
 import { TjsReaderDataSource, TjsWriterDataSink } from "partic2/tjshelper/tjsutil";
-import {assert, mutex} from "partic2/jsutils1/base";
+import {assert, logger, mutex, requirejs} from "partic2/jsutils1/base";
 import { future, Task } from "partic2/jsutils1/base";
 import { openConnectionFromUrl, listPersistentRegistered, RpcSerializeMagicMark } from "partic2/pxprpcClient/registry";
 import { TaskLocalEnv } from "partic2/CodeRunner/CodeContext";
@@ -11,6 +11,10 @@ import { getNodeCompatApi } from "pxseedBuildScript/util";
 import { getWWWRoot } from "partic2/jsutils1/webutils";
 import { RpcExtendClient1 } from "pxprpc/extend";
 import { Client } from "pxprpc/base";
+
+const __name__=requirejs.getLocalRequireModule(require);
+
+let log=logger.getLogger(__name__);
 
 export class TjsUtilsProcess{
 	stdin:WritableStream<Uint8Array>
@@ -117,6 +121,25 @@ export class TjsUtilsProcess{
 			}]);
 		}
 	}
+	logStdoutAndStderr(){
+		let that=this;
+		return Task.fork(function*(){
+			yield Promise.any([
+				Task.fork(function*(){
+					while(true){
+						let r=yield* Task.yieldWrap(that.readStdoutUtf8());
+						log.info(r);
+					}
+				}).run(),
+				Task.fork(function*(){
+					while(true){
+						let r=yield* Task.yieldWrap(that.readStderrUtf8());
+						log.warning(r);
+					}
+				}).run()
+			])
+		}).run();
+	}
 	async wait(){
 		return this.tjsProc.wait();
 	}
@@ -125,9 +148,9 @@ export class TjsUtilsProcess{
 	}
 }
 
-export async function newTjsUtilsProcess(args:string[],tjsImpl?:typeof tjs){
+export async function newTjsUtilsProcess(args:string[],tjsImpl?:typeof tjs,opt?:{cwd:string}){
 	if(tjsImpl==undefined)tjsImpl=await buildTjs();
-	return new TjsUtilsProcess(await tjsImpl.spawn(args,{stdin:'pipe',stdout:'pipe',stderr:'pipe'}),args)
+	return new TjsUtilsProcess(await tjsImpl.spawn(args,{stdin:'pipe',stdout:'pipe',stderr:'pipe',cwd:opt?.cwd}),args)
 }
 
 export let files={
