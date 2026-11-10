@@ -5,7 +5,6 @@ try{
 }catch(e){
     new Function('this.globalThis=this')()
 }
-
 //.at polyfill
 if(String.prototype.at==undefined){
     String.prototype.at=function(index:number){
@@ -19,7 +18,6 @@ if(String.prototype.at==undefined){
     globalThis.Array.prototype.at=arrayAt
     Object.getPrototypeOf(Uint8Array.prototype).at=arrayAt;
 }
-
 //AbortController polyfill on https://github.com/mo/abortcontroller-polyfill
 (function(){
     class AbortSignal extends EventTarget {
@@ -212,10 +210,8 @@ export class Task<T> {
     }
 }
 
-export function throwIfAbortError(e:Error){
-    if(e.name==='AbortError'){
-        throw e;
-    }
+export function throwIfAbortError(e:any){
+    if(typeof e==='object' && e!==null && e.name==='AbortError'){throw e;}
 }
 
 export function copy<T>(src: T, dst: any, depth: number): any {
@@ -314,6 +310,7 @@ export async function sleep<T>(milliSeconds: number, arg?: T): Promise<T> {
 }
 
 export class CanceledError extends Error{
+    name=__name__+'.CanceledError';
     constructor(){
         super(__name__+'.CanceledError');
     }
@@ -324,12 +321,9 @@ export class future<T>{
     public exception:any; 
     protected resolveCallback?:(value: T | PromiseLike<T>) => void;
     protected rejectCallback?:(reason?: any) => void;
-    protected resultPromise:Promise<T>
+    protected resultPromise!:Promise<T>
     constructor(){
-        this.resultPromise=new Promise((resolve,reject)=>{
-            this.resolveCallback=resolve;
-            this.rejectCallback=reject;
-        });
+        this.reset();
     }
     public get(): Promise<T> {
         return this.resultPromise;
@@ -348,7 +342,17 @@ export class future<T>{
             this.rejectCallback!(exception)
         }
     }
+    public reset(){
+        this.done=false;
+        this.result=undefined;
+        this.exception=undefined;
+        this.resultPromise=new Promise((resolve,reject)=>{
+            this.resolveCallback=resolve;
+            this.rejectCallback=reject;
+        });
+    }
 }
+
 export class ArrayWrap2<T>{
     public wrapped:T[]=[]
     public constructor(wrapped?: T[],initPush?: Iterable<T>){
@@ -522,6 +526,17 @@ export let requirejs = {
             })
         }
         this.definingHook.push(hook);
+    },
+    //partic2-iamdee feature
+    //For AMD module, usage: defineAsynchronousModuleInitializer(exports,async ()=>{...});
+    setAsynchronousInitializer(module:object,initializer:()=>Promise<void>){
+        (module as any).then=function(resolve:any,reject:any){
+            initializer().then(function(){
+                delete (module as any).then;
+                resolve(module);
+            },reject);
+        }
+        define(module.constructor.name, [], initializer);
     }
 }
 
@@ -534,7 +549,6 @@ export function GenerateRandomString(maxRandLenX4?:number) {
     }
     return s;
 }
-
 
 export function DateAdd(org:Date, add:{
     days?:number,
@@ -806,4 +820,23 @@ export var logger={
             error:(...msg:any[])=>{that._handler({msg,label,level:'error'})},
         }
     }
+}
+
+export class EventSource<EventType> {
+	eventStore = new Map<string, (e: EventType) => void>();
+	setListener(name: string | undefined, cb: (e: EventType) => void) {
+		name = name ?? GenerateRandomString();
+		this.eventStore.set(name, cb);
+		return name;
+	}
+	clearListener(name: string) {
+		this.eventStore.delete(name);
+	}
+    clearListenrs(){this.eventStore.clear();}
+	listListeners() {
+		return this.eventStore.entries();
+	}
+	dispatch(e: EventType) {
+		Array.from(this.eventStore.values()).forEach(t1 => t1(e));
+	}
 }

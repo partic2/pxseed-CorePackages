@@ -1,6 +1,6 @@
 
 import * as React from 'preact'
-import { future, GenerateRandomString, Ref2, requirejs } from 'partic2/jsutils1/base';
+import { EventSource, future, GenerateRandomString, Ref2, requirejs } from 'partic2/jsutils1/base';
 import { DynamicPageCSSManager, useDeviceWidth } from 'partic2/jsutils1/webutils';
 
 let __name__=requirejs.getLocalRequireModule(require);
@@ -186,23 +186,7 @@ export abstract class JsxClassComponent<Props={}> extends React.Component<Props>
         }
     }
     static defineEventSlot<Event>(){
-        let eventStore=new Map<string,(e:Event)=>void>();
-        return {
-            setListener(name:string|undefined,cb:(e:Event)=>void){
-                name=name??GenerateRandomString();
-                eventStore.set(name,cb);
-                return name;
-            },
-            clearListener(name:string){
-                eventStore.delete(name);
-            },
-            listListeners(){
-                return eventStore.entries();
-            },
-            dispatch(e:Event){
-                Array.from(eventStore.values()).forEach(t1=>t1(e));
-            }
-        }
+        return new EventSource<Event>();
     }
     static contextType=JsxClassComponentParent;
     getAncestorJsxClassComponents<ComponentClass=JsxClassComponent>(options?:{clazz?:{new():ComponentClass},count?:number}):Array<ComponentClass>{
