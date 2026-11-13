@@ -335,11 +335,6 @@ class PackagePanel extends React.Component<{},{
                     "loaders": [
                       {
                         "name": "typescript"
-                      },{
-                        "name":"rollup",
-                        "entryModules":[
-                          "preact"
-                        ]
                       }
                     ],
                     "name": "pxseedServer2023",

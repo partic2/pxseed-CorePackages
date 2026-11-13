@@ -1,0 +1,1 @@
+define(["exports","./get-intrinsic","./call-bind-apply-helpers"],function(exports,r,e){"use strict";var n,t;exports.requireCallBound=function(){if(t)return n;t=1;var i=r.requireGetIntrinsic(),p=e.requireCallBindApplyHelpers(),u=p([i("%String.prototype.indexOf%")]);return n=function(r,e){var n=i(r,!!e);return"function"==typeof n&&u(r,".prototype.")>-1?p([n]):n}}});

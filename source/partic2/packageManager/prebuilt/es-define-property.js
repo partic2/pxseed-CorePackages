@@ -1,0 +1,1 @@
+define(["exports"],function(exports){"use strict";var e,r;exports.requireEsDefineProperty=function(){if(r)return e;r=1;var t=Object.defineProperty||!1;if(t)try{t({},"a",{value:1})}catch(e){t=!1}return e=t}});

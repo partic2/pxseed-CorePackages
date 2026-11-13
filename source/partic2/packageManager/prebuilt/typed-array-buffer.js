@@ -1,0 +1,1 @@
+define(["exports","./es-errors","./call-bound","./is-typed-array"],function(exports,r,e,u){"use strict";var t,n;exports.requireTypedArrayBuffer=function(){if(n)return t;n=1;var f=r.requireType(),i=e.requireCallBound()("TypedArray.prototype.buffer",!0),y=u.requireIsTypedArray();return t=i||function(r){if(!y(r))throw new f("Not a Typed Array");return r.buffer}}});

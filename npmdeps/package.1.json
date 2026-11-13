@@ -7,21 +7,8 @@
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "dependencies": {
-    "@rollup/plugin-commonjs": "^25.0.7",
-    "@rollup/plugin-json": "^6.1.0",
-    "@rollup/plugin-node-resolve": "^15.2.3",
-    "@rollup/plugin-replace": "^6.0.1",
-    "@rollup/plugin-terser": "^0.4.4",
     "@types/node": "^20.19.41",
-    "@types/vscode": "^1.92.0",
-    "@types/ws": "^8.5.10",
-    "acorn": "^8.11.3",
-    "acorn-walk": "^8.3.2",
-    "preact": "^10.27.2",
-    "rollup": "^3.29.4",
-    "typescript": "~5.8.3",
-    "isomorphic-git": "^1.32.1",
-    "buffer": "^6.0.3"
+    "typescript": "~5.8.3"
   },
   "author": "",
   "license": "ISC"

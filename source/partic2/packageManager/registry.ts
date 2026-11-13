@@ -19,6 +19,10 @@ export let listener={
     onUninstall:new Array<{module:string,func:string}>(),
 }
 
+declare let define:any
+
+define('buffer',['partic2/packageManager/prebuilt/buffer'],function(buffer:any){return buffer;})
+
 
 async function copyFilesNewer(destDir:string,srcDir:string,ignore?:(name:string,path:string)=>boolean,maxDepth?:number){
     if(maxDepth==undefined){
@@ -111,7 +115,7 @@ export async function UpgradeCorePackages(){
                 await fs.rm(path.join(pxseedCorePath,'.git'),{recursive:true});
             }catch(err){};
             await copyFilesNewer(path.join(pxseedCorePath,'.git'),path.join(gitcache,'.git'),undefined,30);
-            let git=await import('isomorphic-git');
+            let git=await import('./prebuilt/isomorphic-git');
             await git.checkout({...await defaultGitClient.get(),dir:pxseedCorePath,force:true});
             await fs.rm(gitcache,{recursive:true});
         }else{
@@ -531,27 +535,7 @@ export async function installPackage(source:string){
     const {fs,path,wwwroot}=await getNodeCompatApi();
     let installProcessed=false;
     let sourceDir=path.join(wwwroot,'..','source');
-    if(source.startsWith('npm:')){
-        let packageJson=await utilsi.readJson(path.join(path.dirname(sourceDir),'npmdeps','package.json')) as {
-            dependencies:{[pkg:string]:string}
-        };
-        //TODO: npm version check
-        let t1=source.substring(4);
-        let versionSep=t1.lastIndexOf('@');
-        if(versionSep<=0){
-            versionSep=t1.length;
-        }
-        let pkgName=t1.substring(0,versionSep);
-        if(packageJson.dependencies[pkgName]==undefined){
-            log.info('install npm package '+source.substring(4));
-            if(globalThis.process?.versions?.node==undefined){
-                throw new Error('npm depdendencies are only support on node.js platform')
-            }
-            let returnCode=await utilsi.runCommand(`npm i ${source.substring(4)}`,{cwd:path.join(path.dirname(sourceDir),'npmdeps')})
-            if(returnCode!==0)log.error('install npm package failed.');
-        }
-        installProcessed=true;
-    }else{
+    {
         let existed=false;
         try{
             await fs.access(path.join(sourceDir,source,'pxseed.config.json'));

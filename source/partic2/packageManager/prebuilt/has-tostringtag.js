@@ -1,0 +1,1 @@
+define(["exports","./has-symbols"],function(exports,r){"use strict";var e,n;exports.requireShams=function(){if(n)return e;n=1;var t=r.requireShams();return e=function(){return t()&&!!Symbol.toStringTag}}});

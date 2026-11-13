@@ -1,0 +1,1 @@
+define(["exports","./which-typed-array"],function(exports,r){"use strict";var e,i;exports.requireIsTypedArray=function(){if(i)return e;i=1;var n=r.requireWhichTypedArray();return e=function(r){return!!n(r)}}});

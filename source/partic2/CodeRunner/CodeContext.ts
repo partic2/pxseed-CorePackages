@@ -1,7 +1,7 @@
 
 
-import * as acornWalk from 'acorn-walk'
-import * as acorn from 'acorn'
+import * as acornWalk from './prebuilt/acorn-walk'
+import * as acorn from './prebuilt/acorn'
 import { requirejs } from 'partic2/jsutils1/base';
 import * as jsutils1 from 'partic2/jsutils1/base'
 

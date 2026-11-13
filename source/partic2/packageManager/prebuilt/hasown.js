@@ -1,0 +1,1 @@
+define(["exports","./function-bind"],function(exports,n){"use strict";var r,t;exports.requireHasown=function(){if(t)return r;t=1;var e=Function.prototype.call,i=Object.prototype.hasOwnProperty,o=n.requireFunctionBind();return r=o.call(e,i)}});

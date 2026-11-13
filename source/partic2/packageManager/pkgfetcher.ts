@@ -78,7 +78,7 @@ export let defaultGitClient=new Singleton(async ()=>{
 
 async function fetchGitPackageFromUrl(url:string,fetchDir?:string){
     const {fs,path,wwwroot}=await getNodeCompatApi();
-    let {clone}=await import('isomorphic-git');
+    let {clone}=await import('./prebuilt/isomorphic-git');
     let tempdir=fetchDir??path.join(wwwroot,...__name__.split('/'),'..','__temp',GenerateRandomString());
     try{
         await fs.access(tempdir);
@@ -118,7 +118,7 @@ async function publishPackage(dir:string){
     const {fs,path,wwwroot}=await getNodeCompatApi();
     let children=await fs.readdir(dir,{withFileTypes:true});
     if(children.find(v=>v.name=='pxseed.config.json')!=undefined){
-        let {add,commit,push,listRemotes,currentBranch}=await import('isomorphic-git');;
+        let {add,commit,push,listRemotes,currentBranch}=await import('./prebuilt/isomorphic-git');;
         let remotes=await listRemotes({...await defaultGitClient.get(),dir})
         await add({...await defaultGitClient.get(),dir,filepath:'.'})
         await commit({...await defaultGitClient.get(),dir,message:'auto commit'})
@@ -145,7 +145,7 @@ export async function initGitPackage(dir:string){
     if(children.find(v=>v.name=='pxseed.config.json')!=undefined){
         let config=await utilsi.readJson(path.join(dir,'pxseed.config.json'))
         let name=config.name;
-        let {init,addRemote}=await import('isomorphic-git');;
+        let {init,addRemote}=await import('./prebuilt/isomorphic-git');;
         await init({...await defaultGitClient.get(),dir});
         await fs.writeFile(path.join(dir,'.gitignore'),new TextEncoder().encode('/.pxseed.status.json'));
         let repo=await getRepoInfoFromPkgName(name);
@@ -168,7 +168,7 @@ export async function initGitPackage(dir:string){
 }
 
 async function upgradeGitPackage(localPath:string){
-    let git=await import('isomorphic-git');
+    let git=await import('./prebuilt/isomorphic-git');
     let gitClient=await defaultGitClient.get();
     let dir=localPath
     let {fetchHead}=await git.fetch({...gitClient,dir});

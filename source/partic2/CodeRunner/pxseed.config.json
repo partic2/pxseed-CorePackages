@@ -1,13 +1,10 @@
 {
   "loaders": [
     {
-      "name": "typescript"
+      "name":"copyFiles",
+      "include":["prebuilt/**/*.js"]
     },{
-      "name":"rollup",
-      "entryModules":[
-        "acorn",
-        "acorn-walk"
-      ]
+      "name": "typescript"
     },{
       "name":"ensure",
       "packages":["partic2/pComponentUi","partic2/jsutils1","partic2/tjshelper","partic2/pxprpcClient","pxprpc"]

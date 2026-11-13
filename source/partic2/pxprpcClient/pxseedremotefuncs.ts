@@ -96,7 +96,7 @@ interface CallJsonFunctionResonse{
 
 class RemoteRpcTask extends Task<any>{
     [RpcSerializeMagicMark]={};
-    execute<T>(fn:()=>(T|Thenable<T>)):Thenable<T>{
+    execute<T>(fn:()=>(T|PromiseLike<T>)):PromiseLike<T>{
         return this.fork(function *(){
             let t1=fn();
             if(typeof t1==='object' && t1!==null && 'then' in t1){

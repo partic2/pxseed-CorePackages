@@ -1,0 +1,1 @@
+define(["exports","./es-define-property"],function(exports,r){"use strict";var e,n;exports.requireHasPropertyDescriptors=function(){if(n)return e;n=1;var t=r.requireEsDefineProperty(),u=function(){return!!t};return u.hasArrayLengthDefineBug=function(){if(!t)return null;try{return 1!==t([],"length",{value:1}).length}catch(r){return!0}},e=u}});

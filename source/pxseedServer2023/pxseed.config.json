@@ -2,11 +2,6 @@
   "loaders": [
     {
       "name": "typescript"
-    },{
-      "name":"rollup",
-      "entryModules":[
-        "preact"
-      ]
     }
   ],
   "clean":{

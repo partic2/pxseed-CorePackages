@@ -1,14 +1,13 @@
 {
   "loaders": [
     {
+      "name":"copyFiles",
+      "include":["prebuilt/**/*.js"]
+    },{
       "name": "typescript"
     },{
-      "name":"rollup",
-      "entryModules":["buffer","isomorphic-git"],
-      "noImplicitExternal":["buffer","isomorphic-git"]
-    },{
       "name": "pxseedjs:partic2/CodeRunner/pxseedLoader.addAsyncHookPxseedLoader",
-      "exclude":["__temp"]
+      "include":["*.js"]
     }
   ],
   "clean":{

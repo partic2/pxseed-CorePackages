@@ -1,0 +1,1 @@
+define(["exports"],function(exports){"use strict";var r,t,e,n;function i(){return t?r:(t=1,r=Object.getOwnPropertyDescriptor)}exports.requireGopd=function(){if(n)return e;n=1;var r=i();if(r)try{r([],"length")}catch(t){r=null}return e=r}});
