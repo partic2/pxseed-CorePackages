@@ -144,50 +144,6 @@ export async function UpgradeCorePackages(){
     }catch(err){}
 }
 
-
-export async function packPxseedForPxseedLoader(){
-    const {fs,path,wwwroot}=await getNodeCompatApi()
-    let pxseedRoot=path.join(wwwroot,'..').replace(/\\/g,'/');
-    let outputRoot=path.join(wwwroot,__name__,'pxseedPack4PxseedLoader').replace(/\\/g,'/');
-    await copyFilesNewer(outputRoot+'/pxseed',pxseedRoot,(name,path)=>{
-        path=path.replace(/\\/g,'/');
-        if(name=='.git'){
-            return true;
-        }
-        return [pxseedRoot+'/npmdeps/node_modules',
-                pxseedRoot+'/www/node_modules',
-                outputRoot].includes(path)
-    });
-    await fs.writeFile(path.join(outputRoot,'index.html'),new TextEncoder().encode(String.raw`
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <script>
-            window.onload=function(){
-                document.getElementById("uainfo").innerHTML=navigator.userAgent
-                document.getElementById("viewinfo").innerHTML=''+window.innerWidth+"X"+window.innerHeight
-                window.open('pxseed/www/index.html?__jsentry=partic2%2FpackageManager%2Fwebui','_self')
-            }
-        </script>
-    </head>
-    <body>
-        <div>
-            this is entry at assets/res/index.html
-        </div>
-        <div>
-            userAgent:<span id="uainfo">
-            </span>
-        </div>
-        view:<span id="viewinfo">
-    
-        </span>
-    </body>
-    </html>
-`))
-
-}
-
-
 export interface PackageManagerConfig{
     //provide webui entry
     webui?:{
@@ -376,8 +332,7 @@ export async function installLocalPackage(path2:string){
             }
         }
         try{
-            let buildResult=await buildPackageAndNotfiy(pkgname);
-            log.info('build result:'+buildResult);
+            await buildPackageAndNotfiy(pkgname);
         }catch(err:any){
             throwIfAbortError(err);
             log.error(err+err.stack);
@@ -423,19 +378,17 @@ export async function getRepoInfoFromPkgName(pkgFullName:string){
 export async function buildPackageAndNotfiy(pkgName:string){
     let { processDirectory } =await import('pxseedBuildScript/buildlib');
     let {path,wwwroot}=await getNodeCompatApi();
-    let records:any[][]=[];
     let wrapConsole={...globalThis.console};
-    wrapConsole.debug=(...msg:any[])=>records.push(msg);
-    wrapConsole.info=(...msg:any[])=>records.push(msg);
-    wrapConsole.warn=(...msg:any[])=>records.push(msg);
-    wrapConsole.error=(...msg:any[])=>records.push(msg);
+    wrapConsole.debug=(...msg:any[])=>{log.debug(...msg);}
+    wrapConsole.info=(...msg:any[])=>{log.info(...msg);};
+    wrapConsole.warn=(...msg:any[])=>{log.warning(...msg);};
+    wrapConsole.error=(...msg:any[])=>{log.error(...msg);};
     let buildPath=await getSourceDirForPackage(pkgName);
     await withConsole(wrapConsole,()=>processDirectory(buildPath));
     listener.onBuild.forEach((l)=>{import(l.module).then(m=>m[l.func](pkgName)).catch(()=>{})});
     try{
         await updatePackagesDatabase(pkgName);
     }catch(err){}
-    return records.map(t1=>t1.join(' ')).join('\n');
 }
 
 export async function uninstallPackage(pkgname:string){
