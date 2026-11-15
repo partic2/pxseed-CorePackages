@@ -7,7 +7,7 @@
       "moduleResolution": "node", 
       "typeRoots": ["../npmdeps/node_modules/@types"],
       "rootDir":"./",
-      "allowJs": false,
+      "allowJs": true,
       "checkJs": false,
       "outDir": "../www", 
       "esModuleInterop": false,
@@ -15,7 +15,7 @@
       "forceConsistentCasingInFileNames": true,  
       "strict": true, 
       "skipLibCheck": true ,
-      "sourceMap": true
+      "sourceMap": false
     }
 }
   

@@ -311,7 +311,6 @@ let fileSystemWatcherAutoBuildDebounceCall=new DebounceCall(async ()=>__building
                 log.info('building package:',t1);
                 let consoleContent=yield* Task.yieldWrap(buildPackageAndNotfiy(t1));
                 log.info('built package:',t1);
-                log.info('outputs:',consoleContent);
             }
         }).run();
     }

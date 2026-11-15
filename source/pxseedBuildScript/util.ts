@@ -14,7 +14,7 @@ export async function getNodeCompatApi(){
         const path=await import('path');
         cachedNodeCompatApi={fs,path,wwwroot:path.join(__dirname,'..')};
     }else{
-        const {buildNodeCompatApiTjs}=await import('partic2/packageManager/nodecompat');
+        const {buildNodeCompatApiTjs}=await import('partic2/packageManager/nodecompat' as any);
         const builtApi=await buildNodeCompatApiTjs();
         cachedNodeCompatApi={fs:builtApi.fs.promises as any,path:builtApi.path as any,wwwroot:builtApi.wwwroot}
     }
@@ -88,11 +88,7 @@ async function writeJson(jsonPath:string,obj:any){
     await writeFile(jsonPath,new TextEncoder().encode(JSON.stringify(obj)));
 }
 
-async function runBuild(){
-    const {dirname,join:pathJoin} =await import('path');
-    let buildScriptPath=pathJoin(dirname(__dirname),'script','buildAll.js')
-    await runCommand('node '+buildScriptPath)
-}
+
 
 //Glob by Deepseek
 import type { Dirent } from 'node:fs';
@@ -275,5 +271,5 @@ export async function withConsole(c:typeof console,fn:()=>Promise<void>){
 }
 
 export let __internal__={
-    runCommand,readJson,writeJson,runBuild
+    runCommand,readJson,writeJson
 }
