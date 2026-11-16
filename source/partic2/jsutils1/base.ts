@@ -9,6 +9,7 @@ try{
 if(String.prototype.at==undefined){
     String.prototype.at=function(index:number){
         if(index<0)index+=this.length;
+        if(index>=this.length)return undefined;
         return this.charAt(index);
     }
     function arrayAt(this:any,index:number){
@@ -280,7 +281,7 @@ export function ParseDate(dateStr: string, layout: string): Date {
     pos = layout.indexOf('dd');
     let date = pos >= 0 ? Number.parseInt(dateStr.substring(pos, pos+2)) : 0;
     pos = layout.indexOf('HH');
-    let hour = Number.parseInt(dateStr.substring(pos, pos+2))
+    let hour = pos>=0 ? Number.parseInt(dateStr.substring(pos, pos+2)) : 0;
     pos = layout.indexOf('mm');
     let minute = pos >= 0 ? Number.parseInt(dateStr.substring(pos, pos+2)) : 0;
     pos = layout.indexOf('ss');
@@ -321,12 +322,12 @@ export class future<T>{
     public exception:any; 
     protected resolveCallback?:(value: T | PromiseLike<T>) => void;
     protected rejectCallback?:(reason?: any) => void;
-    protected resultPromise!:Promise<T>
+    protected resultPromise?:Promise<T>
     constructor(){
         this.reset();
     }
     public get(): Promise<T> {
-        return this.resultPromise;
+        return this.resultPromise!;
     }
     public setResult(result: T) {
         if (!this.done) {
@@ -343,6 +344,9 @@ export class future<T>{
         }
     }
     public reset(){
+        if(!this.done && this.rejectCallback!=undefined){
+            this.rejectCallback(new CanceledError());
+        }
         this.done=false;
         this.result=undefined;
         this.exception=undefined;
@@ -409,9 +413,6 @@ export class ArrayWrap2<T>{
     public queueSignalPush(elem:T){
         this.arr().push(elem);
         this.emitQueueChange();
-    }
-    public [Symbol.iterator](){
-        return this.arr()[Symbol.iterator];
     }
     public static *IntSequence(start:number,end?:number,step?:number){
         if(end==undefined){
@@ -489,7 +490,7 @@ export let requirejs = {
         return require.getFailed();
     },
     clearFailed:async function (){
-        Object.keys(require.getFailed()).forEach(t1=>require.undef(t1));
+        Object.keys(await require.getFailed()).forEach(t1=>require.undef(t1));
     },
     undef:async function (mod:string){
         require.undef(mod)
@@ -707,9 +708,6 @@ export function Base64ToArrayBuffer(base64: string): ArrayBuffer {
     if(typeof (Uint8Array as any).fromBase64==='function'){
         return (Uint8Array as any).fromBase64(base64).buffer;
     }
-    for (let i = 0; i < b64chars.length; i++) {
-        b64lookup[b64chars.charCodeAt(i)] = i;
-    }
     let bufferLength = base64.length * 0.75,
         len = base64.length,
         i,
@@ -776,10 +774,9 @@ export type CommonMimeType='text/html'|'text/xml'|'text/javascript'|'application
 
 export function ToDataUrl(data:string|ArrayBuffer|Uint8Array,mediaType:CommonMimeType){
     if(typeof data==='string'){
-        return 'data:'+mediaType+';base64,'+btoa(data);
-    }else{
-        return 'data:'+mediaType+';base64,'+ArrayBufferToBase64(data);
+        data=new TextEncoder().encode(data);
     }
+    return 'data:'+mediaType+';base64,'+ArrayBufferToBase64(data);
 }
 
 export interface LogHandlerArg0{level:'debug'|'info'|'warning'|'error',label:string,msg:any[]};
@@ -816,7 +813,7 @@ export var logger={
         return {
             debug:(...msg:any[])=>{that._handler({msg,label,level:'debug'})},
             info:(...msg:any[])=>{that._handler({msg,label,level:'info'})},
-            warning:(...msg:any[])=>{that._handler({msg,label,level:'warning'})},
+            warn:(...msg:any[])=>{that._handler({msg,label,level:'warning'})},
             error:(...msg:any[])=>{that._handler({msg,label,level:'error'})},
         }
     }
@@ -832,7 +829,7 @@ export class EventSource<EventType> {
 	clearListener(name: string) {
 		this.eventStore.delete(name);
 	}
-    clearListenrs(){this.eventStore.clear();}
+    clearListeners(){this.eventStore.clear();}
 	listListeners() {
 		return this.eventStore.entries();
 	}

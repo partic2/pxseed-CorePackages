@@ -298,7 +298,7 @@ export async function installLocalPackage(path2:string){
     let pxseedConfig=await utilsi.readJson(path.join(path2,"pxseed.config.json")) as PxseedConfig;
     let pkgname=pxseedConfig.name as string;
     if(pendingInstallingTask.get(pkgname)!=undefined){
-        log.warning(`Package '${pkgname}' is already being installed. This may indicate a circular dependency or a concurrent installation attempt.`);
+        log.warn(`Package '${pkgname}' is already being installed. This may indicate a circular dependency or a concurrent installation attempt.`);
         return;
     }
     pendingInstallingTask.set(pkgname,new future())
@@ -382,7 +382,7 @@ export async function buildPackageAndNotfiy(pkgName:string){
     let curTask=Task.currentTask;
     wrapConsole.debug=(...msg:any[])=>{curTask?.fork(function*(){log.debug(...msg)}).run();}
     wrapConsole.info=(...msg:any[])=>{curTask?.fork(function*(){log.info(...msg)}).run();};
-    wrapConsole.warn=(...msg:any[])=>{curTask?.fork(function*(){log.warning(...msg)}).run();};
+    wrapConsole.warn=(...msg:any[])=>{curTask?.fork(function*(){log.warn(...msg)}).run();};
     wrapConsole.error=(...msg:any[])=>{curTask?.fork(function*(){log.error(...msg)}).run();};
     let buildPath=await getSourceDirForPackage(pkgName);
     await withConsole(wrapConsole,()=>processDirectory(buildPath));
@@ -478,7 +478,7 @@ export async function upgradeAllNonCorePackages(){
                 await upgradePackage(t1.name);
                 log.info(`upgradeAllNonCorePackages success to upgrade ${t1.name}`);
             }catch(err:any){
-                log.warning(`upgradeAllNonCorePackages failed when upgrade ${t1.name}, message:${err.toString()} stack:${err.stack}`);
+                log.warn(`upgradeAllNonCorePackages failed when upgrade ${t1.name}, message:${err.toString()} stack:${err.stack}`);
             }
         }
     }
@@ -612,7 +612,7 @@ export async function importPackagesInstallation(installationInfo:{repos:RepoCon
                 await installLocalPackage(fetchResult.localPath!);
             }
         }catch(e:any){
-            log.warning(`importPackagesInstallation install package ${pkg} failed.`+e.toString())
+            log.warn(`importPackagesInstallation install package ${pkg} failed.`+e.toString())
         };
     }
 }

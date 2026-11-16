@@ -134,7 +134,7 @@ export class TjsUtilsProcess{
 				Task.fork(function*(){
 					while(true){
 						let r=yield* Task.yieldWrap(that.readStderrUtf8());
-						log.warning(r);
+						log.warn(r);
 					}
 				}).run()
 			])

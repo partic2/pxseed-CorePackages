@@ -133,7 +133,7 @@ export class PxseedLoaderBuilder{
                     await tjsi.makeDir(this.dirname(dest),{recursive:true});
                     await tjsi.copyFile(src,dest);
                 }catch(err){
-                    log.warning(err);
+                    log.warn(err);
                 }
             }
         }else if(statSrc.isDirectory){

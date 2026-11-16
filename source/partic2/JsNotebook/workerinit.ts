@@ -253,7 +253,7 @@ return JSON.stringify({startupScript:jsnotebook.startupScript,extra:jsnotebook.e
         _ENV.tasks[Task.currentTask.name]=Task.currentTask;
         return new Promise((resolve)=>event.addEventListener('close',()=>resolve('close')))`,'').then((r)=>{
             codeContextClosed.setResult();
-        }).catch((err)=>log.warning(err.stack));
+        }).catch((err)=>log.warn(err.stack));
         await this.connector!.runCode(`await (await import('partic2/JsNotebook/workerinit')).initNotebookCodeEnv(_ENV,${
             JSON.stringify(objectPickField(this.notebookFileData,['codePath','startupScript','extra']))
         });`,'');
