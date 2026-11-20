@@ -130,7 +130,6 @@ export class PxseedServerAdministrateTool extends React.Component<{},{
     async openNotebookWorkspace(){
         let wb=await openWorkspaceWithProfile.openJSNotebookFirstProfileWorkspace({
             defaultRpc:ServerHostWorker1RpcName,
-            defaultStartupScript:`await (await import('pxseedServer2023/pxseedhttpserver')).initNotebookCodeEnv(_ENV)`,
             notebookDirectory:path.join(__name__,'..','notebook')
         });
         wb.start();
@@ -146,9 +145,8 @@ export class PxseedServerAdministrateTool extends React.Component<{},{
     async tryConnect(){
         try{
             if(this.rpcFunc==undefined){
-                let rpc=await (await getPersistentRegistered(ServerHostRpcName))!.ensureConnected();
                 this.rpcFunc=new PxseedServer2023Function();
-                await this.rpcFunc.init(rpc);
+                await this.rpcFunc.init();
             }
             let cfg=await this.rpcFunc!.getConfig();
             this.setState({

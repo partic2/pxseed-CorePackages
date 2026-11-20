@@ -1,17 +1,23 @@
-import { GenerateRandomString, GetCurrentTime, Task, assert, requirejs } from "partic2/jsutils1/base";
-import { RpcExtendClient1, RpcExtendClientCallable, RpcExtendClientObject } from "pxprpc/extend";
+import { GenerateRandomString, GetCurrentTime, Task, assert, future, mutex, requirejs } from "partic2/jsutils1/base";
+import { RpcExtendClient1 } from "pxprpc/extend";
 import type { PxseedServer2023StartupConfig } from "./pxseedhttpserver";
 import { Client, Io, Serializer } from "pxprpc/base";
 import { WebSocketIo } from "pxprpc/backend";
-import { importRemoteModule } from 'partic2/pxprpcClient/registry'
-
+import { importRemoteModule, ServerHostRpc } from 'partic2/pxprpcClient/registry'
 
 export class PxseedServer2023Function{
-    client1?: RpcExtendClient1;
+    client1?: RpcExtendClient1|future<RpcExtendClient1>;
     remoteModule?:typeof import('./pxseedhttpserver')
-    async init(client1:RpcExtendClient1){
-        this.client1=client1;
-        this.remoteModule=await importRemoteModule(this.client1,'pxseedServer2023/pxseedhttpserver');
+    initMutex=new mutex();
+    async init(client1?:RpcExtendClient1|future<RpcExtendClient1>){
+        return this.initMutex.exec(async ()=>{
+            if(this.remoteModule!=undefined){
+                return this;
+            }
+            this.client1=client1??ServerHostRpc;
+            this.remoteModule=await importRemoteModule(this.client1,'pxseedServer2023/pxseedhttpserver');
+            return this;
+        })
     }
     async exit(){
         await this.serverCommand('exit');
@@ -40,84 +46,27 @@ export class PxseedServer2023Function{
     async saveConfig(cfg:PxseedServer2023StartupConfig){
         return await this.serverCommand('saveConfig',cfg);
     }
-}
-
-//wsPipe
-export class WebsocketPipe{
-    constructor(public wsUrl:string){};
-    directlyConnect(id:string):Promise<Io>{
-        return new WebSocketIo().connect(this.wsUrl+(this.wsUrl.includes('?')?'&':'?')+`id=${encodeURIComponent(id)}`);
+    async setServerInformation(info:string[]){
+        return this.remoteModule!.__serverHostSetServerInformation(info);
     }
-    async clientConnect(serverName:string):Promise<Io>{
-        let connectionId=GenerateRandomString();
-        let needClose=new Set<Io>();
-        try{
-            let connIo=await this.directlyConnect('/connection/'+connectionId);
-            needClose.add(connIo)
-            let servIo=await this.directlyConnect('/server/'+serverName);
-            needClose.add(servIo);
-            let ser=new Serializer().prepareSerializing(16);
-            let connectTime=GetCurrentTime().getTime();
-            let connectRequest=ser.putString('connect').putLong(BigInt(connectTime)).putString(connectionId).build();
-            await servIo.send([connectRequest]);
-            ser=new Serializer().prepareUnserializing(await connIo.receive());
-            while(!(ser.getString()=='connect' && ser.getString()==serverName)){
-                ser=new Serializer().prepareUnserializing(await connIo.receive());
-            }
-            needClose.delete(connIo);
-            return connIo;
-        }finally{
-            for(let t1 of needClose){
-                t1.close();
-            }
-        }
+    async getServerInformation(){
+        return this.remoteModule!.__serverHostGetServerInformation();
     }
-    *serverServe(serverName:string,onConnection:(io:Io)=>Generator<Promise<any>,void,any>){
-        let servIo:Io=yield* Task.yieldWrap(this.directlyConnect('/server/'+serverName));
-        let ser=new Serializer().prepareSerializing(16);
-        let serveTime=GetCurrentTime().getTime();
-        let serveAnnounce=ser.putString('serve').putLong(BigInt(serveTime)).build();
-        servIo.send([serveAnnounce]);
-        while(Task.getAbortSignal()!=undefined){
-            let msg=yield* Task.yieldWrap(servIo.receive());
-            ser=new Serializer().prepareUnserializing(msg);
-            let command=ser.getString();
-            if(command=='serve'){
-                let serveOn=ser.getLong();
-                if(serveOn>serveTime){
-                    yield servIo.send([serveAnnounce])
-                }else{
-                    servIo.close()
-                    throw new Error('Server name already used.');
-                }
-            }else if(command=='connect'){
-                ser.getLong(); //connect time
-                let connectionName=ser.getString();
-                let connIo=yield* Task.yieldWrap(this.directlyConnect('/connection/'+connectionName));
-                yield connIo.send([new Serializer().prepareSerializing(16).putString('connect').putString(serverName).build()]);
-                Task.fork(onConnection(connIo)).run();
-            }
-        }
+    async broadcastToQueryServerInformation(waitSecond?:number){
+        return this.remoteModule!.__serverHostBroadcastToQueryServerInformation(waitSecond);
     }
 }
 
+export let defaultPxseedServer2023Invoker=new PxseedServer2023Function();
 
-export async function getServerConfig():Promise<null|{root:PxseedServer2023StartupConfig,current:PxseedServer2023StartupConfig}>{
-    if('pxseedServer2023/pxseedhttpserver' in await requirejs.getDefined()){
-        let serv=await import('pxseedServer2023/pxseedhttpserver');
-        return {root:serv.rootConfig,current:serv.config}
-    }else{
-        return null;
-    }
+export async function setServerInformation(info:string[]){
+    await defaultPxseedServer2023Invoker.init()
+    return await defaultPxseedServer2023Invoker.setServerInformation(info)
 }
-
-export async function restartSubprocessSelf(){
-    let {current,root}=(await getServerConfig())!;
-    assert(current.subprocessIndex!=undefined)
-    let client1=new RpcExtendClient1(new Client(await new WebSocketIo().connect(`ws://127.0.0.1:${root.listenOn!.port}${root.pxseedBase}/pxprpc/0?key=${encodeURIComponent(root.pxprpcKey??'')}`)))
-    await client1.init();
-    let func=new PxseedServer2023Function();
-    await func.init(client1);
-    await func.subprocessRestart(current.subprocessIndex);
-    process.exit(0);
+export async function getServerInformation(){
+    await defaultPxseedServer2023Invoker.init()
+    return await defaultPxseedServer2023Invoker.getServerInformation()
+}
+export async function broadcastToQueryServerInformation(waitSecond?:number){
+    return await defaultPxseedServer2023Invoker.broadcastToQueryServerInformation(waitSecond);
 }

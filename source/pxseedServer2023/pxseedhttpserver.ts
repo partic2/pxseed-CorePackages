@@ -6,13 +6,13 @@ import {Client, Server as PxprpcBaseServer, Server} from 'pxprpc/base'
 
 export var __name__=requirejs.getLocalRequireModule(require);
 
-import { addClient, createIoPipe, getPersistentRegistered, getRegistered, importRemoteModule, listRegistered, rpcWorkerInitModule, ServerHostRpcName, ServerHostWorker1RpcName } from 'partic2/pxprpcClient/registry';
+import { addClient, createIoPipe, getPersistentRegistered, getRegistered, importRemoteModule, listRegistered, rpcWorkerInitModule, ServerHostRpc, ServerHostRpcName, ServerHostWorker1RpcName } from 'partic2/pxprpcClient/registry';
 
 import { GetUrlQueryVariable2, getWWWRoot, path } from 'partic2/jsutils1/webutils';
 import { SimpleFileServer, SimpleHttpServerRouter, WebSocketServerConnection } from 'partic2/tjshelper/httpprot';
 import { Io } from 'pxprpc/base';
 import { buildTjs } from 'partic2/tjshelper/tjsbuilder';
-import { assert, GenerateRandomString, requirejs } from 'partic2/jsutils1/base';
+import { assert, GenerateRandomString, requirejs, sleep } from 'partic2/jsutils1/base';
 import { DirAsRootFS, TjsSfs } from 'partic2/CodeRunner/JsEnviron';
 import { getRpcClientConnectWorkerParent } from 'partic2/pxprpcClient/rpcworker';
 
@@ -21,12 +21,11 @@ if(!rpcWorkerInitModule.includes(__name__)){
     rpcWorkerInitModule.push(__name__);
 }
 
-export let subprocessMagic='--subprocessrnd197izpzgbvbhglw0w';
-
 
 export interface PxseedServer2023StartupConfig{
     pxseedBase?:string,
     listenOn?:{host:string,port:number},
+    broadcastUdpPorts?:number[],
     initModule?:string[],
     //If key!==null. Client should provide url parameter 'key' to get authorization from websocket.
     //DON'T expose the config file to public, if pxprpc is accessible from public. 
@@ -42,7 +41,7 @@ export interface PxseedServer2023StartupConfig{
 
 export let config:PxseedServer2023StartupConfig={
     pxseedBase:'/pxseed',
-    listenOn:{host:'127.0.0.1',port:2081},
+    listenOn:{host:'0.0.0.0',port:2081},
     initModule:[],
     pxprpcKey:null,
     deamonMode:{
@@ -122,43 +121,6 @@ async function pxprpcHandler(ctl:{
     }
 }
 
-export let wsPipe=new Map<string,Set<Io>>();
-async function wsPipeHandler(ctl:{
-        request:Request
-        accept:()=>Promise<WebSocketServerConnection> 
-    }){
-    let url=ctl.request.url;
-    if(url==undefined)return;
-    let id=GetUrlQueryVariable2(url,'id');
-    if(id==undefined)return;
-    id=decodeURIComponent(id);
-    await serveWsPipe(await ctl.accept() as Io,id);
-}
-
-async function serveWsPipe(io:Io,id:string){
-    let pipes=wsPipe.get(id);
-    if(pipes==undefined){
-        pipes=new Set<Io>();
-        wsPipe.set(id,pipes);
-    }
-    pipes.add(io);
-    try{
-        while(true){
-            let msg=await io.receive();
-            for(let t1 of pipes){
-                if(t1!=io){
-                    await t1.send([msg]);
-                }
-            }
-        }
-    }catch(e){
-        pipes.delete(io);
-        if(pipes.size==0){
-            wsPipe.delete(id);
-        }
-    }
-}
-
 export async function setupHttpServerHandler(){
     let serverworker1=await getPersistentRegistered(ServerHostWorker1RpcName);
     if(serverworker1==null){
@@ -166,7 +128,6 @@ export async function setupHttpServerHandler(){
         serverworker1=await getRegistered(ServerHostWorker1RpcName)
     }
     defaultRouter.setHandler(config.pxseedBase!+'/pxprpc/0',{websocket:pxprpcHandler});
-    defaultRouter.setHandler(config.pxseedBase!+'/ws/pipe',{websocket:wsPipeHandler});
     let tjs=await buildTjs();
     let tjsfs=new TjsSfs();
     tjsfs.from(tjs);
@@ -333,7 +294,57 @@ export async function getConnectionForServerHost(){
     }
 }
 
-
-export async function initNotebookCodeEnv(_ENV:any){
-    Object.assign(_ENV,serverCommandRegistry);
+//Server information API should only used through "./clientFunction" module
+let serverInformation=new Array<string>();
+let udpBroadcastEndpoint:tjs.DatagramEndpoint|null=null;
+let cachedRemoteServerInformation:Record<string,string[]>={};
+async function ensureUdpBroadcastEndpoint(){
+    if(udpBroadcastEndpoint!=null)return;
+    let tjs=await buildTjs();
+    udpBroadcastEndpoint=await tjs.listen('udp','0.0.0.0',config.listenOn?.port??2081) as tjs.DatagramEndpoint;
+    await udpBroadcastEndpoint.setBroadcast(true);
+    (async ()=>{
+        let {utf8conv}=await import('partic2/CodeRunner/jsutils2');
+        while(udpBroadcastEndpoint!=null){
+            let recvBuf=new Uint8Array(1000);
+            let rinfo=await udpBroadcastEndpoint.recv(recvBuf);
+            let remoteAddr=rinfo.addr;
+            let msg=utf8conv(new Uint8Array(recvBuf.buffer,0,rinfo.nread));
+            if(msg=='?'){
+                for(let t1 of serverInformation){
+                    udpBroadcastEndpoint.send(utf8conv(t1),remoteAddr);
+                }
+            }else{
+                let source='udp://'+remoteAddr.ip+':'+remoteAddr.port;
+                if(cachedRemoteServerInformation[source]==undefined){
+                    cachedRemoteServerInformation[source]=[];
+                }
+                cachedRemoteServerInformation[source].push(msg);
+            }
+        }
+    })();
+}
+export async function __serverHostSetServerInformation(info:string[]){
+    await ensureUdpBroadcastEndpoint();
+    assert(!info.includes('?'),'"?" is reserved for broadcast query.');
+    serverInformation=info;
+}
+export async function __serverHostGetServerInformation(){
+    return serverInformation;
+}
+export async function __serverHostBroadcastToQueryServerInformation(waitSecond?:number){
+    let {utf8conv}=await import('partic2/CodeRunner/jsutils2');
+    waitSecond=waitSecond??1;
+    await ensureUdpBroadcastEndpoint();
+    cachedRemoteServerInformation={};
+    udpBroadcastEndpoint!.send(utf8conv('?'),{family:4,ip:'255.255.255.255',port:config.listenOn?.port??2081});
+    if(config.broadcastUdpPorts!=undefined){
+        for(let k1 of config.broadcastUdpPorts){
+            udpBroadcastEndpoint!.send(utf8conv('?'),{family:4,ip:'255.255.255.255',port:k1});
+        }
+    }
+    await sleep(waitSecond*1000);
+    let result=cachedRemoteServerInformation;
+    cachedRemoteServerInformation={};
+    return result;
 }

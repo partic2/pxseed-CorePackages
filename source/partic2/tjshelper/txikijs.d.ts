@@ -757,11 +757,13 @@ declare global {
         }
         
         interface DatagramEndpoint {
-            recv(buf: Uint8Array<ArrayBuffer>): Promise<number>;
-            send(buf: Uint8Array<ArrayBuffer>, addr?: Address): Promise<DatagramData>;
+            recv(buf: Uint8Array<ArrayBuffer>): Promise<DatagramData>;
+            send(buf: Uint8Array<ArrayBuffer>, addr?: Address): Promise<number>;
+            setMembership(multicast_addr:string, interface_addr:string, join:boolean):Promise<void>;
+            setBroadcast(enable:boolean):Promise<void>;
             close(): void;
             localAddress: Address;
-            remoteAddress: Address;
+            remoteAddress?: Address;
         }
         
         type Transport = 'tcp' | 'udp' | 'pipe';

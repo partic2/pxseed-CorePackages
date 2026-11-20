@@ -35,6 +35,7 @@ import fs from 'fs/promises'
 import child_process from 'child_process'
 import { wrapReadable } from "./nodeio";
 import { Server, Socket } from "net";
+import * as dgram from 'dgram'
 
 export async function tjsFrom():Promise<typeof tjs>{
     if(tjsImpl!=null){
@@ -438,11 +439,13 @@ interface DatagramData {
 }
 
 interface DatagramEndpoint {
-    recv(buf: Uint8Array): Promise<number>;
-    send(buf: Uint8Array, addr?: Address): Promise<DatagramData>;
+    recv(buf: Uint8Array<ArrayBuffer>): Promise<DatagramData>;
+    send(buf: Uint8Array<ArrayBuffer>, addr?: Address): Promise<number>;
+    setMembership(multicast_addr:string, interface_addr:string, join:boolean):Promise<void>;
+    setBroadcast(enable:boolean):Promise<void>;
     close(): void;
     localAddress: Address;
-    remoteAddress: Address;
+    remoteAddress?: Address;
 }
 
 type Transport = 'tcp' | 'udp' | 'pipe';
@@ -540,6 +543,8 @@ async function connect(transport: Transport, host: string, port?: string | numbe
         soc.connect({path:host});
         await p;
         return r;
+    }else if(transport=='udp'){
+        return await new NodeUdpSocket().connect(Number(port??0),host);
     }else{
         throw new Error('Not implemented');
     }
@@ -607,6 +612,114 @@ class NodeListener implements Listener{
 
 }
 
+class NodeUdpSocket implements DatagramEndpoint{
+    async setMembership(multicast_addr: string, interface_addr: string, join: boolean): Promise<void> {
+        throw new Error("Method not implemented.");
+    }
+    async setBroadcast(enable: boolean): Promise<void> {
+        this.dsock?.setBroadcast(enable);
+    }
+    dsock?:dgram.Socket
+    recvQueue=new ArrayWrap2<{msg: Buffer<ArrayBuffer>, rinfo: dgram.RemoteInfo}|{error:Error}>();
+    async listen(port:number,bindTo:string){
+        let type:'udp6'|'udp4'=bindTo.includes(':')?'udp6':'udp4';
+        if(type='udp4'){
+            this.localAddress.family=4;
+        }else{
+            this.localAddress.family=6;
+        }
+        let dsock=dgram.createSocket({type});
+        await new Promise<void>((resolve,reject)=>{
+            dsock.on('error',reject);
+            dsock.bind(port,bindTo,resolve);
+        }).finally(()=>{
+            dsock.removeAllListeners('error');
+        });
+        this.dsock=dsock;
+        this.localAddress.ip=this.dsock.address().address;
+        this.localAddress.port=this.dsock.address().port;
+        this.dsock.on('message',(msg,rinfo)=>{
+            this.recvQueue.queueSignalPush({msg,rinfo});
+        });
+        this.dsock.on('error',(error)=>{
+            this.recvQueue.queueSignalPush({error});
+        });
+        return this;
+    }
+    async connect(port:number,connectTo:string){
+        let type:'udp6'|'udp4'=connectTo.includes(':')?'udp6':'udp4';
+        if(type='udp4'){
+            this.localAddress.family=4;
+        }else{
+            this.localAddress.family=6;
+        }
+        let dsock=dgram.createSocket({type});
+        await new Promise<void>((resolve,reject)=>{
+            dsock.on('error',reject);
+            dsock.connect(port,connectTo,resolve)
+        }).finally(()=>{
+            dsock.removeAllListeners('error');
+        });
+        this.dsock=dsock;
+        this.remoteAddress={ip:connectTo,port,family:this.localAddress.family};
+        this.dsock.setBroadcast(true);
+        this.localAddress.ip=this.dsock.address().address;
+        this.localAddress.port=this.dsock.address().port;
+        this.dsock.on('message',(msg,rinfo)=>{
+            this.recvQueue.queueSignalPush({msg,rinfo});
+        });
+        this.dsock.on('error',(error)=>{
+            this.recvQueue.queueSignalPush({error});
+        });
+        return this
+    }
+    async recv(buf: Uint8Array): Promise<DatagramData> {
+        let next=await this.recvQueue.queueBlockShift();
+        if('error' in next){
+            this.recvQueue.queueSignalPush(next);
+            throw next.error;
+        }else{
+            let len=Math.min(buf.length,next.msg.byteLength);
+            let toCopy=new Uint8Array(next.msg.buffer,0,len);
+            buf.set(toCopy,0);
+            return {
+                partial:len<next.msg.byteLength,
+                nread:len,
+                addr:{ip:next.rinfo.address,port:next.rinfo.port,family:next.rinfo.family.includes('4')?4:6}
+            };
+        }
+    }
+    async send(buf: Uint8Array, addr?: Address): Promise<number> {
+        if(addr==undefined){
+            return new Promise<number>((resolve,reject)=>{
+                this.dsock!.send(buf,undefined,undefined,(err,bytes)=>{
+                    if(err!=null){
+                        reject(err);
+                    }else{
+                        resolve(bytes);
+                    }
+                });
+            })
+        }else{
+            return new Promise<number>((resolve,reject)=>{
+                this.dsock!.send(buf,addr.port,addr.ip,(err,bytes)=>{
+                    if(err!=null){
+                        reject(err);
+                    }else{
+                        resolve(bytes);
+                    }
+                });
+            })
+        }
+    }
+    close(): void {
+        throw new Error("Method not implemented.");
+    }
+    localAddress: Address={family: 0,ip:'',port:0};;
+    remoteAddress?: Address
+    
+}
+
 /**
 * Listens for incoming connections on the selected transport.
 *
@@ -642,6 +755,8 @@ async function listen(transport: Transport, host: string, port?: string | number
             path:host
         });
         return await result.get();
+    }else if(transport=='udp'){
+        return await new NodeUdpSocket().listen(Number(port??0),host);
     }else{
         throw new Error('Not implemented');
     }
