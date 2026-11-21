@@ -135,6 +135,8 @@ class IndexedDbAdapter4Kvdb implements IKeyValueDb{
                 let next=onKey(this.result.key as string);
                 if(!(next!=undefined && next.stop===true)){
                     this.result.continue();
+                }else{
+                    onKey(null);
                 }
             }else{
                 onKey(null);
@@ -241,9 +243,17 @@ export async function selectFile():Promise<FileList|null>{
     let fileInput=document.createElement('input');
     fileInput.type='file';
     fileInput.multiple=true;
-    return new Promise<FileList|null>((resolve,reject)=>{
-        fileInput.addEventListener('change',(ev)=>{
+    fileInput.style.display='none';
+    document.body.appendChild(fileInput);
+    return new Promise<FileList|null>((resolve)=>{
+        const cleanup=()=>{fileInput.remove();};
+        fileInput.addEventListener('change',()=>{
             resolve(fileInput.files);
+            cleanup();
+        });
+        fileInput.addEventListener('cancel',()=>{
+            resolve(null);
+            cleanup();
         });
         fileInput.click();
     })
@@ -260,8 +270,14 @@ export function GetStyleRuleOfSelector(selector:string){
     var matched=new Array<CSSStyleRule>();
     for(let i=0;i<document.styleSheets.length;i++){
         let style=document.styleSheets.item(i) as CSSStyleSheet;
-        for(let i2=0;i2<style.cssRules.length;i2++){
-            var rule=style.cssRules.item(i2);
+        let cssRules:CSSRuleList;
+        try{
+            cssRules=style.cssRules;
+        }catch(e){
+            continue;
+        }
+        for(let i2=0;i2<cssRules.length;i2++){
+            var rule=cssRules.item(i2);
             if(rule!=null&&rule.constructor==CSSStyleRule){
                 let cssRule=rule as CSSStyleRule;
                 if(cssRule.selectorText.split(',').findIndex(function(v){
@@ -625,7 +641,7 @@ export function useDeviceWidth(enable?:boolean){
     if(enable===false)return;
     useDeviceWidthTag=document.createElement('meta');
     useDeviceWidthTag.name='viewport';
-    useDeviceWidthTag.content='width=device-width initial-scale=1';
+    useDeviceWidthTag.content='width=device-width, initial-scale=1';
     document.head.append(useDeviceWidthTag)
 }
 
@@ -694,11 +710,10 @@ export class GlobalInputStateTracer{
         this.mouseState.y=ev.clientY;
         this.mouseState.left=(ev.buttons&1)!=0;
         this.mouseState.right=(ev.buttons&2)!=0;
-        this.mouseState.center=(ev.buttons&3)!=0
+        this.mouseState.center=(ev.buttons&4)!=0
         this.onStateChange.forEach((cb)=>cb());;
     }
     protected touchHandler=(ev:TouchEvent)=>{
-        ev.touches.item(0)
         this.touchsPosition.splice(0,this.touchsPosition.length);
         for(let t1=0;t1<ev.touches.length;t1++){
             let t2=ev.touches.item(t1)!;

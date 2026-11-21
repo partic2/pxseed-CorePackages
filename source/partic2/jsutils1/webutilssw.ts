@@ -68,7 +68,10 @@ class ServiceWorkerThread implements IWorkerThread{
         this.port.addEventListener('message',cb);
         this.funcCall=new FunctionCallOverMessagePort(this.port);
         for(let t1=0;t1<50&&!this.waitReady.done;t1++){
-            this.call('partic2/jsutils1/serviceworker','setWorkerInfo',[this.workerId]).then(()=>this.waitReady.setResult(0));
+            this.call('partic2/jsutils1/serviceworker','setWorkerInfo',[this.workerId]).then(
+                ()=>this.waitReady.setResult(0),
+                ()=>{}
+            );
             await Promise.race([this.waitReady.get(),sleep(200)]);
         }
         if(!this.waitReady.done)throw new Error('Timeout waiting for service worker ready.')

@@ -62,7 +62,7 @@ if(String.prototype.at==undefined){
                 signalReason.name='AbortError'
             }
             const event = new Event('abort');
-            (event as any).reason = reason;
+            (event as any).reason = signalReason;
     
             this.signal.reason = signalReason;
             this.signal.dispatchEvent(event);
@@ -71,9 +71,14 @@ if(String.prototype.at==undefined){
             return '[object AbortController]';
         }
     }
-    if(globalThis.AbortSignal==undefined || globalThis.AbortSignal.prototype.throwIfAborted==undefined){
+    if(globalThis.AbortController==undefined || globalThis.AbortSignal==undefined){
         (globalThis as any).AbortController=AbortController;
         (globalThis as any).AbortSignal=AbortSignal;
+    }else if(globalThis.AbortSignal.prototype.throwIfAborted==undefined){
+        (globalThis.AbortSignal.prototype as any).throwIfAborted=function(this:AbortSignal){
+            if(!this.aborted)return;
+            throw this.reason;
+        };
     }
 })();
 
@@ -118,23 +123,22 @@ export class Task<T> {
     __iter?: Generator<TaskCallback<any>>;
     __locals = {};
     __abortController = new AbortController();
-    __step(tNext: any, error: any) {
+    __step(tNext: any, error: any, isError?: boolean) {
         let savedTask=Task.currentTask
         Task.currentTask = this;
         try {
-            if (this.__abortController.signal.aborted) {
-                this.__iter!.throw(this.__abortController.signal.reason);
-            }
             let yieldResult:IteratorResult<TaskCallback<any>, any>;
-            if (error != undefined) {
+            if (this.__abortController.signal.aborted) {
+                yieldResult = this.__iter!.throw(this.__abortController.signal.reason);
+            } else if (isError) {
                 yieldResult = this.__iter!.throw(error);
-            }else{
+            } else {
                 yieldResult = this.__iter!.next(tNext);
             }
             if (!yieldResult.done) {
                 yieldResult.value.then(
-                    r => this.__step(r, undefined),
-                    reason => this.__step(undefined, reason)
+                    r => this.__step(r, undefined, false),
+                    reason => this.__step(undefined, reason, true)
                 );
             } else {
                 Task.currentTask = null;
@@ -217,6 +221,8 @@ export function throwIfAbortError(e:any){
 
 export function copy<T>(src: T, dst: any, depth: number): any {
     if (depth <= 0) return dst;
+    if (src instanceof Date) return new Date(src.getTime());
+    if (src instanceof ArrayBuffer) return src.slice(0);
     if (Array.isArray(src)) {
         if (!Array.isArray(dst)) dst = [];
         dst.length = src.length;
@@ -261,14 +267,14 @@ export function FormatDate(date: Date, layout: string) {
         "MM": date.getMonth() + 1,
         "dd": date.getDate(),
         "HH": date.getHours(),
-        "hh": date.getHours()%12,
+        "hh": date.getHours()%12 || 12,
         "mm": date.getMinutes(),
         "ss": date.getSeconds(),
         "SSS": date.getMilliseconds()
     };
-    outstr=outstr.replace(/yyyy/,date.getFullYear().toString().padStart(4,'0'));
+    outstr=outstr.replace(/yyyy/g,date.getFullYear().toString().padStart(4,'0'));
     for (var k in o) {
-        outstr=outstr.replace(new RegExp(k),o[k].toString().padStart(2,'0'));
+        outstr=outstr.replace(new RegExp(k,'g'),o[k].toString().padStart(k==='SSS'?3:2,'0'));
     }
     return outstr;
 };
@@ -290,19 +296,18 @@ export function ParseDate(dateStr: string, layout: string): Date {
     let millisecond = pos >= 0 ? Number.parseInt(dateStr.substring(pos, pos+3)) : 0;
     return new Date(year, month, date, hour, minute, second,millisecond)
 }
-
+//Short sleep will not be aborted.
 export async function sleep<T>(milliSeconds: number, arg?: T): Promise<T> {
     let defer=new Array<()=>void>();
     return new Promise<T>(((resolve,reject)=>{
-        const onAbort=(ev:Event)=>{reject((ev as any).reason)};
-        let currentTask=Task.currentTask
-        if(currentTask!=undefined){
-            if(currentTask.getAbortSignal().aborted){
-                reject(currentTask.getAbortSignal().reason);
+        let abortSignal=Task.currentTask?.getAbortSignal();
+        const onAbort=()=>{reject(abortSignal!.reason)};
+        if(abortSignal!=undefined){
+            if(abortSignal.aborted){
+                reject(abortSignal.reason);
             }else if(milliSeconds>1000){
-                //Better performance?
-                currentTask.getAbortSignal().addEventListener('abort',onAbort);
-                defer.push(()=>currentTask.getAbortSignal().removeEventListener('abort',onAbort))
+                abortSignal.addEventListener('abort',onAbort);
+                defer.push(()=>abortSignal!.removeEventListener('abort',onAbort))
             }
         }
         const timer=setTimeout(()=>resolve(arg as any),milliSeconds);

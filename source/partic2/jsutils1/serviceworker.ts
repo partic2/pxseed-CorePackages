@@ -26,16 +26,18 @@ class MessageEventWithSource extends MessageEvent<any>{
     }
 }
 
-__pxseedInit.onmessage=function(msg:MessageEvent){
-    let ev=new MessageEventWithSource(msg.type,{data:msg.data});
-    ev._source=msg.source;
-    proxyMessageEventTarget.dispatchEvent(ev);
-};
+if('__pxseedInit' in globalThis && __pxseedInit.env=='service worker'){
+    __pxseedInit.onmessage=function(msg:MessageEvent){
+        let ev=new MessageEventWithSource(msg.type,{data:msg.data});
+        ev._source=msg.source;
+        proxyMessageEventTarget.dispatchEvent(ev);
+    };
+}
 
 let spawnerFunctionCall=new FunctionCallOverMessagePort({
     postMessage:()=>{},
     addEventListener:proxyMessageEventTarget.addEventListener.bind(proxyMessageEventTarget) as any,
-    removeEventListener:proxyMessageEventTarget.addEventListener.bind(removeEventListener) as any,
+    removeEventListener:proxyMessageEventTarget.removeEventListener.bind(proxyMessageEventTarget) as any,
 });
 
 export async function setWorkerInfo(id:string){
@@ -46,7 +48,9 @@ export async function setWorkerInfo(id:string){
 export let __internal__={spawnerFunctionCall}
 
 export async function requestExit(){
-    globalThis.close();
+    if(typeof (globalThis as any).close==='function'){
+        (globalThis as any).close();
+    }
 }
 
 

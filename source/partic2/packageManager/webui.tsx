@@ -9,9 +9,11 @@ import { Server } from "pxprpc/base";
 
 const __name__=requirejs.getLocalRequireModule(require);
 
-export let packageManagerWebuiEntry={
+let packageManagerFallbackWebuiEntry={
     module:'partic2/packageManager/webui2',func:'main'
 }
+
+export let packageManagerWebuiEntry={...packageManagerFallbackWebuiEntry}
 
 let persistentConfig:{onWebuiStartup?:Array<{module:string,func:string}>,packageManagerWebuiEntry?:typeof packageManagerWebuiEntry}={};
 
@@ -47,7 +49,9 @@ window.addEventListener('beforeunload',(ev)=>{
                 await Promise.allSettled((startups.map(t1=>import(t1.module).then(t2=>t2[t1.func]()).catch((err)=>{console.warn(err)}))));
             }
         }catch(err){}
-        import(packageManagerWebuiEntry.module).then((mod)=>mod[packageManagerWebuiEntry.func]('webui')).catch(()=>{});
+        import(packageManagerWebuiEntry.module).then((mod)=>mod[packageManagerWebuiEntry.func]('webui')).catch(()=>{
+            import(packageManagerFallbackWebuiEntry.module).then((mod)=>mod[packageManagerFallbackWebuiEntry.func]('webui')).catch(()=>{});
+        });
     }
 })()
 
