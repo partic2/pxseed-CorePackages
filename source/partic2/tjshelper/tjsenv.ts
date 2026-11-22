@@ -172,6 +172,7 @@ declare global {
         accessMemory(base:BigInt,len:number):SharedArrayBuffer;
         freeObjStore?:(index:number)=>void;
         embedtlsSslFunc2026?:(...args:any[])=>any;
+        widccjitFunc2026?:(...args:any[])=>any;
     }
 }
 
@@ -242,20 +243,183 @@ export class TjsTlsClient{
         return r;
     }
     async writePlain(buf:Uint8Array):Promise<number>{
+        jsutils1base.assert(this.index.get()>=0);
         let r=__pxprpc4tjs__.embedtlsSslFunc2026!(4,this.index.get(),buf);
-        if(r<0)new Error('embedtls error:'+r); 
+        if(r<0)throw new Error('embedtls error:'+r);
         return r;
     }
     async readPlain(buf:Uint8Array):Promise<number>{
+        jsutils1base.assert(this.index.get()>=0);
         let r=__pxprpc4tjs__.embedtlsSslFunc2026!(5,this.index.get(),buf);
-        if(r<0)new Error('embedtls error:'+r);
+        if(r<0)throw new Error('embedtls error:'+r);
         return r;
     }
     async close(){
         let index=this.index.get();
+        if(index<0)return;
         this.index.set(-1);
         __pxprpc4tjs__.freeObjStore!(index);
     }
+}
+
+//Server side TLS. crtPem/keyPem are PEM encoded certificate and private key.
+export class TjsTlsServer{
+    index=new jsutils1base.Ref2<number>(-1);
+    constructor(crtPem:string,keyPem:string){
+        jsutils1base.assert(__pxprpc4tjs__.embedtlsSslFunc2026!=undefined);
+        jsutils1base.assert(__pxprpc4tjs__.embedtlsSslFunc2026(0)>=12);
+        this.index.set(__pxprpc4tjs__.embedtlsSslFunc2026!(6,crtPem,keyPem));
+        tjstlscleanup.register(this,this.index);
+    }
+    //Read cipher text produced by handshake/readPlain/writePlain, should be sent to client.
+    async readCipherSendBuffer(buf:Uint8Array):Promise<number>{
+        jsutils1base.assert(this.index.get()>=0);
+        return __pxprpc4tjs__.embedtlsSslFunc2026!(7,this.index.get(),buf);
+    }
+    //Write cipher text received from client.
+    async writeCipherRecvBuffer(buf:Uint8Array):Promise<number>{
+        jsutils1base.assert(this.index.get()>=0);
+        return __pxprpc4tjs__.embedtlsSslFunc2026!(8,this.index.get(),buf);
+    }
+    async writePlain(buf:Uint8Array):Promise<number>{
+        jsutils1base.assert(this.index.get()>=0);
+        let r=__pxprpc4tjs__.embedtlsSslFunc2026!(9,this.index.get(),buf);
+        if(r<0)throw new Error('embedtls error:'+r);
+        return r;
+    }
+    async readPlain(buf:Uint8Array):Promise<number>{
+        jsutils1base.assert(this.index.get()>=0);
+        let r=__pxprpc4tjs__.embedtlsSslFunc2026!(10,this.index.get(),buf);
+        if(r<0)throw new Error('embedtls error:'+r);
+        return r;
+    }
+    //Returns 0 while the handshake needs more data, positive/negative result otherwise.
+    async handshake():Promise<number>{
+        jsutils1base.assert(this.index.get()>=0);
+        return __pxprpc4tjs__.embedtlsSslFunc2026!(11,this.index.get());
+    }
+    async close(){
+        let index=this.index.get();
+        if(index<0)return;
+        this.index.set(-1);
+        __pxprpc4tjs__.freeObjStore!(index);
+    }
+}
+
+let widccjitcleanup=new FinalizationRegistry((index:jsutils1base.Ref2<number>)=>{
+    if(index.get()>=0)__pxprpc4tjs__.freeObjStore!(index.get());
+});
+
+function ensureWidccjit():((...args:any[])=>any){
+    jsutils1base.assert(__pxprpc4tjs__.widccjitFunc2026!=undefined,
+        'widccjit is not available on this txiki.js build.');
+    return __pxprpc4tjs__.widccjitFunc2026!;
+}
+
+export type WidccArg=number|bigint;
+export type WidccResult=number|bigint|undefined;
+
+export class TjsWidccSymbol{
+    index=new jsutils1base.Ref2<number>(-1);
+    constructor(public name:string,index:number){
+        this.index.set(index);
+        widccjitcleanup.register(this,this.index);
+    }
+    get address():bigint{
+        jsutils1base.assert(this.index.get()>=0);
+        return ensureWidccjit()(11,this.index.get());
+    }
+    //argTypes/resultTypes use one char per value: 'i' int32, 'l' int64, 'p' pointer,
+    //result type 'v' means void. Results are always returned as an array.
+    call(argTypes:string,args:WidccArg[],resultTypes:string=''):WidccResult[]{
+        jsutils1base.assert(this.index.get()>=0);
+        return ensureWidccjit()(12,this.index.get(),argTypes,args,resultTypes);
+    }
+    close(){
+        let index=this.index.get();
+        if(index<0)return;
+        this.index.set(-1);
+        __pxprpc4tjs__.freeObjStore!(index);
+    }
+}
+
+export class TjsWidccModule{
+    index=new jsutils1base.Ref2<number>(-1);
+    constructor(index:number){
+        this.index.set(index);
+        widccjitcleanup.register(this,this.index);
+    }
+    unload():boolean{
+        let index=this.index.get();
+        if(index<0)return false;
+        return ensureWidccjit()(10,index);
+    }
+    close(){
+        let index=this.index.get();
+        if(index<0)return;
+        this.index.set(-1);
+        __pxprpc4tjs__.freeObjStore!(index);
+    }
+}
+
+export class TjsWidccRuntime{
+    index=new jsutils1base.Ref2<number>(-1);
+    constructor(){
+        let func=ensureWidccjit();
+        jsutils1base.assert(func(0)>=15);
+        this.index.set(func(1));
+        widccjitcleanup.register(this,this.index);
+    }
+    addHostFunction(name:string,address:bigint):boolean{
+        jsutils1base.assert(this.index.get()>=0);
+        return ensureWidccjit()(3,this.index.get(),name,address);
+    }
+    addHostVariable(name:string,address:bigint):boolean{
+        jsutils1base.assert(this.index.get()>=0);
+        return ensureWidccjit()(4,this.index.get(),name,address);
+    }
+    lookup(name:string):TjsWidccSymbol|null{
+        jsutils1base.assert(this.index.get()>=0);
+        let id=ensureWidccjit()(5,this.index.get(),name);
+        if(id===null||id===undefined)return null;
+        return new TjsWidccSymbol(name,id);
+    }
+    listSymbols():string[]{
+        jsutils1base.assert(this.index.get()>=0);
+        return ensureWidccjit()(6,this.index.get());
+    }
+    setIncludePaths(paths:string[]):void{
+        jsutils1base.assert(this.index.get()>=0);
+        ensureWidccjit()(7,this.index.get(),paths);
+    }
+    loadCode(path:string,source:string):TjsWidccModule{
+        jsutils1base.assert(this.index.get()>=0);
+        return new TjsWidccModule(ensureWidccjit()(8,this.index.get(),path,source));
+    }
+    loadCodeFile(path:string):TjsWidccModule{
+        jsutils1base.assert(this.index.get()>=0);
+        return new TjsWidccModule(ensureWidccjit()(9,this.index.get(),path));
+    }
+    //Free the native runtime. Modules/symbols still hold their own reference to it.
+    deleteRuntime(){
+        let index=this.index.get();
+        if(index<0)return;
+        ensureWidccjit()(2,index);
+    }
+    close(){
+        let index=this.index.get();
+        if(index<0)return;
+        this.index.set(-1);
+        __pxprpc4tjs__.freeObjStore!(index);
+    }
+}
+
+export function widccReadMemory(address:bigint,length:number):Uint8Array{
+    return ensureWidccjit()(13,address,length);
+}
+
+export function widccWriteMemory(address:bigint,data:Uint8Array):void{
+    ensureWidccjit()(14,address,data);
 }
 
 export let __inited__=(async()=>{
