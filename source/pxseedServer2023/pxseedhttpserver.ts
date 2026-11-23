@@ -268,6 +268,7 @@ export let serverCommandRegistry:Record<string,(param:any)=>any>={
         await loadConfig();
         return 'done'
     },
+    //restartListener:close the server socket and restart it. Implemented by 
 }
 
 export function pxseedRunStartupModules(){

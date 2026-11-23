@@ -1,4 +1,4 @@
-import { GenerateRandomString, GetCurrentTime, Task, assert, future, mutex, requirejs } from "partic2/jsutils1/base";
+import { GenerateRandomString, GetCurrentTime, Task, assert, future, mutex, requirejs, sleep } from "partic2/jsutils1/base";
 import { RpcExtendClient1 } from "pxprpc/extend";
 import type { PxseedServer2023StartupConfig } from "./pxseedhttpserver";
 import { Client, Io, Serializer } from "pxprpc/base";
@@ -45,6 +45,9 @@ export class PxseedServer2023Function{
     }
     async saveConfig(cfg:PxseedServer2023StartupConfig){
         return await this.serverCommand('saveConfig',cfg);
+    }
+    async restartListener(){
+        await this.serverCommand('restartListener').catch(()=>{});
     }
     async setServerInformation(info:string[]){
         return this.remoteModule!.__serverHostSetServerInformation(info);

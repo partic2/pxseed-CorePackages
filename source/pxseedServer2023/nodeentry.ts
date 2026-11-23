@@ -1,30 +1,22 @@
 //To initialize node environment. 
 import {__inited__ as nodeenvinited} from 'partic2/nodehelper/env'
 
-import { config, defaultRouter, loadConfig, pxseedRunStartupModules, rootConfig, saveConfig, serverCommand, serverCommandRegistry, setupHttpServerHandler, subprocessMagic } from './pxseedhttpserver';
+import { config, defaultRouter, loadConfig, pxseedRunStartupModules, rootConfig, saveConfig, serverCommand, serverCommandRegistry, setupHttpServerHandler } from './pxseedhttpserver';
 
 export let __name__=requirejs.getLocalRequireModule(require);
 
 import { ArrayBufferConcat, ArrayWrap2, future, Ref2, requirejs, sleep, Task } from 'partic2/jsutils1/base';
-import {Client, Io} from 'pxprpc/base'
 import {Duplex, EventEmitter, Readable} from 'stream'
 import { IncomingHttpHeaders, IncomingMessage, OutgoingMessage, Server, ServerResponse } from 'http';
 import {dirname,join as pathJoin} from 'path'
-import { Server as PxprpcBaseServer } from 'pxprpc/base'
 import { GetUrlQueryVariable2, getWWWRoot, lifecycle } from 'partic2/jsutils1/webutils';
 import { ChildProcess, spawn } from 'child_process';
 import { NodeReadableDataSource, NodeWritableDataSink } from 'partic2/nodehelper/nodeio';
-import { createIoPipe, isServerHost } from 'partic2/pxprpcClient/registry';
-import { RpcExtendClient1 } from 'pxprpc/extend';
-import { WebSocketIo } from 'pxprpc/backend';
 
 
 export {config}
 
 export let ensureInit=new future<number>();
-
-
-
 
 
 
@@ -115,8 +107,6 @@ async function runCommand(cmd:string,cwd?:string){
 }
 
 export async function startServer(){
-    //(await import('inspector')).open(9229,'127.0.0.1',true);
-    console.info('argv',process.argv);
     await loadConfig()
     httpServ.on('upgrade',async (nodereq,socket,head)=>{
         if(nodereq.headers['upgrade']?.toLowerCase()==='websocket'){
@@ -216,40 +206,11 @@ export async function startServer(){
         });
     });
     
-    if(config.deamonMode!.enabled){
-        let subprocs:ChildProcess[]=[]
-        for(let t1=0;t1<config.deamonMode!.subprocessConfig.length;t1++){
-            let subprocess=nodeRun(__name__,[subprocessMagic,String(t1)]);
-            subprocs.push(subprocess);
-        }
-        serverCommandRegistry.subprocessWaitExitCode=async (index:number)=>{
-            let subp=subprocs[index];
-            if(subp.exitCode!=null){
-                return subp.exitCode;
-            }else{
-                return new Promise<number>(
-                    (resolve)=>subp.once('exit',(exitCode)=>{resolve(exitCode??-1)}))
-            }
-        };
-        serverCommandRegistry.subprocessRestart=async (index:number)=>{
-            if(subprocs[index].exitCode==null){
-                let subCfg=rootConfig.deamonMode!.subprocessConfig[index];
-                let client1=new RpcExtendClient1(new Client(await new WebSocketIo().connect(
-                    `ws://127.0.0.1:${subCfg.listenOn!.port}${subCfg.pxseedBase??config.pxseedBase}/pxprpc/0?key=${encodeURIComponent(subCfg.pxprpcKey??config.pxprpcKey??'')}`)))
-                await client1.init();
-                let {PxseedServer2023Function}=await import('./clientFunction');
-                let func=new PxseedServer2023Function();
-                await func.init(client1);
-                await func.exit();
-                await sleep(1500);
-            }
-            if(subprocs[index].exitCode==null){
-                subprocs[index].kill();
-                await sleep(500);
-            }
-            let subprocess=nodeRun(__name__,[subprocessMagic,String(index)]);
-            subprocs[index]=subprocess;
-        };
+    serverCommandRegistry.restartListener=async ()=>{
+        httpServ.close();
+        await sleep(300);
+        httpServ=new Server();
+        startServer();
     }
 }
 

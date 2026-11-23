@@ -99,6 +99,13 @@ export class PxseedServerAdministrateTool extends React.Component<{},{
             window.location.reload();
         })
     }
+    async restartListener(){
+        let ur=await confirm('restart server listener?');
+        if(ur=='cancel')return;
+        await this.rpcFunc!.restartListener();
+        await sleep(1000);
+        window.location.reload();
+    }
     renderConnected(){
         return <div className={css.flexColumn}>
             <h2>Server config</h2>
@@ -117,11 +124,7 @@ export class PxseedServerAdministrateTool extends React.Component<{},{
                 <a href="javascript:;" onClick={()=>this.buildPackage()}>build packages</a>
                 <a href="javascript:;" onClick={()=>this.forceRebuildPackages()}>force rebuild pakcages</a>
                 <a href="javascript:;" onClick={()=>this.restartServerHostWorker1()}>restart server host worker 1</a>
-                {(this.state.serverConfig?.deamonMode?.enabled==true)?this.state.serverConfig!.deamonMode.subprocessConfig.map((cfg,index)=>{
-                    return <a href="javascript:;" onClick={()=>this.restartSubprocess(index)}>
-                        restart subprocess {index} on {`${cfg.listenOn?.host}:${cfg.listenOn?.port}`}
-                    </a>
-                }):null}
+                <a href="javascript:;" onClick={()=>this.restartListener()}>restart server listener</a>
                 <a href="javascript:;" onClick={()=>this.openNotebookWorkspace()}>notebook</a>
                 <a href="javascript:;" onClick={()=>this.clearPxprpcKey()}>clear pxprpc key</a>
             </div>
