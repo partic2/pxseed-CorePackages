@@ -831,7 +831,7 @@ export class EventSource<EventType> {
 		this.eventStore.set(name, cb);
 		return name;
 	}
-	clearListener(name: string) {
+	deleteListener(name: string) {
 		this.eventStore.delete(name);
 	}
     clearListeners(){this.eventStore.clear();}

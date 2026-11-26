@@ -1,10 +1,10 @@
 
 import { CodeContextEvent, LocalRunCodeContext, RunCodeContext } from 'partic2/CodeRunner/CodeContext';
 import { CodeCell, CodeCellControl, CodeCellList } from 'partic2/CodeRunner/WebUi';
-import { GenerateRandomString, GetCurrentTime, IamdeeScriptLoader, Ref2, Task, WaitUntil, assert, future, logger, requirejs, sleep, throwIfAbortError } from 'partic2/jsutils1/base';
+import {  Ref2, assert, future,  sleep, throwIfAbortError } from 'partic2/jsutils1/base';
 import * as React from 'preact'
 
-import {ClientInfo, createIoPipe, getAttachedRemoteRigstryFunction, getPersistentRegistered, getRegistered, importRemoteModule, ServerHostWorker1RpcName, WebWorker1ForComputeRpc} from 'partic2/pxprpcClient/registry'
+import {ClientInfo, getRegistered, importRemoteModule, WebWorker1ForComputeRpc} from 'partic2/pxprpcClient/registry'
 import { FileTypeHandlerBase } from './fileviewer';
 
 import { JsxClassComponent, ReactRefEx } from 'partic2/pComponentUi/domui';
@@ -156,16 +156,18 @@ export class NotebookViewer extends JsxClassComponent<{
             await alert([e.toString(),e.stack,(e.remoteStack??'')].join('\n'),'Error');
         }
     }
-    componentDidMount(): void {
-        this.doLoad();
-    }
-    componentWillUnmount(): void {
-        if(this.codeContext!=undefined){
-            try{
-                this.codeContext.event.dispatchEvent(new CodeContextEvent(`${__name__}.NotebookViewer.disconnect`))
-                this.codeContext.event.removeEventListener(`${__name__}.NotebookViewer`,this.__notebookViewerEventHandler)
-            }catch(err){}
-        }
+    protected async _initialize(): Promise<void> {
+        this.reactComponentLifecycleEvent.componentDidMount.setListener(__name__+'.NotebookViewer',()=>{
+            this.doLoad();
+        })
+        this.reactComponentLifecycleEvent.componentWillUnmount.setListener(__name__+'.NotebookViewer',()=>{
+            if(this.codeContext!=undefined){
+                try{
+                    this.codeContext.event.dispatchEvent(new CodeContextEvent(`${__name__}.NotebookViewer.disconnect`))
+                    this.codeContext.event.removeEventListener(`${__name__}.NotebookViewer`,this.__notebookViewerEventHandler)
+                }catch(err){}
+            }
+        })
     }
     async doLoad(){
         try{
@@ -313,8 +315,6 @@ class RunCodeReplView extends JsxClassComponent<{
         await cc.runCode();
     }
     protected autoScrollToBottom=true;
-    componentWillUnmount(): void {
-    }
     protected codeCellHighlightQueue=new Set<CodeCellControl>();
     protected DoCodeCellsHightlight=new DebounceCall(async ()=>{
         let copy=Array.from(this.codeCellHighlightQueue);

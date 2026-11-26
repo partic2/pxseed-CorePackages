@@ -108,13 +108,6 @@ export class CodeCell<Props={}> extends JsxClassComponent<Props&CodeCellProps> i
     focusin:boolean=false;
     errorCatched:string|null=null;
 
-    constructor(prop:any,ctx:any){
-        super(prop,ctx);
-        this.initialize().then(()=>this.initialized.setResult(),(err)=>this.initialized.setException(err)).then(()=>this.setState({}));
-    }
-    initialized=new future<void>();
-    protected async initialize(){
-    }
     getContainerDiv(): HTMLDivElement | null {
         return this.rref.container.current
     }
@@ -478,13 +471,23 @@ export class DefaultCodeCellList<Props={}> extends JsxClassComponent<Props&{code
     
 
     protected lastRunCellKey:string='';
-    constructor(prop:any,ctx:any){
-        super(prop,ctx);
-        this.initialize().then(()=>this.initialized.setResult(),(err)=>this.initialized.setException(err)).then(()=>this.setState({}));
-    }
-    initialized=new future<void>();
-    protected async initialize(){
-        this.setState({list:[],consoleOutput:{},error:null,codeContext:null,lastFocusCellKey:''})
+
+    protected async _initialize(){
+        this.setState({list:[],consoleOutput:{},error:null,codeContext:null,lastFocusCellKey:''});
+        this.reactComponentLifecycleEvent.componentDidUpdate.setListener(__name__+'.DefaultCodeCellList',async ()=>{
+            if(this.getCellList().length==0){
+                await this.newCell();
+            }
+        });
+        this.reactComponentLifecycleEvent.componentWillUnmount.setListener(__name__+'.DefaultCodeCellList',()=>{
+            this.detachCodeContext(this.codeContext!);
+            if(this.codeContext!=null){
+                this.detachCodeContext(this.codeContext);
+            }
+            if(this.codeContext!=null){
+                this.detachCodeContext(this.codeContext);
+            }
+        })
     }
     protected __currentCodeContext:RunCodeContext|null=null;
     rref={
@@ -505,22 +508,9 @@ export class DefaultCodeCellList<Props={}> extends JsxClassComponent<Props&{code
         this.codeContext!.event.addEventListener(`${__name__}.CodeCellList.callWebuiFunction`,this.codeContextCallMethodEvent);
         this.codeContext!.event.dispatchEvent(new CodeContextEvent(`${__name__}.CodeCellList.webuiAttached`))
     }
-    async componentDidUpdate(){
-        if(this.getCellList().length==0){
-            await this.newCell();
-        }
-    }
-    componentWillUnmount(): void {
-        if(this.codeContext!=null){
-            this.detachCodeContext(this.codeContext);
-        }
-        if(this.codeContext!=null){
-            this.detachCodeContext(this.codeContext);
-        }
-    }
-    async newCell(afterCellKey?:string){
+    async newCell(afterCellKey?:string,newKey?:string){
         let pos=afterCellKey==undefined?-1:this.list.findIndex(v=>v.key===afterCellKey);
-        let newKey=GenerateRandomString();
+        newKey=newKey??GenerateRandomString();
         if(pos<0){
             this.list.push({ref:new ReactRefEx<CodeCellControl>(),key:newKey})
         }else{
@@ -586,23 +576,29 @@ export class DefaultCodeCellList<Props={}> extends JsxClassComponent<Props&{code
             }
         }
     }
+    getCellCustomBtns(key:string){
+        return [
+            {label:'New',cb:()=>this.newCell(key)},
+            {label:'Del',cb:()=>this.deleteCell(key)}
+        ];
+    }
+    async onCellRun(key:string){
+        this.onRun?.(key);
+        this.lastRunCellKey=key;
+        if(key==this.list.at(-1)?.key){
+            await this.newCell(key);
+            let ccelem=this.list.at(-1)!;
+            let cc=await ccelem.ref.waitValid();
+            await cc.setAsEditTarget();
+        }
+    }
     renderCodeCell(v:{ref:ReactRefEx<CodeCellControl>,key:string},index:number,cellCssStyle:React.AllCSSProperties){
         return <CodeCell ref={v.ref} key={v.key} 
                     codeContext={this.codeContext!} 
-                    customBtns={[
-                        {label:'New',cb:()=>this.newCell(v.key)},
-                        {label:'Del',cb:()=>this.deleteCell(v.key)}
-                    ]}
+                    customBtns={this.getCellCustomBtns(v.key)}
                     onClearOutputs={()=>this.clearConsoleOutput(v.key)}
                     onRun={async ()=>{
-                        this.onRun?.(v.key);
-                        this.lastRunCellKey=v.key;
-                        if(v.key==this.list.at(-1)?.key){
-                            await this.newCell(v.key);
-                            let ccelem=this.list.at(-1)!;
-                            let cc=await ccelem.ref.waitValid();
-                            await cc.setAsEditTarget();
-                        }
+                        await this.onCellRun(v.key);
                     }}
                     onFocusChange={(focusin)=>{
                         this.onCellFocusChange?.({cellKey:v.key,focusIn:focusin});
@@ -663,9 +659,13 @@ export class DefaultCodeCellList<Props={}> extends JsxClassComponent<Props&{code
         try{
             let cellData=newCodeCellListData.get()();
             cellData.loadFrom(data);
-            while(this.getCellList().length<cellData.cellList.length){
-                await this.newCell();
+            for(let t1 of this.list.map(t1=>t1.key)){
+                await this.deleteCell(t1);
             }
+            for(let t1 of cellData.cellList.map(t1=>t1.key)){
+                await this.newCell(undefined,t1);
+            }
+            let cellList=this.getCellList();
             let consoleOutput={} as typeof this.consoleOutput;
             for(let k1 in cellData.consoleOutput){
                 let index=cellData.cellList.findIndex(v=>v.key===k1);
@@ -673,7 +673,6 @@ export class DefaultCodeCellList<Props={}> extends JsxClassComponent<Props&{code
                     consoleOutput[this.list[index].key]=cellData.consoleOutput[k1];
                 }
             }
-            let cellList=this.getCellList();
             for(let t1=0;t1<cellData.cellList.length;t1++){
                 let cell=await cellList[t1].ref.waitValid();
                 let val=cellData.cellList[t1];

@@ -70,8 +70,8 @@ export class DefaultWorkspaceWindowComponent<Props={}> extends DefaultWindowComp
         this.userResizeEvent.setListener(DefaultWorkspaceWindowComponent.componentClassName,()=>{this.beforeMaximizeSize=null;});
     }
     componentWillUnmount(): void {
-        this.userMoveEvent.clearListener(DefaultWorkspaceWindowComponent.componentClassName)
-        this.userResizeEvent.clearListener(DefaultWorkspaceWindowComponent.componentClassName)
+        this.userMoveEvent.deleteListener(DefaultWorkspaceWindowComponent.componentClassName)
+        this.userResizeEvent.deleteListener(DefaultWorkspaceWindowComponent.componentClassName)
         super.componentWillUnmount();
     }
     async setMaximized(maximized:boolean){
@@ -252,8 +252,8 @@ openNewWindowPipeline.arr().push({name:__name__+'.openNewWindowLayoutWindow',han
             window1.moveEvent.setListener(layoutHintTracer,()=>{saveLayout.call()});
             window1.resizeEvent.setListener(layoutHintTracer,()=>{saveLayout.call()});
             context.result!.waitClose().then(()=>{
-                window1.moveEvent.clearListener(layoutHintTracer);
-                window1.resizeEvent.clearListener(layoutHintTracer);
+                window1.moveEvent.deleteListener(layoutHintTracer);
+                window1.resizeEvent.deleteListener(layoutHintTracer);
             })
         }
     }
@@ -356,7 +356,7 @@ export let defaultDialogBoxImplemention={
             if(!hasDialog){
                 this.dialogContainerWindow.close();
                 this.dialogContainerWindow=null;
-                NewWindowHandleLists.onChange.clearListener(__name__+'.defaultDialogBoxImplemention.newWindowHandleListsChange');
+                NewWindowHandleLists.onChange.deleteListener(__name__+'.defaultDialogBoxImplemention.newWindowHandleListsChange');
             }
         }
     },

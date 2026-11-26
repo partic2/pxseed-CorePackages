@@ -127,7 +127,7 @@ class WindowListIcon extends React.Component<{},{
     }
     componentWillUnmount(): void {
         this.mounted=false;
-        NewWindowHandleLists.onChange.clearListener(__name__+'.WindowListIcon');
+        NewWindowHandleLists.onChange.deleteListener(__name__+'.WindowListIcon');
         window.removeEventListener('resize',this.onWindowResize);
     }
     render(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChildren {

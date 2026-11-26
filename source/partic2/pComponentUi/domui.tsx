@@ -177,7 +177,7 @@ export let __inited__=(async ()=>{
 export let JsxClassComponentParent=React.createContext<JsxClassComponent|null>(null);
 
 export abstract class JsxClassComponent<Props={}> extends React.Component<Props>{
-    protected __updateStateToField(state:Record<string,any>){
+    protected __updateStateToFields(state:Record<string,any>){
         for(let k1 in state){
             let v1=state[k1];
             if(v1!==undefined && (this as any)[k1]!=v1){
@@ -187,6 +187,33 @@ export abstract class JsxClassComponent<Props={}> extends React.Component<Props>
     }
     static defineEventSlot<Event>(){
         return new EventSource<Event>();
+    }
+    reactComponentLifecycleEvent={
+        componentDidMount:JsxClassComponent.defineEventSlot<{component:JsxClassComponent}>(),
+        componentWillUnmount:JsxClassComponent.defineEventSlot<{component:JsxClassComponent}>(),
+        componentDidUpdate:JsxClassComponent.defineEventSlot<{component:JsxClassComponent,prevProps:any,prevState:any,snapshot:any}>()
+    }
+    componentDidMount(): void {
+        this.reactComponentLifecycleEvent.componentDidMount.dispatch({component:this});
+    }
+    componentWillUnmount(): void {
+        this.reactComponentLifecycleEvent.componentWillUnmount.dispatch({component:this});
+    }
+    componentDidUpdate(pp:any,ps:any,ss:any): void {
+        this.reactComponentLifecycleEvent.componentDidUpdate.dispatch({component:this,prevProps:pp,prevState:ps,snapshot:ss});
+    }
+    initialized=new future<void>();
+    protected async _initialize(){
+    }
+    constructor(props?: any, ctx?:any){
+        super(props,ctx);
+        this._initialize().then(()=>{
+            this.initialized.setResult();
+            this.setState({});
+        },(err)=>{
+            this.initialized.setException(err);
+            this.setState({});
+        })
     }
     static contextType=JsxClassComponentParent;
     getAncestorJsxClassComponents<ComponentClass=JsxClassComponent>(options?:{clazz?:{new():ComponentClass},count?:number}):Array<ComponentClass>{
@@ -204,13 +231,17 @@ export abstract class JsxClassComponent<Props={}> extends React.Component<Props>
         return result as any;
     }
     render(): React.ComponentChildren {
-        this.__updateStateToField(this.props);
-        return <JsxClassComponentParent.Provider value={this}>
-            {this.jsx()}
-        </JsxClassComponentParent.Provider>;
+        this.__updateStateToFields(this.props);
+        if(this.initialized.done && this.initialized.exception==undefined){
+            return <JsxClassComponentParent.Provider value={this}>
+                {this.jsx()}
+            </JsxClassComponentParent.Provider>;
+        }else{
+            return null;
+        }
     }
     setState(state: Record<string,any>, callback?: (() => void) | undefined): void {
-        this.__updateStateToField(state);
+        this.__updateStateToFields(state);
         super.setState({},callback);
     }
     abstract jsx():React.ComponentChildren
