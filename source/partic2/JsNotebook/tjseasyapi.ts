@@ -299,10 +299,9 @@ export let files={
 	}
 }
 
-
-export async function then(resolve:any){
-	await files.init()
-	delete exports.then;
-	resolve(exports);
-}
+requirejs.setAsynchronousInitializer(exports,async ()=>{
+	try{
+		await files.init()
+	}catch(err){};
+})
 
