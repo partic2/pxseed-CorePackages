@@ -62,17 +62,13 @@ export interface CodeCellControl{
     setAsEditTarget():Promise<void>
     close():void
 }
-
 export class CodeCell<Props={}> extends JsxClassComponent<Props&CodeCellProps> implements CodeCellControl{
-    rref={
-        codeInput:new ReactRefEx<TextEditor>(),
-        container:new ReactRefEx<HTMLDivElement>(),
-        focusingCompletionCandidateDiv:new ReactRefEx<HTMLDivElement>,
-        tooltipsDiv:new ReactRefEx<HTMLDivElement>
-    }
+    reactCodeInput=new ReactRefEx<TextEditor>();
+    reactContainer=new ReactRefEx<HTMLDivElement>();
+    reactFocusingCompletionCandidateDiv=new ReactRefEx<HTMLDivElement>();
+    reactTooltipsDiv=new ReactRefEx<HTMLDivElement>();
     protected __codeContext?:RunCodeContext
     set codeContext(v:RunCodeContext|undefined){
-        let prev=this.__codeContext;
         this.__codeContext=v;
     }
     get codeContext(){
@@ -109,7 +105,7 @@ export class CodeCell<Props={}> extends JsxClassComponent<Props&CodeCellProps> i
     errorCatched:string|null=null;
 
     getContainerDiv(): HTMLDivElement | null {
-        return this.rref.container.current
+        return this.reactContainer.current
     }
     async runCode(){
         this.onRun?.();
@@ -139,8 +135,8 @@ export class CodeCell<Props={}> extends JsxClassComponent<Props&CodeCellProps> i
         }
     }
     protected ensureCandidateScroll=new ThrottleCall(async ()=>{
-        let focusDiv=await this.rref.focusingCompletionCandidateDiv.waitValid();
-        let tooltips=await this.rref.tooltipsDiv.waitValid();
+        let focusDiv=await this.reactFocusingCompletionCandidateDiv.waitValid();
+        let tooltips=await this.reactTooltipsDiv.waitValid();
         if(focusDiv.offsetTop<tooltips.scrollTop || focusDiv.offsetTop>tooltips.scrollTop+tooltips.offsetHeight){
             tooltips.scrollTo({behavior:'smooth',top:focusDiv.offsetTop});
         }
@@ -149,7 +145,7 @@ export class CodeCell<Props={}> extends JsxClassComponent<Props&CodeCellProps> i
         if(this.extraTooltips==null && this.completion.candidate==null)return null;
         let coor=this.getInputCaretCoordinate();
         if(coor==null)return null;
-        return <div style={{position:'absolute',left:coor?.left,top:coor.bottom,zIndex:'1',overflow:'auto',maxHeight:'300px',backgroundColor:'white',border:'solid black 1px'}} ref={this.rref.tooltipsDiv}>
+        return <div style={{position:'absolute',left:coor?.left,top:coor.bottom,zIndex:'1',overflow:'auto',maxHeight:'300px',backgroundColor:'white',border:'solid black 1px'}} ref={this.reactTooltipsDiv}>
                 {this.extraTooltips?<div dangerouslySetInnerHTML={{__html:this.extraTooltips}}></div>:null}
                 {(()=>{
                     if(this.completion.candidate!=null){
@@ -159,7 +155,7 @@ export class CodeCell<Props={}> extends JsxClassComponent<Props&CodeCellProps> i
                                 let ref:ReactRefEx<HTMLDivElement>|null=null;
                                 if(idx===this.completion.focusingIndex){
                                     className.push(css1.selected);
-                                    ref=this.rref.focusingCompletionCandidateDiv;
+                                    ref=this.reactFocusingCompletionCandidateDiv;
                                 }
                                 return <div ref={ref} className={className.join(' ')} onClick={()=>{
                                     this.insertCodeComplete(v);
@@ -177,7 +173,7 @@ export class CodeCell<Props={}> extends JsxClassComponent<Props&CodeCellProps> i
     protected async requestCodeComplete(){
         let codeCompleteCandidate=await (await ensureJavascriptInspectorForCodeContextInstalled(this.codeContext!)).requestCodeCompletion(
                 this.getCellInput(),
-                this.rref.codeInput.current!.getTextCaretOffset());
+                this.reactCodeInput.current!.getTextCaretOffset());
         this.completion.candidate=codeCompleteCandidate;
         this.completion.focusingIndex=0;
         this.setState({});
@@ -189,7 +185,7 @@ export class CodeCell<Props={}> extends JsxClassComponent<Props&CodeCellProps> i
     protected async requestTooltips(){
         let extraTooltips=await (await ensureJavascriptInspectorForCodeContextInstalled(this.codeContext!)).requestExtraTooltips(
                 this.getCellInput(),
-                this.rref.codeInput.current!.getTextCaretOffset());
+                this.reactCodeInput.current!.getTextCaretOffset());
         this.extraTooltips=extraTooltips;
         this.setState({});
     }
@@ -204,13 +200,13 @@ export class CodeCell<Props={}> extends JsxClassComponent<Props&CodeCellProps> i
             if(this.getRunCodeKey()=='Enter'){
                 if(ev.ctrlKey){
                     //prevent trigger input('\n').Is there better way?
-                    this.rref.codeInput.current?.insertText('\n');
+                    this.reactCodeInput.current?.insertText('\n');
                     this.onInputChange?.(this);
                 }else{
-                    let fullText=(await this.rref.codeInput.waitValid()).getPlainText();
+                    let fullText=(await this.reactCodeInput.waitValid()).getPlainText();
                     if(countBracket(fullText)==0){
                         await new Promise(resolve=>requestAnimationFrame(resolve));
-                        this.rref.codeInput.current?.setPlainText(fullText);
+                        this.reactCodeInput.current?.setPlainText(fullText);
                         this.runCode();
                         return;
                     }
@@ -234,8 +230,8 @@ export class CodeCell<Props={}> extends JsxClassComponent<Props&CodeCellProps> i
                 ev.preventDefault();
                 await new Promise(requestAnimationFrame)
                 this.ensureCandidateScroll.call();
-            }else if(this.rref.codeInput.current!=null && this.rref.codeInput.current.isEditing()){
-                if(this.rref.codeInput.current.getTextCaretOffset()===0){
+            }else if(this.reactCodeInput.current!=null && this.reactCodeInput.current.isEditing()){
+                if(this.reactCodeInput.current.getTextCaretOffset()===0){
                     this.onPreviousCell?.();
                 }
             }
@@ -250,9 +246,9 @@ export class CodeCell<Props={}> extends JsxClassComponent<Props&CodeCellProps> i
                 ev.preventDefault();
                 await new Promise(requestAnimationFrame)
                 this.ensureCandidateScroll.call();
-            }else if(this.rref.codeInput.current!=null && this.rref.codeInput.current.isEditing()){
-                let plainText=this.rref.codeInput.current.getPlainText();
-                if(this.rref.codeInput.current.getTextCaretOffset()>=plainText.length){
+            }else if(this.reactCodeInput.current!=null && this.reactCodeInput.current.isEditing()){
+                let plainText=this.reactCodeInput.current.getPlainText();
+                if(this.reactCodeInput.current!.getTextCaretOffset()>=plainText.length){
                     this.onNextCell?.();
                 }
             }
@@ -286,14 +282,14 @@ export class CodeCell<Props={}> extends JsxClassComponent<Props&CodeCellProps> i
         this.onInputChange?.(this);
     }
     getCellInput(){
-        let t1=this.rref.codeInput.current!.getPlainText()
+        let t1=this.reactCodeInput.current!.getPlainText()
         return t1;
     }
     getCellOutput():[any,string|null]{
         return [this.cellOutput,this.resultVariable??null];
     }
     setCellInput(input:string){
-        this.rref.codeInput.current!.setPlainText(input);
+        this.reactCodeInput.current!.setPlainText(input);
     }
     setCellOutput(output:any,resultVariable?:string|null){
         this.cellOutput=output;
@@ -302,10 +298,10 @@ export class CodeCell<Props={}> extends JsxClassComponent<Props&CodeCellProps> i
         this.setState({});
     }
     getCellInputHtml(){
-        return this.rref.codeInput.current?.getHtml()??null;
+        return this.reactCodeInput.current?.getHtml()??null;
     }
     setCellInputHtml(html:string){
-        let input1=this.rref.codeInput.current;
+        let input1=this.reactCodeInput.current;
         if(input1==undefined)return;
         let caret:number|null=null;
         if(input1.isEditing()){
@@ -323,10 +319,10 @@ export class CodeCell<Props={}> extends JsxClassComponent<Props&CodeCellProps> i
         this.setState({});
     }
     protected insertCodeComplete(cc:CodeCompletionItem){
-        this.rref.codeInput.current!.setTextCaretOffset(cc.replaceRange[1]);
+        this.reactCodeInput.current!.setTextCaretOffset(cc.replaceRange[1]);
         let delCount=cc.replaceRange[1]-cc.replaceRange[0];
-        this.rref.codeInput.current!.deleteText(delCount);
-        this.rref.codeInput.current!.insertText(cc.candidate);
+        this.reactCodeInput.current!.deleteText(delCount);
+        this.reactCodeInput.current!.insertText(cc.candidate);
         this.onInputChange?.(this);
         this.resetTooltips();
     }
@@ -371,7 +367,7 @@ export class CodeCell<Props={}> extends JsxClassComponent<Props&CodeCellProps> i
         return result
     }
     renderCellInput(){
-        return <TextEditor ref={this.rref.codeInput} divAttr={{onKeyDown:(ev)=>this.onCellKeyDown(ev),onClick:()=>{
+        return <TextEditor ref={this.reactCodeInput} divAttr={{onKeyDown:(ev)=>this.onCellKeyDown(ev),onClick:()=>{
                 if(this.completion.candidate!=null || this.extraTooltips!=null){
                     this.resetTooltips();
                 }
@@ -391,7 +387,7 @@ export class CodeCell<Props={}> extends JsxClassComponent<Props&CodeCellProps> i
     }
     jsx(props?: Readonly<React.Attributes & { children?: React.ComponentChildren; ref?: React.Ref<any> | undefined; }> | undefined, state?: Readonly<{}> | undefined, context?: any): React.ComponentChild {
         if(!this.initialized.done){return null;}
-        return <div style={{display:'flex',flexDirection:'column',position:'relative',...this.divStyle}} ref={this.rref.container} 
+        return <div style={{display:'flex',flexDirection:'column',position:'relative',...this.divStyle}} ref={this.reactContainer} 
                 {...this.divAttr}
                 onFocusIn={(ev)=>{
                     this.divAttr?.onFocusIn?.(ev);
@@ -416,7 +412,7 @@ export class CodeCell<Props={}> extends JsxClassComponent<Props&CodeCellProps> i
         </div>
     }
     protected getInputCaretCoordinate(){
-        let codeInput=this.rref.codeInput.current;
+        let codeInput=this.reactCodeInput.current;
         if(codeInput==null || codeInput.rref.div1.current==null)return null;
         let coor=codeInput.getCoordinateByTextOffset(codeInput.getTextCaretOffset());
         if(coor==null)return null;
@@ -427,8 +423,9 @@ export class CodeCell<Props={}> extends JsxClassComponent<Props&CodeCellProps> i
         return coor;
     }
     async setAsEditTarget(){
-        this.rref.container.current?.focus();
-        this.rref.codeInput.current?.setTextCaretOffset('end');
+        await Promise.race([this.reactContainer.waitValid(),sleep(30)]).catch(()=>{});
+        this.reactContainer.current?.focus();
+        this.reactCodeInput.current?.setTextCaretOffset('end');
     }
     async close(){
         if(this.resultVariable!=null){
@@ -473,6 +470,7 @@ export class DefaultCodeCellList<Props={}> extends JsxClassComponent<Props&{code
     protected lastRunCellKey:string='';
 
     protected async _initialize(){
+        await super._initialize();
         this.setState({list:[],consoleOutput:{},error:null,codeContext:null,lastFocusCellKey:''});
         this.reactComponentLifecycleEvent.componentDidUpdate.setListener(__name__+'.DefaultCodeCellList',async ()=>{
             if(this.getCellList().length==0){
@@ -500,13 +498,17 @@ export class DefaultCodeCellList<Props={}> extends JsxClassComponent<Props&{code
     protected async detachCodeContext(codeContext:RunCodeContext){
         codeContext.event.removeEventListener('console.data',this.onConsoleData as any);
         codeContext.event.removeEventListener(`${__name__}.CodeCellList.callWebuiFunction`,this.codeContextCallMethodEvent);
-        this.codeContext!.event.dispatchEvent(new CodeContextEvent(`${__name__}.CodeCellList.webuiDetach`))
+        if(this.codeContext!=undefined){
+            this.codeContext.event.dispatchEvent(new CodeContextEvent(`${__name__}.CodeCellList.webuiDetach`))
+        }
     }
     protected async attachCodeContext(codeContext:RunCodeContext){
         ensureJavascriptInspectorForCodeContextInstalled(codeContext);
-        this.codeContext!.event.addEventListener('console.data',this.onConsoleData as any);
-        this.codeContext!.event.addEventListener(`${__name__}.CodeCellList.callWebuiFunction`,this.codeContextCallMethodEvent);
-        this.codeContext!.event.dispatchEvent(new CodeContextEvent(`${__name__}.CodeCellList.webuiAttached`))
+        if(this.codeContext!=undefined){
+            this.codeContext.event.addEventListener('console.data',this.onConsoleData as any);
+            this.codeContext.event.addEventListener(`${__name__}.CodeCellList.callWebuiFunction`,this.codeContextCallMethodEvent);
+            this.codeContext.event.dispatchEvent(new CodeContextEvent(`${__name__}.CodeCellList.webuiAttached`))
+        }
     }
     async newCell(afterCellKey?:string,newKey?:string){
         let pos=afterCellKey==undefined?-1:this.list.findIndex(v=>v.key===afterCellKey);

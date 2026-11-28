@@ -157,6 +157,7 @@ export class NotebookViewer extends JsxClassComponent<{
         }
     }
     protected async _initialize(): Promise<void> {
+        await super._initialize();
         this.reactComponentLifecycleEvent.componentDidMount.setListener(__name__+'.NotebookViewer',()=>{
             this.doLoad();
         })

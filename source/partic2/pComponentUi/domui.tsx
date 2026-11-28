@@ -194,13 +194,28 @@ export abstract class JsxClassComponent<Props={}> extends React.Component<Props>
         componentDidUpdate:JsxClassComponent.defineEventSlot<{component:JsxClassComponent,prevProps:any,prevState:any,snapshot:any}>()
     }
     componentDidMount(): void {
-        this.reactComponentLifecycleEvent.componentDidMount.dispatch({component:this});
+        const dispatch=()=>{this.reactComponentLifecycleEvent.componentDidMount.dispatch({component:this});}
+        if(this.initialized.done){
+            dispatch();
+        }else{
+            this.initialized.get().then(dispatch);
+        }
     }
     componentWillUnmount(): void {
-        this.reactComponentLifecycleEvent.componentWillUnmount.dispatch({component:this});
+        const dispatch=()=>{this.reactComponentLifecycleEvent.componentWillUnmount.dispatch({component:this});}
+        if(this.initialized.done){
+            dispatch();
+        }else{
+            this.initialized.get().then(dispatch);
+        }
     }
     componentDidUpdate(pp:any,ps:any,ss:any): void {
-        this.reactComponentLifecycleEvent.componentDidUpdate.dispatch({component:this,prevProps:pp,prevState:ps,snapshot:ss});
+        const dispatch=()=>{this.reactComponentLifecycleEvent.componentDidUpdate.dispatch({component:this,prevProps:pp,prevState:ps,snapshot:ss});}
+        if(this.initialized.done){
+            dispatch();
+        }else{
+            this.initialized.get().then(dispatch)
+        }
     }
     initialized=new future<void>();
     protected async _initialize(){
@@ -229,6 +244,9 @@ export abstract class JsxClassComponent<Props={}> extends React.Component<Props>
             curr=curr.context;
         }
         return result as any;
+    }
+    getClosestAncestorJsxClassComponent<ComponentClass=JsxClassComponent>(clazz?:{new():ComponentClass}):ComponentClass|undefined{
+        return this.getAncestorJsxClassComponents({clazz,count:1}).at(0);
     }
     render(): React.ComponentChildren {
         this.__updateStateToFields(this.props);
